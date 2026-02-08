@@ -122,6 +122,18 @@ pub(super) async fn execute_step_with_tools(
 
         match action {
             WorkerAction::Complete { summary } => {
+                if let Some(open_todos) = open_todos_in_latest_todo_observation(&observations) {
+                    if open_todos > 0 {
+                        observations.push(serde_json::json!({
+                            "system": "todo_guard",
+                            "status": "incomplete",
+                            "open_todos": open_todos,
+                            "instruction": "agent.todo still has pending or in_progress items; continue with next tool call",
+                        }));
+                        continue;
+                    }
+                }
+
                 let content = if summary.trim().is_empty() {
                     "Step completed.".to_string()
                 } else {
@@ -885,4 +897,31 @@ pub(super) async fn execute_step_with_tools(
     std::fs::write(&report_path, report).map_err(|e| e.to_string())?;
 
     Ok(report_path.to_string_lossy().to_string())
+}
+
+fn open_todos_in_latest_todo_observation(observations: &[serde_json::Value]) -> Option<usize> {
+    let last = observations.last()?;
+    let tool_name = last.get("tool_name")?.as_str()?;
+    if tool_name != "agent.todo" {
+        return None;
+    }
+
+    let status = last.get("status")?.as_str()?;
+    if status != "succeeded" {
+        return None;
+    }
+
+    let todos = last.get("output")?.get("todos")?.as_array()?;
+    let open = todos
+        .iter()
+        .filter(|todo| {
+            let state = todo
+                .get("status")
+                .and_then(|v| v.as_str())
+                .unwrap_or("pending");
+            state != "completed" && state != "cancelled"
+        })
+        .count();
+
+    Some(open)
 }
