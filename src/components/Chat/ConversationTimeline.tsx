@@ -56,18 +56,6 @@ export function ConversationTimeline(props: ConversationTimelineProps) {
 
   return (
     <div className="mx-auto flex w-full max-w-3xl flex-col gap-4 pb-4">
-      {props.task.status === "awaiting_review" && props.markdownArtifactCount > 0 && (
-        <div className="flex justify-end">
-          <button
-            type="button"
-            onClick={props.onOpenReview}
-            className="rounded-lg border border-info/30 bg-info/5 px-3 py-1.5 text-xs font-medium text-info transition-colors hover:bg-info/10"
-          >
-            Open Full Review
-          </button>
-        </div>
-      )}
-
       <UserMessage prompt={props.task.prompt} relatedTasks={props.relatedTasks} onSelectTask={props.onSelectTask} />
 
       {(props.plan || props.planStream || props.assistantMessage) && (
