@@ -35,3 +35,7 @@ dist-ssr
 
 # Lock files (uncomment based on your preference)
 # bun.lock
+.cursor/
+.claude/
+.agent/
+.agents/
