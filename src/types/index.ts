@@ -1,11 +1,29 @@
+/**
+ * Shared TypeScript type definitions.
+ *
+ * These types mirror the Rust structs exactly and are used for
+ * type-safe communication between the frontend and backend via Tauri IPC.
+ *
+ * Naming conventions:
+ * - Row types (database tables): TaskRow, RunRow, EventRow, etc.
+ * - View types (API responses): ProviderConfigView, WorkspaceRootView
+ * - Enums use string literals: TaskStatus, ToolStatus
+ *
+ * @see CODING_STANDARDS.md for TypeScript/Rust type mapping rules
+ */
+
+/**
+ * Status of a task in its lifecycle.
+ * Mirrors the Rust TaskStatus enum.
+ */
 export type TaskStatus =
-  | "pending"
-  | "planning"
-  | "awaiting_review"
-  | "executing"
-  | "completed"
-  | "failed"
-  | "cancelled";
+  | "pending"        // Task created, not started
+  | "planning"       // LLM generating plan
+  | "awaiting_review" // Plan ready for user approval
+  | "executing"      // Plan execution in progress
+  | "completed"      // Task completed successfully
+  | "failed"         // Task failed during execution
+  | "cancelled";     // Task cancelled by user
 
 export interface TaskRow {
   id: string;
@@ -46,6 +64,14 @@ export interface ModelCatalogEntry {
 
 export interface WorkspaceRootView {
   workspace_root: string;
+}
+
+export interface WorkspaceReferenceCandidate {
+  kind: "file" | "directory" | "skill";
+  value: string;
+  display: string;
+  description: string;
+  group: string;
 }
 
 export interface SkillCatalogItem {
@@ -181,4 +207,47 @@ export interface GitWorktreeEntry {
   head: string | null;
   branch: string | null;
   is_bare: boolean;
+}
+
+/**
+ * A workspace skill discovered from `.agents/skills/<name>/SKILL.md`.
+ * Mirrors the Rust WorkspaceSkill struct.
+ */
+export interface WorkspaceSkill {
+  id: string;
+  name: string;
+  description: string;
+  content: string;
+  skill_dir: string;
+  skill_file: string;
+  source: string;
+  files: string[];
+  tags: string[];
+  enabled: boolean;
+}
+
+export interface McpServerConfig {
+  id: string;
+  name: string;
+  command: string;
+  args: string[];
+  env: Record<string, string>;
+  enabled: boolean;
+}
+
+export interface McpServerInput {
+  id?: string;
+  name: string;
+  command: string;
+  args?: string[];
+  env?: Record<string, string>;
+  enabled?: boolean;
+}
+
+export interface McpToolEntry {
+  server_id: string;
+  server_name: string;
+  tool_name: string;
+  description: string;
+  input_schema: unknown;
 }

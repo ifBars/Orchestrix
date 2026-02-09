@@ -4,6 +4,7 @@ use chrono::Utc;
 use uuid::Uuid;
 
 use crate::bus::{BusEvent, EventBus};
+use crate::core::prompt_references::expand_prompt_references;
 use crate::db::{queries, Database};
 use crate::model::{kimi::KimiPlanner, minimax::MiniMaxPlanner, PlannerModel};
 
@@ -71,30 +72,43 @@ pub async fn generate_plan_markdown_artifact(
     let planner_model: String;
 
     let existing_markdown = collect_existing_markdown(&db, &task_id);
-    let context = if let Some(note) = revision_note.as_ref() {
-        format!(
-            "{}\n\nReviewer feedback to incorporate:\n- {}",
-            existing_markdown,
-            note
-        )
-    } else {
-        existing_markdown
+
+    // Load workspace skills and append their context to the planner input
+    let workspace_skills = crate::core::workspace_skills::scan_workspace_skills(&workspace_root);
+    let skills_context = crate::core::workspace_skills::build_skills_context(&workspace_skills);
+
+    let context = {
+        let mut ctx = if let Some(note) = revision_note.as_ref() {
+            format!(
+                "{}\n\nReviewer feedback to incorporate:\n- {}",
+                existing_markdown,
+                note
+            )
+        } else {
+            existing_markdown
+        };
+        if !skills_context.is_empty() {
+            ctx.push_str(&skills_context);
+        }
+        ctx
     };
 
     let markdown: String;
+
+    let prompt_with_refs = expand_prompt_references(&prompt, &workspace_root);
 
     if provider == "kimi" {
         let planner = KimiPlanner::new(api_key, model, base_url);
         planner_model = planner.model_id().to_string();
         markdown = planner
-            .generate_plan_markdown(&prompt, &context)
+            .generate_plan_markdown(&prompt_with_refs, &context)
             .await
             .map_err(|e| e.to_string())?;
     } else {
         let planner = MiniMaxPlanner::new_with_base_url(api_key, model, base_url);
         planner_model = planner.model_id().to_string();
         markdown = planner
-            .generate_plan_markdown(&prompt, &context)
+            .generate_plan_markdown(&prompt_with_refs, &context)
             .await
             .map_err(|e| e.to_string())?;
     }

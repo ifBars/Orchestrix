@@ -1,3 +1,24 @@
+//! Orchestrator backend library.
+//!
+//! This is the main entry point for the Tauri application backend. It handles:
+//! - Application initialization and state management
+//! - Tauri command registration and IPC handling
+//! - Database setup and migration
+//! - Event system initialization
+//! - Provider configuration management
+//!
+//! # Architecture
+//!
+//! The backend follows a modular architecture:
+//! - `commands`: Tauri command handlers (IPC entry points)
+//! - `runtime`: Task orchestration, planning, and execution
+//! - `db`: Database layer with SQLite
+//! - `bus`: Event bus for real-time communication
+//! - `tools`: Tool registry and implementations
+//! - `model`: LLM API clients (MiniMax, Kimi)
+//! - `policy`: Permission and sandboxing engine
+//! - `core`: Shared types and utilities
+
 mod bus;
 mod commands;
 mod core;
@@ -297,6 +318,9 @@ pub fn run() {
     let workspace_root = load_workspace_root(&db);
     let orchestrator = Arc::new(Orchestrator::new(db.clone(), bus.clone(), workspace_root));
 
+    // Best-effort MCP tool discovery cache refresh at startup.
+    let _ = core::mcp::refresh_mcp_tools_cache();
+
     let state = AppState {
         db: db.clone(),
         bus: bus.clone(),
@@ -338,6 +362,13 @@ pub fn run() {
             commands::providers::set_provider_config,
             commands::providers::get_provider_configs,
             commands::providers::get_model_catalog,
+            // mcp
+            commands::mcp::list_mcp_server_configs,
+            commands::mcp::upsert_mcp_server_config,
+            commands::mcp::remove_mcp_server_config,
+            commands::mcp::refresh_mcp_tools,
+            commands::mcp::list_cached_mcp_tools,
+            commands::mcp::call_mcp_tool,
             // skills
             commands::skills::list_available_skills,
             commands::skills::search_skills,
@@ -348,6 +379,7 @@ pub fn run() {
             // workspace
             commands::workspace::set_workspace_root,
             commands::workspace::get_workspace_root,
+            commands::workspace::search_workspace_references,
             commands::workspace::read_artifact_content,
             commands::workspace::open_local_path,
             // worktrees
@@ -357,6 +389,11 @@ pub fn run() {
             commands::worktrees::cleanup_run_worktrees,
             commands::worktrees::prune_stale_worktrees,
             commands::worktrees::list_git_worktrees,
+            // workspace skills
+            commands::workspace_skills::list_workspace_skills,
+            commands::workspace_skills::get_workspace_skill_content,
+            commands::workspace_skills::read_workspace_skill_file,
+            commands::workspace_skills::get_active_skills_context,
         ])
         .setup(move |app| {
             let rx = bus.subscribe();

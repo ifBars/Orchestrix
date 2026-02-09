@@ -185,11 +185,11 @@ pub fn cancel_task(state: tauri::State<'_, AppState>, task_id: String) -> Result
 }
 
 #[tauri::command]
-pub fn start_task(
+pub async fn start_task(
     state: tauri::State<'_, AppState>,
     task_id: String,
     provider: Option<String>,
     model: Option<String>,
 ) -> Result<(), AppError> {
-    super::runs::run_plan_mode(state, task_id, provider, model)
+    super::runs::run_plan_mode(state, task_id, provider, model).await
 }

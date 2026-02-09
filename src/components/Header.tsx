@@ -1,9 +1,10 @@
-import { Bot, ChevronDown, Folder, Minus, Moon, PanelRight, Square, Sun, X } from "lucide-react";
+import { ChevronDown, Folder, Minus, Moon, PanelRight, Square, Sun, X } from "lucide-react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
 import { type MouseEvent } from "react";
 import { useShallow } from "zustand/shallow";
 import { useAppStore } from "@/stores/appStore";
+import appIcon from "../../src-tauri/icons/icon.png";
 
 type HeaderProps = {
   darkMode: boolean;
@@ -56,8 +57,8 @@ export function Header({ darkMode, artifactsOpen, onToggleTheme, onToggleArtifac
       {/* Left section: logo + workspace */}
       <div className="flex min-w-0 items-center gap-3">
         <div className="flex items-center gap-2">
-          <div className="rounded-md bg-primary/20 p-1 text-primary">
-            <Bot size={14} />
+          <div className="h-[22px] w-[22px]">
+            <img src={appIcon} alt="Orchestrix" className="h-full w-full object-contain" />
           </div>
           <span className="text-sm font-semibold tracking-tight">Orchestrix</span>
         </div>

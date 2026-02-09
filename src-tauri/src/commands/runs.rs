@@ -57,7 +57,7 @@ pub fn list_user_messages(
 }
 
 #[tauri::command]
-pub fn run_plan_mode(
+pub async fn run_plan_mode(
     state: tauri::State<'_, AppState>,
     task_id: String,
     provider: Option<String>,
@@ -74,11 +74,55 @@ pub fn run_plan_mode(
     })?;
 
     let effective_model = model.or(cfg.default_model.clone());
+    let workspace_root = load_workspace_root(&state.db);
 
-    state
-        .orchestrator
-        .start_task(task, provider, cfg.api_key, effective_model, cfg.base_url)
-        .map_err(AppError::Other)?;
+    // Immediately update task status to planning and emit event
+    // This ensures the UI refreshes to show the planning state
+    queries::update_task_status(&state.db, &task_id, "planning", &Utc::now().to_rfc3339())?;
+    
+    // Create a temporary run to get the run_id for the event
+    let run_id = Uuid::new_v4().to_string();
+    queries::insert_run(
+        &state.db,
+        &queries::RunRow {
+            id: run_id.clone(),
+            task_id: task_id.clone(),
+            status: "planning".to_string(),
+            plan_json: None,
+            started_at: Some(Utc::now().to_rfc3339()),
+            finished_at: None,
+            failure_reason: None,
+        },
+    )?;
+    
+    emit_and_record(
+        &state.db,
+        &state.bus,
+        "task",
+        "task.status_changed",
+        Some(run_id.clone()),
+        serde_json::json!({ "task_id": task_id, "status": "planning" }),
+    )
+    .map_err(AppError::Other)?;
+
+    // Generate the plan markdown artifact for user review
+    // This uses the PLAN mode system prompt which directs the AI to ONLY write markdown
+    let _ = generate_plan_markdown_artifact(
+        state.db.clone(),
+        state.bus.clone(),
+        task_id,
+        task.prompt,
+        provider,
+        cfg.api_key,
+        effective_model,
+        cfg.base_url,
+        workspace_root,
+        Some(run_id),
+        None,
+    )
+    .await
+    .map_err(AppError::Other)?;
+
     Ok(())
 }
 

@@ -1,6 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
 import { useShallow } from "zustand/shallow";
-import { Bot } from "lucide-react";
 import { useAppStore } from "@/stores/appStore";
 import { IdeShell } from "@/layouts/IdeShell";
 import { Header } from "@/components/Header";
@@ -10,6 +9,7 @@ import { Composer } from "@/components/Composer";
 import { ArtifactPanel } from "@/components/Artifacts/ArtifactPanel";
 import { SettingsSheet } from "@/components/Settings/SettingsSheet";
 import { SkillsSheet } from "@/components/Settings/SkillsSheet";
+import appIcon from "../src-tauri/icons/icon.png";
 
 const EMPTY_ARTIFACTS: readonly never[] = [];
 
@@ -81,8 +81,8 @@ function EmptyState() {
   return (
     <div className="flex h-full items-center justify-center">
       <div className="max-w-md text-center">
-        <div className="mx-auto mb-5 flex h-12 w-12 items-center justify-center rounded-2xl bg-primary/10 text-primary">
-          <Bot size={24} />
+        <div className="mx-auto mb-5 h-12 w-12">
+          <img src={appIcon} alt="Orchestrix" className="h-full w-full object-contain" />
         </div>
         <h1 className="text-2xl font-semibold tracking-tight">Orchestrix</h1>
         <p className="mt-2 text-sm text-muted-foreground">

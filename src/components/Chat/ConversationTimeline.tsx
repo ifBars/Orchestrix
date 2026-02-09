@@ -31,7 +31,6 @@ type ConversationTimelineProps = {
   visibleItems: ConversationItem[];
   renderKey: (item: ConversationItem, idx: number) => string;
   isWorking: boolean;
-  onOpenReview: () => void;
   onBuild: () => Promise<void>;
   approving: boolean;
   onStop: () => Promise<void>;
@@ -130,13 +129,6 @@ export function ConversationTimeline(props: ConversationTimelineProps) {
             Review the artifact in full-screen mode and add line comments. Build starts execution.
           </p>
           <div className="flex flex-wrap items-center gap-2">
-            <button
-              type="button"
-              onClick={props.onOpenReview}
-              className="inline-flex items-center gap-2 rounded-lg border border-info/30 bg-info/5 px-3 py-1.5 text-xs font-medium text-info transition-colors hover:bg-info/10"
-            >
-              Full Review
-            </button>
             <button
               type="button"
               disabled={props.approving}

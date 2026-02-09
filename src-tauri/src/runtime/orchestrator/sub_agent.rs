@@ -14,6 +14,7 @@ pub(super) async fn execute_sub_agent(
     model_config: Option<RuntimeModelConfig>,
     goal_summary: String,
     task_prompt: String,
+    skills_context: String,
 ) -> SubAgentResult {
     let contract = parse_sub_agent_contract(sub_agent.context_json.as_deref());
 
@@ -124,6 +125,7 @@ pub(super) async fn execute_sub_agent(
                 goal_summary.clone(),
                 task_prompt.clone(),
                 0,
+                &skills_context,
             ),
         )
         .await

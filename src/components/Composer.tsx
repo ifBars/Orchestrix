@@ -1,8 +1,10 @@
-import { ArrowUp, Paperclip, Loader2, XCircle, MessageCircle } from "lucide-react";
+import { ArrowUp, FileText, Folder, Loader2, MessageCircle, Paperclip, Sparkles, XCircle } from "lucide-react";
+import { invoke } from "@tauri-apps/api/core";
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
-import { useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useShallow } from "zustand/shallow";
 import { useAppStore } from "@/stores/appStore";
+import type { WorkspaceReferenceCandidate } from "@/types";
 
 export function Composer() {
   const [prompt, setPrompt] = useState("");
@@ -10,7 +12,13 @@ export function Composer() {
   const [mode, setMode] = useState<"plan" | "build">("plan");
   const [stopping, setStopping] = useState(false);
   const [sending, setSending] = useState(false);
+  const [mentionOpen, setMentionOpen] = useState(false);
+  const [mentionQuery, setMentionQuery] = useState("");
+  const [mentionStart, setMentionStart] = useState<number | null>(null);
+  const [mentionItems, setMentionItems] = useState<WorkspaceReferenceCandidate[]>([]);
+  const [mentionIndex, setMentionIndex] = useState(0);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const mentionRequestSeq = useRef(0);
 
   const [
     createTask,
@@ -53,6 +61,7 @@ export function Composer() {
   const submit = async () => {
     const value = prompt.trim();
     if (!value) return;
+    setMentionOpen(false);
     setPrompt("");
     setAttachments([]);
 
@@ -76,9 +85,83 @@ export function Composer() {
     const el = e.target;
     el.style.height = "auto";
     el.style.height = `${Math.min(el.scrollHeight, 200)}px`;
+
+    const ctx = getMentionContext(e.target.value, e.target.selectionStart ?? e.target.value.length);
+    if (!ctx) {
+      setMentionOpen(false);
+      setMentionQuery("");
+      setMentionStart(null);
+      return;
+    }
+
+    setMentionOpen(true);
+    setMentionQuery(ctx.query);
+    setMentionStart(ctx.start);
+    setMentionIndex(0);
+  };
+
+  useEffect(() => {
+    if (!mentionOpen) return;
+    const seq = ++mentionRequestSeq.current;
+    const timer = setTimeout(() => {
+      invoke<WorkspaceReferenceCandidate[]>("search_workspace_references", {
+        query: mentionQuery,
+        limit: 8,
+      })
+        .then((items) => {
+          if (mentionRequestSeq.current !== seq) return;
+          setMentionItems(items);
+          setMentionIndex(0);
+          if (items.length === 0) setMentionOpen(false);
+        })
+        .catch(() => {
+          if (mentionRequestSeq.current !== seq) return;
+          setMentionItems([]);
+          setMentionOpen(false);
+        });
+    }, 120);
+
+    return () => clearTimeout(timer);
+  }, [mentionOpen, mentionQuery]);
+
+  const insertMention = (item: WorkspaceReferenceCandidate) => {
+    if (mentionStart == null) return;
+    const el = textareaRef.current;
+    const cursor = el?.selectionStart ?? prompt.length;
+    const before = prompt.slice(0, mentionStart);
+    const after = prompt.slice(cursor);
+    const next = `${before}@${item.value} ${after}`;
+    setPrompt(next);
+    setMentionOpen(false);
+    setMentionItems([]);
+    setMentionQuery("");
+    setMentionStart(null);
+
+    requestAnimationFrame(() => {
+      if (!el) return;
+      const nextCursor = mentionStart + item.value.length + 2;
+      el.focus();
+      el.setSelectionRange(nextCursor, nextCursor);
+      el.style.height = "auto";
+      el.style.height = `${Math.min(el.scrollHeight, 200)}px`;
+    });
   };
 
   const canSubmit = prompt.trim().length > 0 && !sending;
+
+  const mentionGroups = useMemo(() => {
+    const grouped = new Map<string, WorkspaceReferenceCandidate[]>();
+    for (const item of mentionItems) {
+      const key = item.kind === "skill" ? "Skills" : item.group || "(root)";
+      const bucket = grouped.get(key);
+      if (bucket) {
+        bucket.push(item);
+      } else {
+        grouped.set(key, [item]);
+      }
+    }
+    return [...grouped.entries()].map(([group, items]) => ({ group, items }));
+  }, [mentionItems]);
 
   const handleStop = async () => {
     if (!selectedTask) return;
@@ -124,6 +207,29 @@ export function Composer() {
           value={prompt}
           onChange={handleInput}
           onKeyDown={(e) => {
+            if (mentionOpen && mentionItems.length > 0) {
+              if (e.key === "ArrowDown") {
+                e.preventDefault();
+                setMentionIndex((idx) => (idx + 1) % mentionItems.length);
+                return;
+              }
+              if (e.key === "ArrowUp") {
+                e.preventDefault();
+                setMentionIndex((idx) => (idx - 1 + mentionItems.length) % mentionItems.length);
+                return;
+              }
+              if (e.key === "Enter" || e.key === "Tab") {
+                e.preventDefault();
+                insertMention(mentionItems[mentionIndex] ?? mentionItems[0]);
+                return;
+              }
+              if (e.key === "Escape") {
+                e.preventDefault();
+                setMentionOpen(false);
+                return;
+              }
+            }
+
             if (e.key === "Enter" && !e.shiftKey) {
               e.preventDefault();
               submit().catch(console.error);
@@ -138,6 +244,44 @@ export function Composer() {
           rows={1}
           style={{ minHeight: "42px", maxHeight: "200px" }}
         />
+
+        {mentionOpen && mentionItems.length > 0 && (
+          <div className="mx-3 mb-1 rounded-xl border border-border bg-background/95 p-1">
+            {(() => {
+              let flatIndex = 0;
+              return mentionGroups.map((group) => (
+                <div key={group.group} className="mb-1 last:mb-0">
+                  <div className="px-2 py-1 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground/60">
+                    {group.group}
+                  </div>
+                  {group.items.map((item) => {
+                    const idx = flatIndex++;
+                    return (
+                      <button
+                        key={`${item.kind}:${item.value}`}
+                        type="button"
+                        onClick={() => insertMention(item)}
+                        className={`flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left text-xs transition-colors ${
+                          idx === mentionIndex ? "bg-accent text-foreground" : "text-muted-foreground hover:bg-accent/60"
+                        }`}
+                      >
+                        {item.kind === "file" ? (
+                          <FileText size={12} />
+                        ) : item.kind === "directory" ? (
+                          <Folder size={12} />
+                        ) : (
+                          <Sparkles size={12} />
+                        )}
+                        <span className="truncate">@{item.value}</span>
+                        <span className="ml-auto truncate text-[10px] text-muted-foreground/70">{item.description}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+              ));
+            })()}
+          </div>
+        )}
 
         {/* Bottom bar */}
         <div className="flex items-center justify-between gap-2 px-3 pb-2.5">
@@ -207,6 +351,8 @@ export function Composer() {
             </div>
           </div>
 
+          <span className="pr-1 text-[10px] text-muted-foreground/70">Use @ to reference files, folders, and skills</span>
+
           {/* Stop button - shown when a task is running */}
           {isWorking ? (
             <button
@@ -249,4 +395,19 @@ export function Composer() {
       </div>
     </div>
   );
+}
+
+function getMentionContext(text: string, cursor: number): { start: number; query: string } | null {
+  if (cursor < 0 || cursor > text.length) return null;
+  let start = cursor - 1;
+  while (start >= 0 && !/\s/.test(text[start])) {
+    start -= 1;
+  }
+  start += 1;
+
+  const token = text.slice(start, cursor);
+  if (!token.startsWith("@")) return null;
+  if (token.includes("\n")) return null;
+
+  return { start, query: token.slice(1) };
 }

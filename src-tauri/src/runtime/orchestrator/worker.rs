@@ -17,6 +17,7 @@ pub(super) async fn execute_step_with_tools(
     goal_summary: String,
     task_prompt: String,
     delegation_depth: u32,
+    skills_context: &str,
 ) -> Result<String, String> {
     let contract = parse_sub_agent_contract(sub_agent.context_json.as_deref());
 
@@ -78,7 +79,11 @@ pub(super) async fn execute_step_with_tools(
                 .decide(WorkerActionRequest {
                     task_prompt: task_prompt.clone(),
                     goal_summary: goal_summary.clone(),
-                    context: format!("{}\n\n{}", step.title, step.description),
+                    context: if skills_context.is_empty() {
+                        format!("{}\n\n{}", step.title, step.description)
+                    } else {
+                        format!("{}\n\n{}\n\n{}", step.title, step.description, skills_context)
+                    },
                     available_tools: available_tools.clone(),
                     tool_descriptions: tool_descriptions.clone(),
                     tool_descriptors: tool_descriptors.clone(),
@@ -504,6 +509,7 @@ pub(super) async fn execute_step_with_tools(
                         model_config.clone(),
                         goal_summary.clone(),
                         task_prompt.clone(),
+                        skills_context.to_string(),
                     ))
                     .await;
 

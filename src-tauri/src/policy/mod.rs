@@ -159,6 +159,7 @@ impl PolicyEngine {
             "zip",
             "curl",
             "wget",
+            "which",
             "make",
             "cmake",
             "docker",

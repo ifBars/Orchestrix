@@ -1,3 +1,30 @@
+/**
+ * Main application state store.
+ *
+ * This Zustand store manages the core application state for the Orchestrix
+ * desktop application. It handles:
+ *
+ * - Task management (CRUD operations)
+ * - Event streaming from the backend
+ * - Provider configuration
+ * - Workspace settings
+ * - Skills management
+ *
+ * The store communicates with the Rust backend via Tauri's invoke() API
+ * and receives real-time updates through the event system.
+ *
+ * @example
+ * ```tsx
+ * const { tasks, createTask } = useAppStore();
+ *
+ * // Create a new task
+ * await createTask("Create a React component");
+ *
+ * // Access task list
+ * console.log(tasks);
+ * ```
+ */
+
 import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { create } from "zustand";
@@ -9,6 +36,9 @@ import type {
   EventRow,
   ModelCatalogEntry,
   NewCustomSkill,
+  McpServerConfig,
+  McpServerInput,
+  McpToolEntry,
   ProviderConfigView,
   RunRow,
   SkillCatalogItem,
@@ -16,6 +46,7 @@ import type {
   TaskStatus,
   TaskRow,
   WorkspaceRootView,
+  WorkspaceSkill,
 } from "@/types";
 
 const TASK_STATUSES: ReadonlySet<TaskStatus> = new Set([
@@ -56,6 +87,9 @@ type AppStoreState = {
   selectedModel: string;
   workspaceRoot: string;
   skills: SkillCatalogItem[];
+  workspaceSkills: WorkspaceSkill[];
+  mcpServers: McpServerConfig[];
+  mcpTools: McpToolEntry[];
   artifactsByTask: Record<string, ArtifactRow[]>;
   taskLinksByTask: Record<string, string[]>;
   bootstrapped: boolean;
@@ -93,6 +127,12 @@ type AppStoreState = {
   importContext7Skill: (libraryId: string, title?: string) => Promise<void>;
   importVercelSkill: (skillName: string) => Promise<void>;
   removeSkill: (skillId: string) => Promise<void>;
+  refreshWorkspaceSkills: () => Promise<void>;
+  getWorkspaceSkillContent: (skillId: string) => Promise<WorkspaceSkill>;
+  refreshMcpServers: () => Promise<void>;
+  upsertMcpServer: (server: McpServerInput) => Promise<void>;
+  removeMcpServer: (serverId: string) => Promise<void>;
+  refreshMcpTools: () => Promise<void>;
 };
 
 let unlistenEvents: UnlistenFn | null = null;
@@ -113,6 +153,9 @@ export const useAppStore = create<AppStoreState>((set, get) => ({
   selectedModel: "MiniMax-M2.1",
   workspaceRoot: "",
   skills: [],
+  workspaceSkills: [],
+  mcpServers: [],
+  mcpTools: [],
   artifactsByTask: {},
   taskLinksByTask: {},
   bootstrapped: false,
@@ -120,12 +163,15 @@ export const useAppStore = create<AppStoreState>((set, get) => ({
   bootstrap: async () => {
     if (get().bootstrapped) return;
 
-    const [tasks, providerConfigs, modelCatalog, workspaceRoot, skills] = await Promise.all([
+    const [tasks, providerConfigs, modelCatalog, workspaceRoot, skills, workspaceSkills, mcpServers, mcpTools] = await Promise.all([
       invoke<TaskRow[]>("list_tasks"),
       invoke<ProviderConfigView[]>("get_provider_configs"),
       invoke<ModelCatalogEntry[]>("get_model_catalog"),
       invoke<WorkspaceRootView>("get_workspace_root"),
       invoke<SkillCatalogItem[]>("list_available_skills"),
+      invoke<WorkspaceSkill[]>("list_workspace_skills"),
+      invoke<McpServerConfig[]>("list_mcp_server_configs"),
+      invoke<McpToolEntry[]>("list_cached_mcp_tools"),
     ]);
 
     const linkResults = await Promise.all(
@@ -173,6 +219,9 @@ export const useAppStore = create<AppStoreState>((set, get) => ({
       selectedModel,
       workspaceRoot: workspaceRoot.workspace_root,
       skills,
+      workspaceSkills,
+      mcpServers,
+      mcpTools,
       artifactsByTask,
       taskLinksByTask,
       bootstrapped: true,
@@ -533,6 +582,8 @@ export const useAppStore = create<AppStoreState>((set, get) => ({
   setWorkspaceRoot: async (workspaceRoot: string) => {
     await invoke("set_workspace_root", { workspaceRoot });
     set({ workspaceRoot });
+    // Re-scan workspace skills for the new workspace
+    await get().refreshWorkspaceSkills();
   },
 
   refreshWorkspaceRoot: async () => {
@@ -605,5 +656,39 @@ export const useAppStore = create<AppStoreState>((set, get) => ({
   removeSkill: async (skillId: string) => {
     await invoke("remove_custom_skill", { skillId });
     await get().refreshSkills();
+  },
+
+  refreshWorkspaceSkills: async () => {
+    const workspaceSkills = await invoke<WorkspaceSkill[]>("list_workspace_skills");
+    set({ workspaceSkills });
+  },
+
+  getWorkspaceSkillContent: async (skillId: string) => {
+    return invoke<WorkspaceSkill>("get_workspace_skill_content", { skillId });
+  },
+
+  refreshMcpServers: async () => {
+    const mcpServers = await invoke<McpServerConfig[]>("list_mcp_server_configs");
+    set({ mcpServers });
+  },
+
+  upsertMcpServer: async (server: McpServerInput) => {
+    await invoke("upsert_mcp_server_config", { input: server });
+    await Promise.all([get().refreshMcpServers(), get().refreshMcpTools()]);
+  },
+
+  removeMcpServer: async (serverId: string) => {
+    await invoke("remove_mcp_server_config", { serverId });
+    await Promise.all([get().refreshMcpServers(), get().refreshMcpTools()]);
+  },
+
+  refreshMcpTools: async () => {
+    try {
+      const mcpTools = await invoke<McpToolEntry[]>("refresh_mcp_tools");
+      set({ mcpTools });
+    } catch {
+      const mcpTools = await invoke<McpToolEntry[]>("list_cached_mcp_tools");
+      set({ mcpTools });
+    }
   },
 }));

@@ -13,13 +13,16 @@ export function IdeShell({ header, sidebar, main, composer, artifacts, isArtifac
   return (
     <div className="flex h-full flex-col overflow-hidden">
       {/* Title bar */}
-      <header data-tauri-drag-region className="h-10 shrink-0 border-b border-border bg-sidebar/85 backdrop-blur-sm">
+      <header
+        data-tauri-drag-region
+        className="elevation-1 h-10 shrink-0 border-b border-border bg-sidebar/85 backdrop-blur-sm"
+      >
         {header}
       </header>
 
       <div className="flex min-h-0 flex-1">
         {/* Sidebar */}
-        <aside className="w-64 shrink-0 border-r border-sidebar-border bg-sidebar/90">
+        <aside className="elevation-1 w-64 shrink-0 border-r border-sidebar-border bg-sidebar/90">
           {sidebar}
         </aside>
 
@@ -38,7 +41,7 @@ export function IdeShell({ header, sidebar, main, composer, artifacts, isArtifac
 
         {/* Artifact panel — slide-out overlay */}
         {isArtifactsOpen && artifacts && (
-          <aside className="w-80 shrink-0 border-l border-border bg-card/80 backdrop-blur-sm">
+          <aside className="elevation-2 w-80 shrink-0 border-l border-border bg-card/80 backdrop-blur-sm">
             {artifacts}
           </aside>
         )}

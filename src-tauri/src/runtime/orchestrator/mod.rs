@@ -1,3 +1,27 @@
+//! Task orchestrator for managing AI agent execution.
+//!
+//! The orchestrator is the central component for task lifecycle management:
+//! - Receives tasks from the frontend via Tauri commands
+//! - Coordinates planning phase with LLM (MiniMax/Kimi)
+//! - Manages plan approval workflow
+//! - Executes plan steps, including sub-agent delegation
+//! - Handles worktree isolation for parallel execution
+//! - Manages approval gates for sensitive operations
+//!
+//! # Sub-modules
+//!
+//! - `worker`: Single-threaded task execution loop
+//! - `sub_agent`: Parallel sub-agent delegation and result aggregation
+//! - `task_lifecycle`: Task state transitions and persistence
+//!
+//! # Usage
+//!
+//! The orchestrator is initialized once in `lib.rs` and shared via `AppState`:
+//!
+//! ```rust
+//! let orchestrator = Arc::new(Orchestrator::new(db, bus, workspace_root));
+//! ```
+
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};

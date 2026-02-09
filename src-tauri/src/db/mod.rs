@@ -1,3 +1,23 @@
+//! Database layer for persistent storage.
+//!
+//! This module provides:
+//! - SQLite database management with connection pooling
+//! - Schema migrations for versioned upgrades
+//! - Query functions for all data operations
+//! - Error types for database failures
+//!
+//! # Schema
+//!
+//! Core tables:
+//! - `tasks`: Top-level work items
+//! - `runs`: Execution instances of tasks
+//! - `sub_agents`: Parallel execution units
+//! - `tool_calls`: Audit log of all tool invocations
+//! - `events`: Event sourcing for real-time updates
+//! - `artifacts`: Generated files and outputs
+//!
+//! See `migrations.rs` for complete schema definition.
+
 mod migrations;
 pub mod queries;
 

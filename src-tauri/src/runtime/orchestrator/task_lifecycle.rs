@@ -1,4 +1,5 @@
 use super::*;
+use crate::core::prompt_references::expand_prompt_references;
 
 impl Orchestrator {
     pub fn start_task(
@@ -414,10 +415,15 @@ impl Orchestrator {
         )?;
 
         let workspace_root = self.current_workspace_root();
+        let resolved_task_prompt = expand_prompt_references(&task_prompt, &workspace_root);
         let policy = PolicyEngine::with_approved_scopes(
             workspace_root.clone(),
             self.approval_gate.approved_scopes_handle(),
         );
+
+        // Load workspace skills and build context for agent injection
+        let workspace_skills = crate::core::workspace_skills::scan_workspace_skills(&workspace_root);
+        let skills_context = crate::core::workspace_skills::build_skills_context(&workspace_skills);
 
         let checkpoint = queries::get_checkpoint(&self.db, &run_id).map_err(|e| e.to_string())?;
         let mut failed: Vec<SubAgentResult> = Vec::new();
@@ -438,7 +444,7 @@ impl Orchestrator {
                 worktree_path: Some(workspace_root.to_string_lossy().to_string()),
                 context_json: Some(
                     serde_json::json!({
-                        "task_prompt": task_prompt,
+                        "task_prompt": resolved_task_prompt.clone(),
                         "goal_summary": &plan.goal_summary,
                         "step": step,
                         "contract": {
@@ -475,8 +481,9 @@ impl Orchestrator {
                 &workspace_root,
                 model_config.clone(),
                 plan.goal_summary.clone(),
-                task_prompt.clone(),
+                resolved_task_prompt.clone(),
                 0,
+                &skills_context,
             )
             .await;
 

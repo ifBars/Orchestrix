@@ -1,8 +1,31 @@
+//! Tool registry and implementations for AI agent operations.
+//!
+//! This module provides:
+//! - Tool registry for dynamic tool discovery
+//! - Built-in tools: filesystem, commands, search, git
+//! - Skill-based tools loaded from `.agents/skills/`
+//! - Policy enforcement for all tool invocations
+//!
+//! # Tool Lifecycle
+//!
+//! 1. Tool is invoked by the orchestrator
+//! 2. Policy engine evaluates permission
+//! 3. Tool executes with sandboxing
+//! 4. Result is recorded and returned
+//!
+//! # Adding New Tools
+//!
+//! 1. Implement the tool logic
+//! 2. Register in the ToolRegistry
+//! 3. Add to policy allowlist if needed
+//! 4. Update tool descriptors for LLM
+
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
 use serde::{Deserialize, Serialize};
 
+use crate::core::mcp::{call_mcp_tool_by_server_and_name, load_mcp_tools_cache};
 use crate::core::skills::{
     add_custom_skill, import_context7_skill, import_vercel_skill, list_all_skills,
     remove_custom_skill, NewCustomSkill,
@@ -69,12 +92,30 @@ impl ToolRegistry {
         tools.insert("subagent.spawn".to_string(), Box::new(SubAgentSpawnTool));
         tools.insert("skills.load".to_string(), Box::new(SkillsLoadTool));
         tools.insert("skills.remove".to_string(), Box::new(SkillsRemoveTool));
+        tools.insert(
+            "agent.request_build_mode".to_string(),
+            Box::new(RequestBuildModeTool),
+        );
 
         Self { tools }
     }
 
     pub fn list(&self) -> Vec<ToolDescriptor> {
-        self.tools.values().map(|t| t.descriptor()).collect()
+        let mut descriptors: Vec<ToolDescriptor> =
+            self.tools.values().map(|t| t.descriptor()).collect();
+
+        let mcp_descriptors = load_mcp_tools_cache()
+            .into_iter()
+            .map(|entry| ToolDescriptor {
+                name: format!("mcp.{}.{}", entry.server_id, entry.tool_name),
+                description: format!("MCP ({}) - {}", entry.server_name, entry.description),
+                input_schema: entry.input_schema,
+                output_schema: None,
+            })
+            .collect::<Vec<_>>();
+
+        descriptors.extend(mcp_descriptors);
+        descriptors
     }
 
     /// Generate a detailed tool reference string for inclusion in LLM prompts.
@@ -103,6 +144,16 @@ impl ToolRegistry {
         call: ToolCallInput,
     ) -> Result<ToolCallOutput, ToolError> {
         let Some(tool) = self.tools.get(&call.name) else {
+            if let Some((server_id, tool_name)) = parse_mcp_tool_name(&call.name) {
+                let result = call_mcp_tool_by_server_and_name(&server_id, &tool_name, call.args)
+                    .map_err(ToolError::Execution)?;
+                return Ok(ToolCallOutput {
+                    ok: true,
+                    data: result,
+                    error: None,
+                });
+            }
+
             return Err(ToolError::InvalidInput(format!(
                 "unknown tool: {}",
                 call.name
@@ -110,6 +161,20 @@ impl ToolRegistry {
         };
         tool.invoke(policy, cwd, call.args)
     }
+}
+
+fn parse_mcp_tool_name(raw: &str) -> Option<(String, String)> {
+    if !raw.starts_with("mcp.") {
+        return None;
+    }
+
+    let without_prefix = &raw[4..];
+    let (server_id, tool_name) = without_prefix.split_once('.')?;
+    if server_id.trim().is_empty() || tool_name.trim().is_empty() {
+        return None;
+    }
+
+    Some((server_id.to_string(), tool_name.to_string()))
 }
 
 struct FsReadTool;
@@ -1089,6 +1154,68 @@ impl Tool for SubAgentSpawnTool {
         Err(ToolError::Execution(
             "subagent.spawn is orchestrator-managed and cannot be invoked directly".to_string(),
         ))
+    }
+}
+
+/// Tool for PLAN mode agents to request switching to BUILD mode.
+/// This is a signal tool that emits an event but doesn't directly change modes.
+struct RequestBuildModeTool;
+
+impl Tool for RequestBuildModeTool {
+    fn descriptor(&self) -> ToolDescriptor {
+        ToolDescriptor {
+            name: "agent.request_build_mode".into(),
+            description: concat!(
+                "Request to switch from PLAN mode to BUILD mode. ",
+                "Use this when the user explicitly asks you to start building, implement now, or switch to build mode. ",
+                "This tool signals the intent to build, but the actual mode switch must be approved by the user through the UI."
+            ).into(),
+            input_schema: serde_json::json!({
+                "type": "object",
+                "properties": {
+                    "reason": {
+                        "type": "string",
+                        "description": "Brief explanation of why the user wants to switch to build mode"
+                    },
+                    "ready_to_build": {
+                        "type": "boolean",
+                        "description": "Whether the plan is complete and ready for implementation"
+                    }
+                },
+                "required": ["reason"]
+            }),
+            output_schema: None,
+        }
+    }
+
+    fn invoke(
+        &self,
+        _policy: &PolicyEngine,
+        _cwd: &Path,
+        input: serde_json::Value,
+    ) -> Result<ToolCallOutput, ToolError> {
+        let reason = input
+            .get("reason")
+            .and_then(|v| v.as_str())
+            .unwrap_or("User requested to start building");
+
+        let ready = input
+            .get("ready_to_build")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(true);
+
+        // This tool is primarily a signal - it succeeds and returns confirmation
+        // The actual mode switch is handled by the UI based on this signal
+        Ok(ToolCallOutput {
+            ok: true,
+            data: serde_json::json!({
+                "status": "build_mode_requested",
+                "reason": reason,
+                "ready_to_build": ready,
+                "message": "Build mode has been requested. The user will be prompted to review the plan and start building."
+            }),
+            error: None,
+        })
     }
 }
 
