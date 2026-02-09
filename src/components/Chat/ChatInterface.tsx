@@ -261,7 +261,6 @@ export function ChatInterface({ task }: ChatInterfaceProps) {
       visibleItems={visibleItems}
       renderKey={renderKey}
       isWorking={isWorking}
-      onOpenReview={() => setActiveTab("review")}
       onBuild={build}
       approving={approving}
       stopping={stopping}
