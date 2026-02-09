@@ -418,6 +418,31 @@ pub fn list_events_for_run(db: &Database, run_id: &str) -> Result<Vec<EventRow>,
     Ok(rows)
 }
 
+pub fn list_events_for_task(db: &Database, task_id: &str) -> Result<Vec<EventRow>, DbError> {
+    let conn = db.conn();
+    let mut stmt = conn.prepare(
+        "SELECT e.id, e.run_id, e.seq, e.category, e.event_type, e.payload_json, e.created_at
+         FROM events e
+         INNER JOIN runs r ON r.id = e.run_id
+         WHERE r.task_id = ?1
+         ORDER BY e.created_at ASC, e.seq ASC",
+    )?;
+    let rows = stmt
+        .query_map(params![task_id], |row| {
+            Ok(EventRow {
+                id: row.get(0)?,
+                run_id: row.get(1)?,
+                seq: row.get(2)?,
+                category: row.get(3)?,
+                event_type: row.get(4)?,
+                payload_json: row.get(5)?,
+                created_at: row.get(6)?,
+            })
+        })?
+        .collect::<Result<Vec<_>, _>>()?;
+    Ok(rows)
+}
+
 pub fn update_run_status_and_plan(
     db: &Database,
     run_id: &str,

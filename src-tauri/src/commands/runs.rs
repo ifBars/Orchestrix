@@ -380,14 +380,9 @@ pub fn get_task_events(
     state: tauri::State<'_, AppState>,
     task_id: String,
 ) -> Result<Vec<queries::EventRow>, AppError> {
-    // Get the latest run for this task
-    let run = match queries::get_latest_run_for_task(&state.db, &task_id)? {
-        Some(r) => r,
-        None => return Ok(Vec::new()),
-    };
-
-    // Get all events for this run
-    Ok(queries::list_events_for_run(&state.db, &run.id)?)
+    // Get all events for all runs of this task (not just the latest run)
+    // This ensures conversation history is preserved across follow-up messages
+    Ok(queries::list_events_for_task(&state.db, &task_id)?)
 }
 
 #[tauri::command]

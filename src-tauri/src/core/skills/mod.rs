@@ -388,3 +388,6 @@ fn sanitize_skill_id(raw: &str) -> String {
     }
     out.trim_matches('-').to_string()
 }
+
+#[cfg(test)]
+mod tests;

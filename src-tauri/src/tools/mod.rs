@@ -995,15 +995,18 @@ impl Tool for AgentTodoTool {
     fn descriptor(&self) -> ToolDescriptor {
         ToolDescriptor {
             name: "agent.todo".into(),
-            description:
-                "Manage the agent's local todo list. Actions: list, set, add, update, clear.".into(),
+            description: concat!(
+                "Manage the agent's local todo list. Actions: list, set, add, update, clear. ",
+                "For 'update', pass a 'todos' array where position determines which todo to update."
+            )
+            .into(),
             input_schema: serde_json::json!({
                 "type": "object",
                 "properties": {
                     "action": {"type": "string", "enum": ["list", "set", "add", "update", "clear"]},
-                    "todos": {"type": "array", "items": {"type": "object"}},
-                    "item": {"type": "object"},
-                    "index": {"type": "integer"}
+                    "todos": {"type": "array", "items": {"type": "object"}, "description": "For 'set' or 'update' actions. For update, array position determines which todo to update."},
+                    "item": {"type": "object", "description": "For 'add' action or 'update' with index"},
+                    "index": {"type": "integer", "description": "Optional: specific index for update (legacy)"}
                 }
             }),
             output_schema: None,
@@ -1049,16 +1052,26 @@ impl Tool for AgentTodoTool {
                 todos.push(item.clone());
             }
             "update" => {
-                let idx = input.get("index").and_then(|v| v.as_u64()).ok_or_else(|| {
-                    ToolError::InvalidInput("index is required for update".to_string())
-                })? as usize;
-                let item = input.get("item").ok_or_else(|| {
-                    ToolError::InvalidInput("item is required for update".to_string())
-                })?;
-                if idx >= todos.len() {
-                    return Err(ToolError::InvalidInput("index out of range".to_string()));
+                if let Some(items) = input.get("todos").and_then(|v| v.as_array()) {
+                    for (idx, item) in items.iter().enumerate() {
+                        if idx < todos.len() {
+                            todos[idx] = item.clone();
+                        }
+                    }
+                } else if let Some(idx) = input.get("index").and_then(|v| v.as_u64()) {
+                    let idx = idx as usize;
+                    let item = input.get("item").ok_or_else(|| {
+                        ToolError::InvalidInput("item is required when using index".to_string())
+                    })?;
+                    if idx >= todos.len() {
+                        return Err(ToolError::InvalidInput("index out of range".to_string()));
+                    }
+                    todos[idx] = item.clone();
+                } else {
+                    return Err(ToolError::InvalidInput(
+                        "todos array or index+item is required for update".to_string(),
+                    ));
                 }
-                todos[idx] = item.clone();
             }
             "clear" => {
                 todos.clear();
