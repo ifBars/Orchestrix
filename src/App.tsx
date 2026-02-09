@@ -22,6 +22,7 @@ function App() {
   const [skillsOpen, setSkillsOpen] = useState(false);
   const [artifactsOpen, setArtifactsOpen] = useState(false);
   const [darkMode, setDarkMode] = useState(true);
+  const [chatActiveTab, setChatActiveTab] = useState<"chat" | "review">("chat");
 
   useEffect(() => {
     bootstrap().catch(console.error);
@@ -66,9 +67,20 @@ function App() {
             onOpenSkills={() => setSkillsOpen(true)}
           />
         }
-        main={selectedTask ? <ChatInterface task={selectedTask} /> : <EmptyState />}
+        main={selectedTask ? (
+          <ChatInterface 
+            task={selectedTask} 
+            activeTab={chatActiveTab}
+            onActiveTabChange={setChatActiveTab}
+          />
+        ) : <EmptyState />}
         composer={<Composer />}
-        artifacts={selectedTask ? <ArtifactPanel taskId={selectedTask.id} /> : null}
+        artifacts={selectedTask ? (
+          <ArtifactPanel 
+            taskId={selectedTask.id} 
+            onOpenReview={() => setChatActiveTab("review")}
+          />
+        ) : null}
       />
 
       <SettingsSheet open={settingsOpen} onClose={() => setSettingsOpen(false)} />

@@ -183,3 +183,6 @@ impl PolicyEngine {
 fn normalize_path_text(raw: &str) -> String {
     raw.replace("\\\\?\\", "")
 }
+
+#[cfg(test)]
+mod tests;

@@ -3,3 +3,6 @@ pub mod orchestrator;
 pub mod planner;
 pub mod recovery;
 pub mod worktree;
+
+#[cfg(test)]
+mod worktree_tests;

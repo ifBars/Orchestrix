@@ -11,9 +11,10 @@ const EMPTY: ArtifactRow[] = [];
 
 type ArtifactPanelProps = {
   taskId: string;
+  onOpenReview?: () => void;
 };
 
-export function ArtifactPanel({ taskId }: ArtifactPanelProps) {
+export function ArtifactPanel({ taskId, onOpenReview }: ArtifactPanelProps) {
   const artifacts = useAppStore((state) => state.artifactsByTask[taskId] ?? EMPTY);
   const [active, setActive] = useState<ArtifactRow | null>(null);
   const [preview, setPreview] = useState<ArtifactContentView | null>(null);
@@ -55,11 +56,22 @@ export function ArtifactPanel({ taskId }: ArtifactPanelProps) {
             {artifacts.map((artifact) => {
               const selected = active?.id === artifact.id;
               const fileName = artifact.uri_or_content.split(/[/\\]/).pop() ?? artifact.uri_or_content;
+              const isMarkdown = artifact.uri_or_content.toLowerCase().endsWith('.md') ||
+                artifact.uri_or_content.toLowerCase().endsWith('.markdown');
+              // Clicking a markdown artifact opens the full review workspace if handler is provided
+              const shouldOpenReview = isMarkdown && onOpenReview;
+
               return (
                 <button
                   key={artifact.id}
                   type="button"
-                  onClick={() => setActive(selected ? null : artifact)}
+                  onClick={() => {
+                    if (shouldOpenReview) {
+                      onOpenReview!();
+                    } else {
+                      setActive(selected ? null : artifact);
+                    }
+                  }}
                   className={`flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left transition-colors ${
                     selected
                       ? "bg-accent/60 text-foreground"

@@ -96,8 +96,85 @@ impl ToolRegistry {
             "agent.request_build_mode".to_string(),
             Box::new(RequestBuildModeTool),
         );
+        tools.insert(
+            "agent.request_plan_mode".to_string(),
+            Box::new(RequestPlanModeTool),
+        );
+        tools.insert(
+            "agent.create_artifact".to_string(),
+            Box::new(CreateArtifactTool),
+        );
 
         Self { tools }
+    }
+
+    /// Get tools available for PLAN mode
+    /// Only includes: fs.read, fs.list, search.rg, git.*, skills.*, agent.todo, agent.create_artifact, agent.request_build_mode
+    /// Excludes: fs.write, cmd.exec, subagent.spawn, agent.request_plan_mode, agent.create_artifact (build version)
+    pub fn list_for_plan_mode(&self) -> Vec<ToolDescriptor> {
+        let allowed_tools: std::collections::HashSet<&str> = [
+            "fs.read",
+            "fs.list",
+            "search.rg",
+            "git.status",
+            "git.diff",
+            "git.log",
+            "skills.list",
+            "skills.load",
+            "agent.todo",
+            "agent.create_artifact",
+            "agent.request_build_mode",
+        ]
+        .iter()
+        .cloned()
+        .collect();
+
+        self.list()
+            .into_iter()
+            .filter(|t| allowed_tools.contains(t.name.as_str()))
+            .collect()
+    }
+
+    /// Get tools available for BUILD mode (includes request_plan_mode, excludes request_build_mode and create_artifact)
+    pub fn list_for_build_mode(&self) -> Vec<ToolDescriptor> {
+        self.list()
+            .into_iter()
+            .filter(|t| t.name != "agent.request_build_mode" && t.name != "agent.create_artifact")
+            .collect()
+    }
+
+    /// Generate a detailed tool reference string for PLAN mode.
+    pub fn tool_reference_for_plan_mode(&self) -> String {
+        let mut tools: Vec<_> = self.list_for_plan_mode();
+        tools.sort_by(|a, b| a.name.cmp(&b.name));
+
+        let mut out = String::new();
+        for tool in &tools {
+            out.push_str(&format!("### {}\n", tool.name));
+            out.push_str(&format!("{}\n", tool.description));
+            out.push_str(&format!(
+                "Input schema: {}\n\n",
+                serde_json::to_string(&tool.input_schema).unwrap_or_else(|_| "{}".to_string())
+            ));
+        }
+        out
+    }
+
+    /// Generate a detailed tool reference string for BUILD mode.
+    pub fn tool_reference_for_build_mode(&self) -> String {
+        let mut tools: Vec<_> = self.list_for_build_mode();
+        tools.sort_by(|a, b| a.name.cmp(&b.name));
+
+        let mut out = String::new();
+        for tool in &tools {
+            out.push_str(&format!("### {}\n", tool.name));
+            out.push_str(&format!("{}\n", tool.description));
+            out.push_str(&format!(
+                "Input schema: {}\n\n",
+                serde_json::to_string(&tool.input_schema).unwrap_or_else(|_| "{}".to_string())
+            ));
+        }
+        out
     }
 
     pub fn list(&self) -> Vec<ToolDescriptor> {
@@ -192,6 +269,7 @@ struct AgentTodoTool;
 struct SubAgentSpawnTool;
 struct SkillsLoadTool;
 struct SkillsRemoveTool;
+struct CreateArtifactTool;
 
 impl Tool for FsReadTool {
     fn descriptor(&self) -> ToolDescriptor {
@@ -1219,6 +1297,164 @@ impl Tool for RequestBuildModeTool {
     }
 }
 
+/// Tool for BUILD mode agents to request switching back to PLAN mode.
+/// This is a signal tool that emits an event but doesn't directly change modes.
+struct RequestPlanModeTool;
+
+impl Tool for RequestPlanModeTool {
+    fn descriptor(&self) -> ToolDescriptor {
+        ToolDescriptor {
+            name: "agent.request_plan_mode".into(),
+            description: concat!(
+                "Request to switch from BUILD mode back to PLAN mode. ",
+                "Use this when the user explicitly asks you to go back to planning, revise the plan, or switch to plan mode. ",
+                "This tool signals the intent to return to planning, but the actual mode switch must be approved by the user through the UI."
+            ).into(),
+            input_schema: serde_json::json!({
+                "type": "object",
+                "properties": {
+                    "reason": {
+                        "type": "string",
+                        "description": "Brief explanation of why the user wants to switch back to plan mode"
+                    },
+                    "needs_revision": {
+                        "type": "boolean",
+                        "description": "Whether the current implementation needs planning changes"
+                    }
+                },
+                "required": ["reason"]
+            }),
+            output_schema: None,
+        }
+    }
+
+    fn invoke(
+        &self,
+        _policy: &PolicyEngine,
+        _cwd: &Path,
+        input: serde_json::Value,
+    ) -> Result<ToolCallOutput, ToolError> {
+        let reason = input
+            .get("reason")
+            .and_then(|v| v.as_str())
+            .unwrap_or("User requested to return to planning");
+
+        let needs_revision = input
+            .get("needs_revision")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(true);
+
+        // This tool is primarily a signal - it succeeds and returns confirmation
+        // The actual mode switch is handled by the UI based on this signal
+        Ok(ToolCallOutput {
+            ok: true,
+            data: serde_json::json!({
+                "status": "plan_mode_requested",
+                "reason": reason,
+                "needs_revision": needs_revision,
+                "message": "Plan mode has been requested. The user will be able to revise the plan before resuming implementation."
+            }),
+            error: None,
+        })
+    }
+}
+
+/// Tool for PLAN mode agents to create planning artifacts.
+/// This is the ONLY way to produce output in PLAN mode - you cannot use fs.write.
+impl Tool for CreateArtifactTool {
+    fn descriptor(&self) -> ToolDescriptor {
+        ToolDescriptor {
+            name: "agent.create_artifact".into(),
+            description: concat!(
+                "Create a planning artifact in PLAN mode. ",
+                "This is the ONLY way to output your plan - you cannot use fs.write or cmd.exec in PLAN mode. ",
+                "Use this tool to submit your complete markdown plan, requirements document, or any other planning artifact. ",
+                "The artifact will be saved and presented to the user for review before BUILD mode begins."
+            ).into(),
+            input_schema: serde_json::json!({
+                "type": "object",
+                "properties": {
+                    "filename": {
+                        "type": "string",
+                        "description": "Name of the artifact file (e.g., 'plan.md', 'requirements.md')"
+                    },
+                    "content": {
+                        "type": "string",
+                        "description": "The complete content of the artifact (markdown, text, etc.)"
+                    },
+                    "kind": {
+                        "type": "string",
+                        "description": "Type of artifact: 'plan', 'requirements', 'design', 'notes'",
+                        "enum": ["plan", "requirements", "design", "notes"]
+                    }
+                },
+                "required": ["filename", "content", "kind"]
+            }),
+            output_schema: None,
+        }
+    }
+
+    fn invoke(
+        &self,
+        _policy: &PolicyEngine,
+        cwd: &Path,
+        input: serde_json::Value,
+    ) -> Result<ToolCallOutput, ToolError> {
+        let filename = input
+            .get("filename")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| ToolError::InvalidInput("filename is required".to_string()))?;
+
+        let content = input
+            .get("content")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| ToolError::InvalidInput("content is required".to_string()))?;
+
+        let kind = input
+            .get("kind")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| ToolError::InvalidInput("kind is required".to_string()))?;
+
+        // Validate kind
+        if !["plan", "requirements", "design", "notes"].contains(&kind) {
+            return Err(ToolError::InvalidInput(format!(
+                "kind must be one of: plan, requirements, design, notes"
+            )));
+        }
+
+        // Save the artifact to the .orchestrix/artifacts directory
+        let artifact_dir = cwd.join(".orchestrix").join("artifacts");
+        std::fs::create_dir_all(&artifact_dir).map_err(|e| {
+            ToolError::Execution(format!("Failed to create artifact directory: {}", e))
+        })?;
+
+        let artifact_path = artifact_dir.join(filename);
+
+        // Prevent directory traversal
+        if !artifact_path.starts_with(&artifact_dir) {
+            return Err(ToolError::InvalidInput(
+                "Invalid filename: directory traversal detected".to_string(),
+            ));
+        }
+
+        std::fs::write(&artifact_path, content)
+            .map_err(|e| ToolError::Execution(format!("Failed to write artifact: {}", e)))?;
+
+        Ok(ToolCallOutput {
+            ok: true,
+            data: serde_json::json!({
+                "status": "artifact_created",
+                "filename": filename,
+                "kind": kind,
+                "path": artifact_path.to_string_lossy(),
+                "size_bytes": content.len(),
+                "message": format!("Artifact '{}' created successfully. You can continue creating more artifacts or request to switch to BUILD mode when ready.", filename)
+            }),
+            error: None,
+        })
+    }
+}
+
 impl Tool for SkillsRemoveTool {
     fn descriptor(&self) -> ToolDescriptor {
         ToolDescriptor {
@@ -1310,3 +1546,6 @@ pub fn normalize_workdir(base: &Path, candidate: Option<&str>) -> PathBuf {
         _ => base.to_path_buf(),
     }
 }
+
+#[cfg(test)]
+mod tests;

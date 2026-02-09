@@ -105,7 +105,7 @@ impl MiniMaxPlanner {
         );
 
         let response = self
-            .run_chat_json(plan_markdown_system_prompt(), &user, 2200)
+            .run_chat_json(&plan_markdown_system_prompt(), &user, 2200)
             .await?;
 
         let markdown = response.content.unwrap_or_default().trim().to_string();

@@ -119,7 +119,7 @@ impl KimiPlanner {
         );
 
         let markdown = self
-            .run_chat_json(plan_markdown_system_prompt(), &user, 2200)
+            .run_chat_json(&plan_markdown_system_prompt(), &user, 2200)
             .await?;
 
         if markdown.trim().is_empty() {

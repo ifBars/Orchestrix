@@ -29,14 +29,19 @@ pub(super) async fn execute_step_with_tools(
         std::fs::write(&context_path, content).map_err(|e| e.to_string())?;
     }
 
-    let mut available_tools: Vec<String> = tool_registry.list().into_iter().map(|v| v.name).collect();
+    // Use BUILD mode specific tools (excludes agent.request_build_mode, includes agent.request_plan_mode)
+    let mut available_tools: Vec<String> = tool_registry
+        .list_for_build_mode()
+        .into_iter()
+        .map(|v| v.name)
+        .collect();
 
     if !contract.permissions.allowed_tools.is_empty() {
         available_tools.retain(|name| contract.permissions.allowed_tools.contains(name));
     }
 
-    let tool_descriptions = tool_registry.tool_reference_for_prompt();
-    let mut tool_descriptors = tool_registry.list();
+    let tool_descriptions = tool_registry.tool_reference_for_build_mode();
+    let mut tool_descriptors = tool_registry.list_for_build_mode();
     tool_descriptors.retain(|tool| available_tools.contains(&tool.name));
     enum WorkerModelClient {
         MiniMax(MiniMaxPlanner),

@@ -21,6 +21,9 @@
 mod migrations;
 pub mod queries;
 
+#[cfg(test)]
+mod tests;
+
 use std::path::Path;
 use std::sync::Mutex;
 

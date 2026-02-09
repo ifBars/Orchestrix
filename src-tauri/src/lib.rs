@@ -28,8 +28,9 @@ mod policy;
 mod runtime;
 mod tools;
 
+// Test modules
 #[cfg(test)]
-mod testing;
+mod tests;
 
 use std::path::PathBuf;
 use std::sync::Arc;
