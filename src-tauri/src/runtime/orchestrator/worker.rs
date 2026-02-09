@@ -334,6 +334,44 @@ pub(super) async fn execute_step_with_tools(
                                 "status": if output.ok { "succeeded" } else { "failed" },
                                 "output": output.data,
                             }));
+
+                            // Track artifacts created via agent.create_artifact
+                            if tool_name == "agent.create_artifact" && output.ok {
+                                if let (Some(path), Some(kind)) = (
+                                    output.data.get("path").and_then(|v| v.as_str()),
+                                    output.data.get("kind").and_then(|v| v.as_str()),
+                                ) {
+                                    let artifact = queries::ArtifactRow {
+                                        id: Uuid::new_v4().to_string(),
+                                        run_id: run_id.to_string(),
+                                        kind: kind.to_string(),
+                                        uri_or_content: path.to_string(),
+                                        metadata_json: Some(
+                                            serde_json::json!({
+                                                "task_id": task_id,
+                                                "source": "agent.create_artifact",
+                                                "kind": kind,
+                                            })
+                                            .to_string(),
+                                        ),
+                                        created_at: Utc::now().to_rfc3339(),
+                                    };
+                                    let _ = queries::insert_artifact(db, &artifact);
+                                    let _ = emit_and_record(
+                                        db,
+                                        bus,
+                                        "artifact",
+                                        "artifact.created",
+                                        Some(run_id.to_string()),
+                                        serde_json::json!({
+                                            "task_id": task_id,
+                                            "artifact_id": artifact.id,
+                                            "kind": artifact.kind,
+                                            "uri": artifact.uri_or_content,
+                                        }),
+                                    );
+                                }
+                            }
                         }
                         Err(error) => {
                             queries::update_tool_call_result(
@@ -850,6 +888,44 @@ pub(super) async fn execute_step_with_tools(
                             "status": if output.ok { "succeeded" } else { "failed" },
                             "output": output.data,
                         }));
+
+                        // Track artifacts created via agent.create_artifact
+                        if tool_name == "agent.create_artifact" && output.ok {
+                            if let (Some(path), Some(kind)) = (
+                                output.data.get("path").and_then(|v| v.as_str()),
+                                output.data.get("kind").and_then(|v| v.as_str()),
+                            ) {
+                                let artifact = queries::ArtifactRow {
+                                    id: Uuid::new_v4().to_string(),
+                                    run_id: run_id.to_string(),
+                                    kind: kind.to_string(),
+                                    uri_or_content: path.to_string(),
+                                    metadata_json: Some(
+                                        serde_json::json!({
+                                            "task_id": task_id,
+                                            "source": "agent.create_artifact",
+                                            "kind": kind,
+                                        })
+                                        .to_string(),
+                                    ),
+                                    created_at: Utc::now().to_rfc3339(),
+                                };
+                                let _ = queries::insert_artifact(db, &artifact);
+                                let _ = emit_and_record(
+                                    db,
+                                    bus,
+                                    "artifact",
+                                    "artifact.created",
+                                    Some(run_id.to_string()),
+                                    serde_json::json!({
+                                        "task_id": task_id,
+                                        "artifact_id": artifact.id,
+                                        "kind": artifact.kind,
+                                        "uri": artifact.uri_or_content,
+                                    }),
+                                );
+                            }
+                        }
                     }
                     Err(error) => {
                         queries::update_tool_call_result(

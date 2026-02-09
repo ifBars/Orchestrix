@@ -6,6 +6,9 @@ use std::path::PathBuf;
 use std::sync::Mutex;
 use uuid::Uuid;
 
+#[cfg(test)]
+mod integration;
+
 /// Mutex to ensure skills tests run serially and don't interfere with each other
 /// via the ORCHESTRIX_SKILLS_PATH environment variable.
 pub static SKILLS_TEST_MUTEX: Mutex<()> = Mutex::new(());

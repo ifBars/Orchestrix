@@ -29,9 +29,18 @@ fn platform_rules_section() -> &'static str {
     #[cfg(target_os = "windows")]
     {
         r#"- PLATFORM: You are running on Windows.
-  - Use Windows-compatible commands: "dir" not "ls", "type" not "cat", "del" not "rm".
+  - CRITICAL: Unix commands DO NOT WORK on Windows. Use these Windows equivalents:
+    - "ls" → DO NOT USE. Use "fs.list" tool instead.
+    - "cat" → DO NOT USE. Use "fs.read" tool instead.
+    - "rm" or "rm -rf" → DO NOT USE on Windows. Use PowerShell "Remove-Item" or the tool will auto-translate.
+    - "cp" → DO NOT USE. Use PowerShell "Copy-Item".
+    - "mv" → DO NOT USE. Use PowerShell "Move-Item".
+    - "which" → DO NOT USE. Use "where" command instead.
+    - "mkdir -p" → Use "cmd.exec" with cmd="mkdir" and args=["/p", "path"].
+    - "touch" → Use PowerShell "New-Item".
+  - NEVER use "cd path && command" syntax - it fails on Windows. ALWAYS use the "workdir" parameter.
   - Use forward slashes (/) or escaped backslashes (\\) in paths.
-  - For shell built-ins (echo, dir, type, del, copy, move, set), use the "command" field instead of "cmd"+"args".
+  - For directory operations, ALWAYS prefer "fs.list" over shell commands.
   - Common tools like git, node, bun, npm, cargo work the same on Windows."#
     }
 
@@ -200,10 +209,12 @@ CRITICAL RULES:
   - If delegation is needed, use tool_call with tool_name "subagent.spawn" and objective in tool_args.
   - Delegate only clearly parallelizable and low-conflict work (e.g. read-only research, audits, or isolated non-overlapping subtasks).
 - For cmd.exec:
-  - "cmd" is the binary name (e.g. "mkdir", "bun", "node"), "args" is an array of arguments (e.g. ["-p","src/components"]).
-  - Use "workdir" to run inside subdirectories. DO NOT use shell "cd".
-  - Avoid "command" unless shell syntax is truly required.
-- For directory discovery and existence checks, prefer "fs.list" instead of shell commands like "ls" or "dir".
+   - "cmd" is the binary name (e.g. "mkdir", "bun", "node"), "args" is an array of arguments (e.g. ["-p","src/components"]).
+   - CRITICAL: Use "workdir" parameter to run inside subdirectories. NEVER use "cd path && command" syntax.
+   - CORRECT: {{"tool_name":"cmd.exec","tool_args":{{"cmd":"bun","args":["install"],"workdir":"frontend"}}}}
+   - WRONG: {{"tool_name":"cmd.exec","tool_args":{{"command":"cd frontend && bun install"}}}}
+   - Avoid "command" field unless shell syntax is truly required.
+ - For directory discovery and existence checks, ALWAYS use "fs.list" tool. NEVER use "ls", "dir", or shell commands for directory listing.
 - For skill workflows:
   - Use "skills.list" to discover available catalog skills.
   - Use "skills.load" to import/load a skill when the task asks for installing or enabling a skill.

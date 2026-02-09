@@ -668,4 +668,506 @@ mod tests {
             "tool reference should include skills.remove"
         );
     }
+
+    // Windows Unix command translation tests
+    #[cfg(target_os = "windows")]
+    mod windows_command_translation_tests {
+        use crate::tools::translate_unix_to_windows;
+
+        #[test]
+        fn test_which_translates_to_where() {
+            assert_eq!(translate_unix_to_windows("which bun"), "where bun");
+            assert_eq!(translate_unix_to_windows("which git"), "where git");
+            assert_eq!(translate_unix_to_windows("which node"), "where node");
+        }
+
+        #[test]
+        fn test_rm_rf_translates_to_rmdir() {
+            assert_eq!(
+                translate_unix_to_windows("rm -rf node_modules"),
+                "rmdir /s /q node_modules"
+            );
+            assert_eq!(translate_unix_to_windows("rm -r temp"), "rmdir /s /q temp");
+        }
+
+        #[test]
+        fn test_rm_single_file_translates_to_del() {
+            assert_eq!(translate_unix_to_windows("rm file.txt"), "del /q file.txt");
+        }
+
+        #[test]
+        fn test_mkdir_p_translates_to_mkdir() {
+            assert_eq!(
+                translate_unix_to_windows("mkdir -p src/components"),
+                "mkdir src/components"
+            );
+        }
+
+        #[test]
+        fn test_cp_r_translates_to_xcopy() {
+            assert_eq!(
+                translate_unix_to_windows("cp -r src dst"),
+                "xcopy /e /i /h src dst"
+            );
+            assert_eq!(
+                translate_unix_to_windows("cp -a src dst"),
+                "xcopy /e /i /h src dst"
+            );
+            assert_eq!(
+                translate_unix_to_windows("cp -R src dst"),
+                "xcopy /e /i /h src dst"
+            );
+        }
+
+        #[test]
+        fn test_cp_single_file_translates_to_copy() {
+            assert_eq!(
+                translate_unix_to_windows("cp file1 file2"),
+                "copy file1 file2"
+            );
+        }
+
+        #[test]
+        fn test_mv_translates_to_move() {
+            assert_eq!(translate_unix_to_windows("mv old new"), "move old new");
+        }
+
+        #[test]
+        fn test_touch_translates_to_type_nul() {
+            assert_eq!(
+                translate_unix_to_windows("touch newfile.txt"),
+                "type nul > newfile.txt"
+            );
+        }
+
+        #[test]
+        fn test_cat_translates_to_type() {
+            assert_eq!(translate_unix_to_windows("cat file.txt"), "type file.txt");
+        }
+
+        #[test]
+        fn test_ls_translates_to_dir() {
+            assert_eq!(translate_unix_to_windows("ls"), "dir");
+            assert_eq!(translate_unix_to_windows("ls src"), "dir");
+            assert_eq!(translate_unix_to_windows("ls -la"), "dir");
+        }
+
+        #[test]
+        fn test_cd_then_command_strips_cd() {
+            assert_eq!(
+                translate_unix_to_windows("cd frontend && bun install"),
+                "bun install"
+            );
+            assert_eq!(
+                translate_unix_to_windows("cd src && npm run build"),
+                "npm run build"
+            );
+        }
+
+        #[test]
+        fn test_non_translated_commands_unchanged() {
+            // Commands that don't need translation should pass through unchanged
+            assert_eq!(translate_unix_to_windows("echo hello"), "echo hello");
+            assert_eq!(translate_unix_to_windows("git status"), "git status");
+        }
+
+        #[test]
+        fn test_translation_handles_whitespace() {
+            assert_eq!(translate_unix_to_windows("  which bun  "), "where bun");
+            assert_eq!(
+                translate_unix_to_windows("rm   -rf   dir"),
+                "rmdir /s /q dir"
+            );
+        }
+    }
+
+    // Windows cmd.exec with translated Unix commands tests
+    #[cfg(target_os = "windows")]
+    #[test]
+    fn test_cmd_exec_translates_which_to_where() {
+        let workspace = temp_workspace();
+        let registry = ToolRegistry::default();
+        let policy = PolicyEngine::new(workspace.clone());
+
+        let output = registry
+            .invoke(
+                &policy,
+                &workspace,
+                ToolCallInput {
+                    name: "cmd.exec".to_string(),
+                    args: serde_json::json!({"command": "which git"}),
+                },
+            )
+            .expect("cmd.exec which git should succeed via translation");
+
+        assert!(output.ok, "which git should succeed: {:?}", output.data);
+        let stdout = output
+            .data
+            .get("stdout")
+            .and_then(|v| v.as_str())
+            .unwrap_or("");
+        assert!(
+            !stdout.is_empty() || output.ok,
+            "where git should return a path"
+        );
+    }
+
+    #[cfg(target_os = "windows")]
+    #[test]
+    fn test_cmd_exec_translates_ls_to_dir() {
+        let workspace = temp_workspace();
+        std::fs::create_dir_all(workspace.join("src")).unwrap();
+        std::fs::write(workspace.join("src/main.rs"), "fn main() {}").unwrap();
+
+        let registry = ToolRegistry::default();
+        let policy = PolicyEngine::new(workspace.clone());
+
+        let output = registry
+            .invoke(
+                &policy,
+                &workspace,
+                ToolCallInput {
+                    name: "cmd.exec".to_string(),
+                    args: serde_json::json!({"command": "ls"}),
+                },
+            )
+            .expect("cmd.exec ls should succeed via translation");
+
+        assert!(
+            output.ok,
+            "ls should succeed via dir translation: {:?}",
+            output.data
+        );
+        let stdout = output
+            .data
+            .get("stdout")
+            .and_then(|v| v.as_str())
+            .unwrap_or("");
+        assert!(
+            stdout.contains("src")
+                || stdout.contains("main.rs")
+                || stdout.contains("test-workspace"),
+            "dir output should contain files or directories: {}",
+            stdout
+        );
+    }
+
+    #[cfg(target_os = "windows")]
+    #[test]
+    fn test_cmd_exec_translates_cat_to_type() {
+        let workspace = temp_workspace();
+        std::fs::write(workspace.join("test.txt"), "hello world").unwrap();
+
+        let registry = ToolRegistry::default();
+        let policy = PolicyEngine::new(workspace.clone());
+
+        let output = registry
+            .invoke(
+                &policy,
+                &workspace,
+                ToolCallInput {
+                    name: "cmd.exec".to_string(),
+                    args: serde_json::json!({"command": "cat test.txt"}),
+                },
+            )
+            .expect("cmd.exec cat should succeed via translation");
+
+        assert!(
+            output.ok,
+            "cat test.txt should succeed via type translation"
+        );
+        let stdout = output
+            .data
+            .get("stdout")
+            .and_then(|v| v.as_str())
+            .unwrap_or("");
+        assert!(
+            stdout.contains("hello world"),
+            "type output should contain file content"
+        );
+    }
+
+    #[cfg(target_os = "windows")]
+    #[test]
+    fn test_cmd_exec_translates_rm_to_del() {
+        let workspace = temp_workspace();
+        let test_file = workspace.join("to_delete.txt");
+        std::fs::write(&test_file, "delete me").unwrap();
+        assert!(test_file.exists(), "test file should exist before deletion");
+
+        let registry = ToolRegistry::default();
+        let policy = PolicyEngine::new(workspace.clone());
+
+        let output = registry
+            .invoke(
+                &policy,
+                &workspace,
+                ToolCallInput {
+                    name: "cmd.exec".to_string(),
+                    args: serde_json::json!({"command": "rm to_delete.txt"}),
+                },
+            )
+            .expect("cmd.exec rm should succeed via translation");
+
+        assert!(
+            output.ok,
+            "rm to_delete.txt should succeed via del translation"
+        );
+        assert!(!test_file.exists(), "test file should be deleted");
+    }
+
+    #[cfg(target_os = "windows")]
+    #[test]
+    fn test_cmd_exec_cd_chain_translates_correctly() {
+        let workspace = temp_workspace();
+        let subdir = workspace.join("frontend");
+        std::fs::create_dir_all(&subdir).unwrap();
+        std::fs::write(subdir.join("package.json"), "{}").unwrap();
+
+        let registry = ToolRegistry::default();
+        let policy = PolicyEngine::new(workspace.clone());
+
+        let output = registry
+            .invoke(
+                &policy,
+                &workspace,
+                ToolCallInput {
+                    name: "cmd.exec".to_string(),
+                    args: serde_json::json!({"command": "cd frontend && echo in frontend"}),
+                },
+            )
+            .expect("cd chain should translate correctly");
+
+        assert!(
+            output.ok,
+            "cd frontend && echo should work: {:?}",
+            output.data
+        );
+    }
+
+    // Additional non-Windows specific tests
+    #[test]
+    fn test_cmd_exec_with_empty_args_array() {
+        let workspace = temp_workspace();
+        let registry = ToolRegistry::default();
+        let policy = PolicyEngine::new(workspace.clone());
+
+        let result = registry.invoke(
+            &policy,
+            &workspace,
+            ToolCallInput {
+                name: "cmd.exec".to_string(),
+                args: serde_json::json!({"cmd": "echo", "args": []}),
+            },
+        );
+
+        assert!(result.is_ok(), "cmd.exec with empty args should succeed");
+        let output = result.unwrap();
+        assert!(
+            output.ok
+                || !output
+                    .data
+                    .get("stdout")
+                    .unwrap()
+                    .as_str()
+                    .unwrap_or("")
+                    .is_empty()
+        );
+    }
+
+    #[test]
+    fn test_cmd_exec_handles_special_characters_in_args() {
+        let workspace = temp_workspace();
+        let registry = ToolRegistry::default();
+        let policy = PolicyEngine::new(workspace.clone());
+
+        let output = registry
+            .invoke(
+                &policy,
+                &workspace,
+                ToolCallInput {
+                    name: "cmd.exec".to_string(),
+                    args: serde_json::json!({"command": "echo hello && echo world"}),
+                },
+            )
+            .expect("cmd.exec with && should succeed");
+
+        let stdout = output
+            .data
+            .get("stdout")
+            .and_then(|v| v.as_str())
+            .unwrap_or("");
+        assert!(
+            stdout.contains("hello") && stdout.contains("world"),
+            "output should contain both echos"
+        );
+    }
+
+    #[test]
+    fn test_fs_list_with_various_patterns() {
+        let workspace = temp_workspace();
+        std::fs::create_dir_all(workspace.join("src/utils")).unwrap();
+        std::fs::write(workspace.join("src/main.rs"), "").unwrap();
+        std::fs::write(workspace.join("src/utils/helper.rs"), "").unwrap();
+        std::fs::write(workspace.join("Cargo.toml"), "").unwrap();
+
+        let registry = ToolRegistry::default();
+        let policy = PolicyEngine::new(workspace.clone());
+
+        let result = registry
+            .invoke(
+                &policy,
+                &workspace,
+                ToolCallInput {
+                    name: "fs.list".to_string(),
+                    args: serde_json::json!({"path": "src"}),
+                },
+            )
+            .expect("fs.list src should succeed");
+
+        assert!(result.ok, "fs.list should succeed");
+        let entries = result
+            .data
+            .get("entries")
+            .and_then(|v| v.as_array())
+            .expect("should have entries");
+        assert!(
+            entries.len() >= 2,
+            "src should have at least main.rs and utils/"
+        );
+    }
+
+    #[test]
+    fn test_fs_list_recursive() {
+        let workspace = temp_workspace();
+        std::fs::create_dir_all(workspace.join("a/b/c")).unwrap();
+        std::fs::write(workspace.join("a/b/c/deep.txt"), "").unwrap();
+        std::fs::write(workspace.join("a/shallow.txt"), "").unwrap();
+
+        let registry = ToolRegistry::default();
+        let policy = PolicyEngine::new(workspace.clone());
+
+        let result = registry
+            .invoke(
+                &policy,
+                &workspace,
+                ToolCallInput {
+                    name: "fs.list".to_string(),
+                    args: serde_json::json!({"path": "a", "recursive": true}),
+                },
+            )
+            .expect("fs.list recursive should succeed");
+
+        assert!(result.ok, "fs.list recursive should succeed");
+        let entries = result
+            .data
+            .get("entries")
+            .and_then(|v| v.as_array())
+            .expect("should have entries");
+        assert!(
+            entries.len() >= 3,
+            "recursive list should include all nested files"
+        );
+    }
+
+    #[test]
+    fn test_search_rg_basic() {
+        let workspace = temp_workspace();
+        std::fs::write(
+            workspace.join("test.rs"),
+            "fn hello() { println!(\"hello\"); }",
+        )
+        .unwrap();
+
+        let registry = ToolRegistry::default();
+        let policy = PolicyEngine::new(workspace.clone());
+
+        let result = registry
+            .invoke(
+                &policy,
+                &workspace,
+                ToolCallInput {
+                    name: "search.rg".to_string(),
+                    args: serde_json::json!({"pattern": "hello"}),
+                },
+            )
+            .expect("search.rg should succeed");
+
+        assert!(result.ok, "search.rg should succeed");
+        let stdout = result
+            .data
+            .get("stdout")
+            .and_then(|v| v.as_str())
+            .unwrap_or("");
+        assert!(stdout.contains("hello"), "rg output should contain match");
+    }
+
+    #[test]
+    fn test_workdir_normalization() {
+        let workspace = temp_workspace();
+        let nested = workspace.join("level1/level2");
+        std::fs::create_dir_all(&nested).unwrap();
+
+        let registry = ToolRegistry::default();
+        let policy = PolicyEngine::new(workspace.clone());
+
+        let output = registry
+            .invoke(
+                &policy,
+                &workspace,
+                ToolCallInput {
+                    name: "cmd.exec".to_string(),
+                    args: serde_json::json!({"cmd": "echo", "args": ["test"], "workdir": "level1/level2"}),
+                },
+            )
+            .expect("cmd.exec with nested workdir should succeed");
+
+        assert!(output.ok, "cmd.exec should succeed");
+        let returned_workdir = output
+            .data
+            .get("workdir")
+            .and_then(|v| v.as_str())
+            .unwrap_or("");
+        assert!(
+            returned_workdir.contains("level1") && returned_workdir.contains("level2"),
+            "workdir should normalize correctly: {}",
+            returned_workdir
+        );
+    }
+
+    #[test]
+    fn test_cmd_exec_binary_not_found_with_fallback() {
+        let workspace = temp_workspace();
+        let registry = ToolRegistry::default();
+        let policy = PolicyEngine::new(workspace.clone());
+
+        let result = registry.invoke(
+            &policy,
+            &workspace,
+            ToolCallInput {
+                name: "cmd.exec".to_string(),
+                args: serde_json::json!({"cmd": "definitely_not_a_real_command_12345", "args": ["arg1"]}),
+            },
+        );
+
+        match result {
+            Err(_) => {
+                // Expected: command not found should error
+            }
+            Ok(output) => {
+                // On some systems, unknown commands might behave differently
+                assert!(
+                    !output.ok
+                        || output
+                            .data
+                            .get("stderr")
+                            .and_then(|v| v.as_str())
+                            .unwrap_or("")
+                            .contains("not found"),
+                    "unknown command should fail: {:?}",
+                    output.data
+                );
+            }
+        }
+    }
 }

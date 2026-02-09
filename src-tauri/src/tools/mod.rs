@@ -706,11 +706,111 @@ impl Tool for CommandExecTool {
     }
 }
 
+/// Translates common Unix shell commands to Windows equivalents.
+/// This helps when the LLM generates Unix commands on Windows.
+#[cfg(target_os = "windows")]
+pub fn translate_unix_to_windows(command: &str) -> String {
+    let trimmed = command.trim();
+
+    // Handle "which" command -> "where"
+    if trimmed.starts_with("which ") {
+        return trimmed.replacen("which ", "where ", 1);
+    }
+
+    // Handle "rm -rf" -> rmdir /s /q
+    if trimmed.starts_with("rm") {
+        let after_rm = &trimmed[2..].trim_start();
+        if after_rm.starts_with("-rf ") || after_rm.starts_with("-r ") {
+            let after_flags = after_rm[after_rm.find(' ').unwrap_or(0)..].trim_start();
+            return format!("rmdir /s /q {}", after_flags);
+        }
+        // Single file rm (not -rf, -r, etc.)
+        if !after_rm.starts_with('-') {
+            let path = after_rm.trim();
+            return format!("del /q {}", path);
+        }
+    }
+
+    // Handle "rm " (single file) -> del
+    if trimmed.starts_with("rm ") && !trimmed.contains(" -") {
+        let parts: Vec<&str> = trimmed.split_whitespace().collect();
+        if parts.len() >= 2 {
+            return format!("del /q {}", parts[1]);
+        }
+    }
+
+    // Handle "mkdir -p" -> mkdir (Windows mkdir doesn't need -p)
+    if trimmed.starts_with("mkdir -p ") {
+        let path = trimmed.split_whitespace().nth(2).unwrap_or("");
+        return format!("mkdir {}", path);
+    }
+
+    // Handle "cp -r" or "cp -a" -> xcopy /e /i /h
+    if trimmed.starts_with("cp -r ")
+        || trimmed.starts_with("cp -a ")
+        || trimmed.starts_with("cp -R ")
+    {
+        let parts: Vec<&str> = trimmed.split_whitespace().collect();
+        if parts.len() >= 3 {
+            let src = parts[parts.len() - 2];
+            let dst = parts[parts.len() - 1];
+            return format!("xcopy /e /i /h {} {}", src, dst);
+        }
+    }
+
+    // Handle "cp " (single file) -> copy
+    if trimmed.starts_with("cp ") && !trimmed.contains(" -") {
+        let parts: Vec<&str> = trimmed.split_whitespace().collect();
+        if parts.len() >= 3 {
+            let src = parts[1];
+            let dst = parts[2];
+            return format!("copy {} {}", src, dst);
+        }
+    }
+
+    // Handle "mv " -> move
+    if trimmed.starts_with("mv ") && !trimmed.starts_with("mv -") {
+        let parts: Vec<&str> = trimmed.split_whitespace().collect();
+        if parts.len() >= 3 {
+            let src = parts[1];
+            let dst = parts[2];
+            return format!("move {} {}", src, dst);
+        }
+    }
+
+    // Handle "touch " -> type nul >
+    if trimmed.starts_with("touch ") {
+        let path = trimmed.split_whitespace().nth(1).unwrap_or("");
+        return format!("type nul > {}", path);
+    }
+
+    // Handle "cat " -> type
+    if trimmed.starts_with("cat ") {
+        let path = trimmed.split_whitespace().nth(1).unwrap_or("");
+        return format!("type {}", path);
+    }
+
+    // Handle "ls " -> dir (basic listing, ignore flags since dir doesn't support them)
+    if trimmed.starts_with("ls ") || trimmed == "ls" {
+        return "dir".to_string();
+    }
+
+    // Handle "cd path && command" by stripping the cd part (workdir should be used instead)
+    if trimmed.starts_with("cd ") && trimmed.contains(" && ") {
+        if let Some(pos) = trimmed.find(" && ") {
+            return trimmed[pos + 4..].to_string();
+        }
+    }
+
+    command.to_string()
+}
+
 fn run_shell_command(cwd: &Path, command: &str) -> Result<std::process::Output, ToolError> {
     #[cfg(target_os = "windows")]
     {
+        let translated = translate_unix_to_windows(command);
         return Command::new("cmd")
-            .args(["/C", command])
+            .args(["/C", &translated])
             .current_dir(cwd)
             .output()
             .map_err(|e| ToolError::Execution(e.to_string()));
