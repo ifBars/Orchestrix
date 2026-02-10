@@ -9,6 +9,18 @@ use uuid::Uuid;
 #[cfg(test)]
 mod integration;
 
+#[cfg(test)]
+mod agentic;
+
+#[cfg(test)]
+mod events;
+
+#[cfg(test)]
+mod tools;
+
+#[cfg(test)]
+mod providers;
+
 /// Mutex to ensure skills tests run serially and don't interfere with each other
 /// via the ORCHESTRIX_SKILLS_PATH environment variable.
 pub static SKILLS_TEST_MUTEX: Mutex<()> = Mutex::new(());

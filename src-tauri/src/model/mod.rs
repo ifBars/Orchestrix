@@ -2,6 +2,8 @@ pub mod kimi;
 pub mod minimax;
 mod shared;
 
+pub(crate) use shared::strip_tool_call_markup;
+
 use crate::core::tool::ToolDescriptor;
 
 #[derive(Debug, Clone)]
@@ -52,6 +54,8 @@ pub struct WorkerDecision {
     pub action: WorkerAction,
     /// Model's chain-of-thought reasoning, if the provider returned it.
     pub reasoning: Option<String>,
+    /// Raw response from the provider for debugging purposes.
+    pub raw_response: Option<String>,
 }
 
 #[derive(Debug, thiserror::Error)]

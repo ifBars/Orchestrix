@@ -37,10 +37,11 @@ Orchestrix follows a **backend-authoritative, event-driven** architecture where 
 │  │  (Tauri)     │  │              │  │  (MiniMax/   │              │
 │  │              │  │ - Task Mgmt  │  │   Kimi)      │              │
 │  │ - create_    │  │ - Run Coord  │  │              │              │
-│  │   task       │  │ - Sub-agent  │  │ - Generate   │              │
-│  │ - start_     │  │   delegation │  │   plan       │              │
-│  │   task       │  │ - Approval   │  │ - Parse      │              │
-│  │ - list_      │  │   gates      │  │   response   │              │
+│  │   task       │  │ - Sub-agent  │  │ - Multi-turn │              │
+│  │ - run_plan_  │  │   delegation │  │   plan loop  │              │
+│  │   mode       │  │ - Approval   │  │ - Tools +    │              │
+│  │ - run_build_ │  │   gates      │  │   create_    │              │
+│  │ - list_      │  │              │  │   artifact   │              │
 │  │   tasks      │  │              │  │              │              │
 │  └──────────────┘  └──────────────┘  └──────────────┘              │
 │  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐              │
@@ -92,19 +93,20 @@ User Input
          │
          ▼
 ┌─────────────────┐
-│  start_task()   │  Initiate planning phase
+│  start_task()   │  Invokes run_plan_mode (planning phase)
 └────────┬────────┘
          │
          ▼
 ┌─────────────────┐
-│ Planner.generate│  LLM generates plan from prompt
-│     _plan()     │
+│ Multi-turn      │  Plan-mode agent loop: decide_worker_action
+│ plan loop       │  → tool calls (fs.list, fs.read, …) → execute
+│ (planner)       │  → until agent.create_artifact → extract plan
 └────────┬────────┘
          │
          ▼
 ┌─────────────────┐
-│  plan_ready     │  UI displays plan for review
-│    event        │
+│ artifact.created│  Plan artifact written; agent.plan_ready
+│ plan_ready      │  emitted. UI displays plan for review
 └────────┬────────┘
          │
          ▼
@@ -221,7 +223,7 @@ Frontend (React)
 |--------|------|---------|
 | `commands` | `commands/` | Tauri command handlers (IPC entry points) |
 | `orchestrator` | `runtime/orchestrator/` | Task execution and coordination |
-| `planner` | `runtime/planner.rs` | LLM plan generation |
+| `planner` | `runtime/planner.rs` | Multi-turn plan generation (tool loop + agent.create_artifact) |
 | `event_bus` | `bus/event_bus.rs` | Event publishing and subscription |
 | `batcher` | `bus/batcher.rs` | Event batching for frontend |
 | `tools` | `tools/` | Tool registry and implementations |

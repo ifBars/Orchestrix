@@ -2,6 +2,8 @@ use super::*;
 use crate::core::prompt_references::expand_prompt_references;
 
 impl Orchestrator {
+    /// Legacy: unified plan+build entry. Current flow uses run_plan_mode then run_build_mode separately.
+    #[allow(dead_code)]
     pub fn start_task(
         &self,
         task: queries::TaskRow,
@@ -343,6 +345,7 @@ impl Orchestrator {
         }
     }
 
+    #[allow(dead_code)]
     async fn run_full_orchestration(
         &self,
         task: queries::TaskRow,

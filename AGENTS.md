@@ -29,7 +29,19 @@ Agents do **not** directly manipulate UI or global state.
 
 ## Agent Roles (Current)
 
-### 1. Worker Agent
+### 1. Plan-Mode Agent (Planning)
+**Model**: Same provider as worker (MiniMax or Kimi).
+
+**Responsibilities**
+- Run in a **multi-turn loop** (like the worker): decide → tool calls → execute tools → decide again.
+- Use **plan-mode tools** only: read-only (e.g. `fs.list`, `fs.read`, `search.rg`, `git.*`), plus `agent.create_artifact` and `agent.request_build_mode`.
+- Explore the workspace autonomously before submitting a plan.
+- **Submit the plan** by calling `agent.create_artifact` with the plan markdown (filename e.g. `plan.md`, kind `plan`, content = full markdown). The orchestrator does **not** auto-create an artifact from the first message; the plan is only finalized when the model calls `agent.create_artifact`.
+
+**Constraints**
+- No write/exec tools in plan mode; plan output is only via `agent.create_artifact`.
+
+### 2. Worker Agent (Build Mode)
 **Model**: Provider-configurable (`MiniMax-M2.1` or `kimi-k2.5` by default)
 
 **Responsibilities**
@@ -63,13 +75,19 @@ Agents do **not** directly manipulate UI or global state.
    - User submits a request
    - Task persisted to local database
 
-2. **Execution Phase**
-   - Worker agent executes user request(s) in a natural conversational loop
-   - Worker may call tools one or many at a time (native tool calling where provider supports it)
-   - Tools invoked via permission-gated layer
-   - Events streamed to UI
+2. **Plan Phase** (plan mode)
+   - User starts planning (e.g. "Plan" or "Generate plan").
+   - Plan-mode agent runs in a **multi-turn loop**: can use read-only tools (fs.list, fs.read, search.rg, etc.) to explore the workspace, then must call `agent.create_artifact` to submit the plan. No artifact is created by the orchestrator until the model does so.
+   - Events: `agent.planning_started`, `agent.deciding`, `agent.tool_calls_preparing`, `tool.call_started` / `tool.call_finished`, then `artifact.created` and `agent.plan_ready` when the plan is submitted.
+   - Task moves to `awaiting_review`; user can approve or send feedback.
 
-3. **Completion**
+3. **Execution Phase** (build mode)
+   - After plan approval, worker agent executes in a natural conversational loop.
+   - Worker may call tools one or many at a time (native tool calling where provider supports it).
+   - Tools invoked via permission-gated layer.
+   - Events streamed to UI.
+
+4. **Completion**
    - Task marked as `completed` or `failed`
    - Artifacts & chat finalized and persisted
 
@@ -151,6 +169,29 @@ All communication happens via events emitted by the backend.
 - Events are append-only
 - High-frequency events are batched
 - UI must be able to reconstruct state from events + DB
+
+### Event catalog (immediate vs batched)
+
+Events for which the batcher flushes immediately (no 100ms delay): `task.*`, `agent.step_*`, `agent.deciding`, `agent.tool_calls_preparing`. All other events are batched.
+
+**UX feedback events** (so the user sees the AI is not frozen):
+
+- `agent.deciding` — emitted at the start of each worker turn before the model is called; payload: `task_id`, `run_id`, `step_idx`, `sub_agent_id`, `turn`. Frontend shows "Thinking…".
+- `agent.tool_calls_preparing` — emitted when the model has returned tool calls but before any `tool.call_started`; payload: `task_id`, `run_id`, `tool_names[]`, `step_idx`, `sub_agent_id`. Frontend shows "Preparing: fs.write, …".
+
+**Planning (plan mode) events:**
+
+- `agent.planning_started` — plan generation began; payload: `task_id`. Frontend shows "Generating execution plan…".
+- `agent.deciding` — each planning turn (same as worker); payload includes `task_id`, `run_id`, `turn`. Plan mode runs a multi-turn loop until the model calls `agent.create_artifact`.
+- `agent.tool_calls_preparing` — plan-mode tool calls (e.g. fs.list, fs.read, then agent.create_artifact); payload: `task_id`, `run_id`, `tool_names[]`, `turn`.
+- `tool.call_started` / `tool.call_finished` — tool executions during planning (read-only tools + agent.create_artifact).
+- `agent.plan_message` — assistant message (e.g. "I drafted a plan…"); payload: `task_id`, `content`. Shown in the chat timeline.
+- `agent.plan_ready` — structured plan is available after the model calls `agent.create_artifact`; payload: `task_id`, `plan`: `{ goal_summary, steps: [{ title, description }], completion_criteria? }`. Parsed from the plan markdown so the UI can show goal and step list inline.
+- `artifact.created` — emitted when the plan artifact is written (content comes from `agent.create_artifact`; the orchestrator does not create an artifact from the first model message).
+
+Plan mode is **multi-turn**: the agent may use tools to explore the workspace, then must submit the plan by calling `agent.create_artifact`. Only then is the plan artifact written and `agent.plan_ready` emitted.
+
+**Artifact events:** `artifact.created` may optionally include `content` or `content_preview` for UI preview. Future: `artifact.content_delta` for streaming artifact content.
 
 ---
 

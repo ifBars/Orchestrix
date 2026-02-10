@@ -419,6 +419,16 @@ export const useAppStore = create<AppStoreState>((set, get) => ({
         reference_task_ids: options?.referenceTaskIds ?? null,
       },
     });
+    // Show the new task in the UI immediately so the conversation appears (avoids empty chat in plan mode
+    // while run_plan_mode is still running).
+    set((prev) => ({
+      tasks: [created, ...prev.tasks],
+      selectedTaskId: created.id,
+      taskLinksByTask: {
+        ...prev.taskLinksByTask,
+        [created.id]: [],
+      },
+    }));
     const state = get();
     try {
       const command = options?.mode === "build" ? "run_build_mode" : "run_plan_mode";
@@ -436,7 +446,7 @@ export const useAppStore = create<AppStoreState>((set, get) => ({
     ]);
     set((prev) => ({
       tasks,
-      selectedTaskId: created.id,
+      selectedTaskId: prev.selectedTaskId,
       taskLinksByTask: {
         ...prev.taskLinksByTask,
         [created.id]: linkRowsToIds(created.id, links),

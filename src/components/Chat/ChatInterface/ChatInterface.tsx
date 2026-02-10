@@ -103,9 +103,11 @@ export function ChatInterface({
     return items.filter((item) => {
       if (item.type === "statusChange" && !item.content && !item.subAgentId)
         return false;
+      // Avoid duplicating the initial user message: we already show task.prompt in the timeline header
+      if (item.type === "userMessage" && item.content === task.prompt) return false;
       return true;
     });
-  }, [items]);
+  }, [items, task.prompt]);
 
   const isWorking = task.status === "planning" || task.status === "executing";
   const renderKey = (item: { id: string; seq: number }, idx: number) =>

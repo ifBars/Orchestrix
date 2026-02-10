@@ -1,5 +1,6 @@
 use serde::{Deserialize, Serialize};
 
+use crate::core::tool::ToolDescriptor;
 use super::shared::{
     extract_json_object, normalize_worker_json, plan_markdown_system_prompt, worker_system_prompt,
 };
@@ -40,9 +41,32 @@ impl KimiPlanner {
         }
     }
 
-    async fn run_chat_json(&self, system: &str, user: &str, max_tokens: u32) -> Result<String, ModelError> {
-        // Kimi uses OpenAI-compatible API: /v1/chat/completions
+    /// Single chat completion path with optional tools (OpenAI-compatible). All agents use this.
+    async fn run_chat(
+        &self,
+        system: &str,
+        user: &str,
+        max_tokens: u32,
+        tools: Option<Vec<ToolDescriptor>>,
+    ) -> Result<String, ModelError> {
         let endpoint = format!("{}/v1/chat/completions", self.base_url.trim_end_matches('/'));
+        let openai_tools = tools.and_then(|t| {
+            if t.is_empty() {
+                return None;
+            }
+            Some(
+                t.iter()
+                    .map(|d| OpenAiTool {
+                        type_: "function".to_string(),
+                        function: OpenAiFunction {
+                            name: d.name.clone(),
+                            description: d.description.clone(),
+                            parameters: d.input_schema.clone(),
+                        },
+                    })
+                    .collect::<Vec<_>>(),
+            )
+        });
         let body = OpenAiChatRequest {
             model: self.model.clone(),
             messages: vec![
@@ -58,6 +82,7 @@ impl KimiPlanner {
             temperature: 0.1,
             max_tokens,
             stream: false,
+            tools: openai_tools,
         };
 
         let response = self
@@ -103,13 +128,17 @@ impl KimiPlanner {
             .ok_or_else(|| ModelError::InvalidResponse("missing choices[0].message.content".to_string()))
     }
 
+    /// Single-turn plan generation; used by integration tests. Production plan mode uses
+    /// multi-turn run_multi_turn_planning in the runtime planner.
+    #[allow(dead_code)]
     pub async fn generate_plan_markdown(
         &self,
         task_prompt: &str,
         prior_markdown_context: &str,
+        _tool_descriptors: Vec<ToolDescriptor>,
     ) -> Result<String, ModelError> {
         let user = format!(
-            "Task prompt:\n{}\n\nExisting markdown context (if any):\n{}\n\nWrite a revised or fresh implementation plan as a markdown artifact.",
+            "Task prompt:\n{}\n\nExisting markdown context (if any):\n{}\n\nWrite a revised or fresh implementation plan as a markdown artifact. Output only the markdown plan, no tool calls or tags.",
             task_prompt,
             if prior_markdown_context.trim().is_empty() {
                 "(none)"
@@ -118,8 +147,13 @@ impl KimiPlanner {
             }
         );
 
+        let tools_arg = if _tool_descriptors.is_empty() {
+            None
+        } else {
+            Some(_tool_descriptors)
+        };
         let markdown = self
-            .run_chat_json(&plan_markdown_system_prompt(), &user, 2200)
+            .run_chat(&plan_markdown_system_prompt(), &user, 2200, tools_arg)
             .await?;
 
         if markdown.trim().is_empty() {
@@ -165,8 +199,13 @@ impl PlannerModel for KimiPlanner {
         );
 
         let system = worker_system_prompt();
+        let tools_arg = if req.tool_descriptors.is_empty() {
+            None
+        } else {
+            Some(req.tool_descriptors.clone())
+        };
         let raw = self
-            .run_chat_json(&system, &user, 16000)
+            .run_chat(&system, &user, 16000, tools_arg)
             .await?;
         let json_text = extract_json_object(raw.trim())
             .ok_or_else(|| ModelError::InvalidResponse("worker returned no JSON object".to_string()))?;
@@ -183,7 +222,7 @@ impl PlannerModel for KimiPlanner {
 
         // Kimi doesn't expose a separate reasoning_content field,
         // so reasoning is always None for now.
-        Ok(WorkerDecision { action, reasoning: None })
+        Ok(WorkerDecision { action, reasoning: None, raw_response: Some(raw) })
     }
 }
 
@@ -194,6 +233,22 @@ struct OpenAiChatRequest {
     temperature: f32,
     max_tokens: u32,
     stream: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    tools: Option<Vec<OpenAiTool>>,
+}
+
+#[derive(Debug, Serialize)]
+struct OpenAiTool {
+    #[serde(rename = "type")]
+    type_: String,
+    function: OpenAiFunction,
+}
+
+#[derive(Debug, Serialize)]
+struct OpenAiFunction {
+    name: String,
+    description: String,
+    parameters: serde_json::Value,
 }
 
 #[derive(Debug, Serialize, Deserialize)]

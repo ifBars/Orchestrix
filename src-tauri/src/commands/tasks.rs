@@ -65,6 +65,20 @@ pub fn create_task(
     )
     .map_err(AppError::Other)?;
 
+    // Emit user message event so the prompt appears in the chat UI immediately
+    emit_and_record(
+        &state.db,
+        &state.bus,
+        "user",
+        "user.message_sent",
+        None,
+        serde_json::json!({
+            "task_id": &row.id,
+            "content": &row.prompt,
+        }),
+    )
+    .map_err(AppError::Other)?;
+
     Ok(row)
 }
 

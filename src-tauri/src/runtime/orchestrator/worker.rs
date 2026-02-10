@@ -1,4 +1,5 @@
 use super::*;
+use crate::bus::{CATEGORY_AGENT, EVENT_AGENT_DECIDING, EVENT_AGENT_TOOL_CALLS_PREPARING};
 
 pub(super) async fn execute_step_with_tools(
     db: &Database,
@@ -74,11 +75,28 @@ pub(super) async fn execute_step_with_tools(
     });
 
     let mut observations: Vec<serde_json::Value> = Vec::new();
+    #[allow(unused_assignments)]
     let mut completion_summary: Option<String> = None;
     let mut turn: usize = 0;
 
     loop {
         turn += 1;
+
+        let _ = emit_and_record(
+            db,
+            bus,
+            CATEGORY_AGENT,
+            EVENT_AGENT_DECIDING,
+            Some(run_id.to_string()),
+            serde_json::json!({
+                "task_id": task_id,
+                "run_id": run_id,
+                "step_idx": step.idx,
+                "sub_agent_id": sub_agent.id,
+                "turn": turn,
+            }),
+        );
+
         let decision = if let Some(model) = &worker_model {
             model
                 .decide(WorkerActionRequest {
@@ -106,7 +124,7 @@ pub(super) async fn execute_step_with_tools(
                     summary: "No tool intent found in fallback mode".to_string(),
                 },
             };
-            WorkerDecision { action: fallback_action, reasoning: None }
+            WorkerDecision { action: fallback_action, reasoning: None, raw_response: None }
         };
 
         // Emit model reasoning (chain-of-thought) as thinking if present
@@ -126,6 +144,24 @@ pub(super) async fn execute_step_with_tools(
                     }),
                 );
             }
+        }
+
+        // Emit raw provider response for debugging
+        if let Some(raw) = &decision.raw_response {
+            let _ = emit_and_record(
+                db,
+                bus,
+                "agent",
+                "agent.raw_response",
+                Some(run_id.to_string()),
+                serde_json::json!({
+                    "task_id": task_id,
+                    "sub_agent_id": sub_agent.id,
+                    "step_idx": step.idx,
+                    "turn": turn,
+                    "content": raw,
+                }),
+            );
         }
 
         let action = decision.action;
@@ -166,6 +202,22 @@ pub(super) async fn execute_step_with_tools(
                 break;
             }
             WorkerAction::ToolCalls { calls } => {
+                let tool_names: Vec<String> = calls.iter().map(|c| c.tool_name.clone()).collect();
+                let _ = emit_and_record(
+                    db,
+                    bus,
+                    CATEGORY_AGENT,
+                    EVENT_AGENT_TOOL_CALLS_PREPARING,
+                    Some(run_id.to_string()),
+                    serde_json::json!({
+                        "task_id": task_id,
+                        "run_id": run_id,
+                        "tool_names": tool_names,
+                        "step_idx": step.idx,
+                        "sub_agent_id": sub_agent.id,
+                    }),
+                );
+
                 for call in calls {
                     let tool_name = call.tool_name;
                     let tool_args = call.tool_args;

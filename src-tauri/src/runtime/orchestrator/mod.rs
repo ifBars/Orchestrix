@@ -18,7 +18,7 @@
 //!
 //! The orchestrator is initialized once in `lib.rs` and shared via `AppState`:
 //!
-//! ```rust
+//! ```ignore
 //! let orchestrator = Arc::new(Orchestrator::new(db, bus, workspace_root));
 //! ```
 
@@ -172,6 +172,14 @@ impl Orchestrator {
 
     pub fn worktree_manager(&self) -> &Arc<WorktreeManager> {
         &self.worktree_manager
+    }
+
+    pub fn tool_registry(&self) -> &Arc<ToolRegistry> {
+        &self.tool_registry
+    }
+
+    pub fn approval_gate(&self) -> &Arc<ApprovalGate> {
+        &self.approval_gate
     }
 
     pub fn set_workspace_root(&self, workspace_root: PathBuf) {

@@ -63,6 +63,8 @@ fn platform_rules_section() -> &'static str {
 // System prompts
 // ---------------------------------------------------------------------------
 
+/// Used by single-turn generate_plan_markdown (tests). Production uses decide_worker_action with plan-mode context.
+#[allow(dead_code)]
 pub(super) fn plan_markdown_system_prompt() -> String {
     let base = base_system_prompt();
 
@@ -112,7 +114,7 @@ You have access to these read-only and planning tools:
 - `search.rg` - Search codebase
 - `git.status`, `git.diff`, `git.log` - Git operations (read-only)
 - `skills.list`, `skills.load` - Load skills for context
-- `agent.todo` - Track planning tasks
+- `agent.todo` - Track planning tasks. Use `list_id` parameter to scope todos to your agent/run (prevents conflicts with parent/sub-agents).
 - `agent.create_artifact` - **CREATE your planning artifacts here**
 - `agent.request_build_mode` - Request switch to BUILD mode
 
@@ -148,6 +150,26 @@ You have access to these read-only and planning tools:
 ## Notes
 [Any additional context, references, or thoughts]
 ```
+
+## Writing Guidelines
+
+### File Tree Diagrams
+When including project structure or file trees, use simple ASCII characters to avoid encoding issues:
+
+**Preferred (ASCII-safe):**
+```
+project/
+  src/
+    components/
+      App.jsx
+      Button.jsx
+    utils/
+      helpers.js
+  public/
+    index.html
+```
+
+**Avoid:** Unicode box-drawing characters like `├──`, `└──`, `│` as they may display incorrectly on some systems.
 
 ## Delegation Policy
 
@@ -282,6 +304,121 @@ pub fn extract_json_object(input: &str) -> Option<String> {
         return None;
     }
     Some(input[start..=end].to_string())
+}
+
+// ---------------------------------------------------------------------------
+// Strip tool-call markup from model output
+// ---------------------------------------------------------------------------
+
+/// Removes MiniMax-style XML/tool-call syntax that can leak into `reasoning_content`
+/// or `content` and appear in the UI. MiniMax sometimes returns tool invocations as
+/// inline markup (e.g. `minimax:tool_call [blocked] invoke xmlns="..." name="agent.create_artifact">`).
+/// This strips those fragments so only human-readable text is shown.
+pub fn strip_tool_call_markup(text: &str) -> String {
+    if text.is_empty() {
+        return String::new();
+    }
+    let mut out = String::with_capacity(text.len());
+    let mut i = 0;
+    let bytes = text.as_bytes();
+    while i < bytes.len() {
+        // Match "<<agent.create_artifact>" (model sometimes emits tool call as angle-bracket tag)
+        if text
+            .get(i..)
+            .map_or(false, |s| s.starts_with("<<agent.create_artifact>"))
+        {
+            i += 22; // skip "<<agent.create_artifact>"
+            while i < bytes.len()
+                && (bytes[i] == b' ' || bytes[i] == b'\t' || bytes[i] == b'\n' || bytes[i] == b'\r')
+            {
+                i += 1;
+            }
+            continue;
+        }
+        // Match "<content>" or "</content>" (wrapper some models emit around the plan body)
+        if text.get(i..).map_or(false, |s| s.starts_with("<content>")) {
+            i += 9;
+            continue;
+        }
+        if text.get(i..).map_or(false, |s| s.starts_with("</content>")) {
+            i += 10;
+            continue;
+        }
+        // Match "minimax:tool_call" or similar (e.g. with [blocked]) up to and including the first '>'
+        if text
+            .get(i..)
+            .map_or(false, |s| s.starts_with("minimax:tool_call"))
+        {
+            i += 14;
+            while i < bytes.len() && bytes[i] != b'>' {
+                i += 1;
+            }
+            if i < bytes.len() {
+                i += 1; // skip '>'
+            }
+            // Skip trailing whitespace so we don't leave a stray newline
+            while i < bytes.len()
+                && (bytes[i] == b' ' || bytes[i] == b'\t' || bytes[i] == b'\n' || bytes[i] == b'\r')
+            {
+                i += 1;
+            }
+            // If the next token looks like attribute junk (filename="...", content="..."), skip to end of line or next real content
+            if text.get(i..).map_or(false, |s| s.starts_with("filename=")) {
+                while i < bytes.len() && bytes[i] != b'\n' {
+                    i += 1;
+                }
+                if i < bytes.len() {
+                    i += 1;
+                }
+            }
+            continue;
+        }
+        // Match standalone "invoke xmlns=" ... ">" on the same logical line (tool invocation tag)
+        if text.get(i..).map_or(false, |s| s.starts_with("invoke ")) {
+            let mut j = i + 7;
+            while j < bytes.len() && bytes[j] != b'\n' {
+                if bytes[j] == b'>' {
+                    // Skip from line_start to and including '>'
+                    i = j + 1;
+                    while i < bytes.len()
+                        && (bytes[i] == b' '
+                            || bytes[i] == b'\t'
+                            || bytes[i] == b'\n'
+                            || bytes[i] == b'\r')
+                    {
+                        i += 1;
+                    }
+                    break;
+                }
+                j += 1;
+            }
+            if j >= bytes.len() || bytes[j] == b'\n' {
+                // No '>' on this line, not a tag; emit "invoke " and continue
+                out.push_str("invoke ");
+                i += 7;
+            }
+            continue;
+        }
+        out.push(char::from(bytes[i]));
+        i += 1;
+    }
+    // Collapse multiple blank lines and trim
+    let trimmed = out.trim();
+    let lines: Vec<&str> = trimmed.lines().collect();
+    let mut result = String::new();
+    let mut prev_blank = false;
+    for line in lines {
+        let blank = line.trim().is_empty();
+        if blank && prev_blank {
+            continue;
+        }
+        prev_blank = blank;
+        if !result.is_empty() {
+            result.push('\n');
+        }
+        result.push_str(line);
+    }
+    result.trim().to_string()
 }
 
 // ---------------------------------------------------------------------------
@@ -450,5 +587,75 @@ fn normalize_tool_args(map: &mut serde_json::Map<String, serde_json::Value>) {
         } else {
             map.insert("tool_args".to_string(), serde_json::json!({}));
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::strip_tool_call_markup;
+
+    #[test]
+    fn strip_tool_call_markup_removes_minimax_tool_call_syntax() {
+        // Exact pattern that can leak from MiniMax into reasoning_content or content
+        let leaked = concat!(
+            "minimax:tool_call [blocked] invoke xmlns=\"http://www.apache.org/xml/processors/internal\" ",
+            "name=\"agent.create_artifact\"> filename=\"plan.md\" content=\"# Plan: Three.js 3D Car Racing Game\""
+        );
+        let out = strip_tool_call_markup(leaked);
+        let bad1 = "minimax:tool_call";
+        let bad2 = "invoke xmlns=";
+        let bad3 = "name=\"agent.create_artifact\"";
+        let bad4 = "filename=\"plan.md\"";
+        assert!(!out.contains(bad1), "should remove minimax tool_call tag");
+        assert!(!out.contains(bad2), "should remove invoke xmlns");
+        assert!(
+            !out.contains(bad3),
+            "should remove name=agent.create_artifact"
+        );
+        assert!(!out.contains(bad4), "should remove filename= line");
+    }
+
+    #[test]
+    fn strip_tool_call_markup_preserves_normal_text() {
+        let normal =
+            "I'll create a comprehensive plan for building this Three.js 3D car racing game.";
+        let out = strip_tool_call_markup(normal);
+        assert_eq!(out, normal);
+    }
+
+    #[test]
+    fn strip_tool_call_markup_removes_invoke_tag_keeps_rest() {
+        let mixed = "Some reasoning here.\ninvoke xmlns=\"http://example.com\" name=\"agent.create_artifact\">\nMore text after.";
+        let out = strip_tool_call_markup(mixed);
+        assert!(out.contains("Some reasoning here."));
+        assert!(out.contains("More text after."));
+        assert!(!out.contains("invoke xmlns="));
+    }
+
+    #[test]
+    fn strip_tool_call_markup_empty() {
+        assert_eq!(strip_tool_call_markup(""), "");
+        assert_eq!(strip_tool_call_markup("   "), "");
+    }
+
+    /// Real-world leak: model output with <<agent.create_artifact> and <content> wrapper.
+    #[test]
+    fn strip_tool_call_markup_angle_bracket_artifact_and_content_wrapper() {
+        let leaked = concat!(
+            "I'll create a comprehensive plan for building a Three.js 3D car racing game using the develop-web-game skill workflow.\n",
+            "<<agent.create_artifact>\n",
+            "<content># Plan: Three.js 3D Car Racing Game\n\n",
+            "## Overview\n\n",
+            "Build a 3D car racing game..."
+        );
+        let out = strip_tool_call_markup(leaked);
+        assert!(
+            !out.contains("<<agent.create_artifact>"),
+            "must remove <<agent.create_artifact> tag"
+        );
+        assert!(!out.contains("<content>"), "must remove <content> tag");
+        assert!(out.contains("# Plan: Three.js 3D Car Racing Game"));
+        assert!(out.contains("## Overview"));
+        assert!(out.contains("I'll create a comprehensive plan"));
     }
 }

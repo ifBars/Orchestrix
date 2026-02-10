@@ -152,6 +152,10 @@ impl PolicyEngine {
             "copy",
             "move",
             "type",
+            "rmdir",
+            // Shell built-ins (used for command availability checks)
+            "command",
+            "type",
             // Common dev tools
             "echo",
             "tar",

@@ -1,7 +1,9 @@
 use serde::{Deserialize, Serialize};
 
+use crate::core::tool::ToolDescriptor;
 use super::shared::{
     extract_json_object, normalize_worker_json, plan_markdown_system_prompt,
+    strip_tool_call_markup,
 };
 use super::{ModelError, PlannerModel, WorkerAction, WorkerActionRequest, WorkerDecision, WorkerToolCall};
 
@@ -31,71 +33,17 @@ impl MiniMaxPlanner {
         }
     }
 
-    async fn run_chat_json(&self, system: &str, user: &str, max_tokens: u32) -> Result<MiniMaxResponseMessage, ModelError> {
-        let endpoint = format!("{}{}", self.base_url.trim_end_matches('/'), MINIMAX_CHAT_PATH);
-        let body = MiniMaxChatRequest {
-            model: self.model.clone(),
-            messages: vec![
-                MiniMaxMessage {
-                    role: "system".to_string(),
-                    content: system.to_string(),
-                },
-                MiniMaxMessage {
-                    role: "user".to_string(),
-                    content: user.to_string(),
-                },
-            ],
-            max_tokens,
-            temperature: 0.1,
-            stream: false,
-            tools: None,
-            tool_choice: None,
-            parallel_tool_calls: None,
-        };
-
-        let response = self
-            .client
-            .post(endpoint)
-            .header("Content-Type", "application/json")
-            .bearer_auth(&self.api_key)
-            .json(&body)
-            .send()
-            .await
-            .map_err(|e| ModelError::Request(e.to_string()))?;
-
-        let status = response.status();
-        let text = response
-            .text()
-            .await
-            .map_err(|e| ModelError::Request(e.to_string()))?;
-
-        if status.as_u16() == 401 || status.as_u16() == 403 {
-            return Err(ModelError::Auth(format!("MiniMax auth failed ({status})")));
-        }
-        if !status.is_success() {
-            return Err(ModelError::Request(format!("MiniMax error {status}: {text}")));
-        }
-
-        let parsed: MiniMaxChatResponse = serde_json::from_str(&text)
-            .map_err(|e| ModelError::InvalidResponse(format!("MiniMax parse failed: {e}")))?;
-
-        parsed
-            .choices
-            .into_iter()
-            .next()
-            .map(|choice| choice.message)
-            .ok_or_else(|| {
-                ModelError::InvalidResponse("missing choices[0].message from MiniMax response".to_string())
-            })
-    }
-
+    /// Single-turn plan generation; used by integration tests. Production plan mode uses
+    /// multi-turn run_multi_turn_planning in the runtime planner.
+    #[allow(dead_code)]
     pub async fn generate_plan_markdown(
         &self,
         task_prompt: &str,
         prior_markdown_context: &str,
+        tool_descriptors: Vec<ToolDescriptor>,
     ) -> Result<String, ModelError> {
         let user = format!(
-            "Task prompt:\n{}\n\nExisting markdown context (if any):\n{}\n\nWrite a revised or fresh implementation plan as a markdown artifact.",
+            "Task prompt:\n{}\n\nExisting markdown context (if any):\n{}\n\nWrite a revised or fresh implementation plan and submit it using the agent.create_artifact tool (filename e.g. plan.md, kind plan, content = the markdown). If you need to read files first, use the available tools, then call agent.create_artifact with your plan.",
             task_prompt,
             if prior_markdown_context.trim().is_empty() {
                 "(none)"
@@ -104,11 +52,57 @@ impl MiniMaxPlanner {
             }
         );
 
+        let tools: Option<Vec<MiniMaxToolDefinition>> = if tool_descriptors.is_empty() {
+            None
+        } else {
+            Some(
+                tool_descriptors
+                    .iter()
+                    .map(|t| MiniMaxToolDefinition {
+                        tool_type: "function".to_string(),
+                        function: MiniMaxFunctionDefinition {
+                            name: t.name.clone(),
+                            description: t.description.clone(),
+                            parameters: t.input_schema.clone(),
+                        },
+                    })
+                    .collect(),
+            )
+        };
         let response = self
-            .run_chat_json(&plan_markdown_system_prompt(), &user, 2200)
+            .run_chat_json_native(
+                &plan_markdown_system_prompt(),
+                &user,
+                2200,
+                tools,
+            )
             .await?;
 
-        let markdown = response.content.unwrap_or_default().trim().to_string();
+        let markdown = if let Some(ref tool_calls) = response.tool_calls {
+            let mut content_from_tool: Option<String> = None;
+            for call in tool_calls {
+                if call.tool_type != "function" {
+                    continue;
+                }
+                if call.function.name == "agent.create_artifact" {
+                    let args: serde_json::Value = serde_json::from_str(&call.function.arguments)
+                        .unwrap_or(serde_json::json!({}));
+                    if let Some(c) = args.get("content").and_then(|v| v.as_str()) {
+                        content_from_tool = Some(c.to_string());
+                        break;
+                    }
+                }
+            }
+            if let Some(c) = content_from_tool {
+                strip_tool_call_markup(c.trim()).trim().to_string()
+            } else {
+                let raw = response.content.unwrap_or_default();
+                strip_tool_call_markup(raw.trim()).trim().to_string()
+            }
+        } else {
+            let raw = response.content.unwrap_or_default();
+            strip_tool_call_markup(raw.trim()).trim().to_string()
+        };
 
         if markdown.trim().is_empty() {
             return Err(ModelError::InvalidResponse(
@@ -171,11 +165,12 @@ impl PlannerModel for MiniMaxPlanner {
             .await?;
 
         // Capture model reasoning (chain-of-thought) before we consume the content.
+        // Strip any tool-call XML that MiniMax may leak into reasoning_content.
         let reasoning = response
             .reasoning_content
             .as_deref()
             .filter(|r| !r.trim().is_empty())
-            .map(|r| r.to_string());
+            .map(|r| strip_tool_call_markup(r));
 
         if let Some(tool_calls) = response.tool_calls.as_ref() {
             if !tool_calls.is_empty() {
@@ -194,13 +189,18 @@ impl PlannerModel for MiniMaxPlanner {
                 }
 
                 if !calls.is_empty() {
+                    let raw_response = serde_json::to_string(&response).ok();
                     return Ok(WorkerDecision {
                         action: WorkerAction::ToolCalls { calls },
                         reasoning,
+                        raw_response,
                     });
                 }
             }
         }
+
+        // Capture raw response before consuming fields
+        let raw_response = serde_json::to_string(&response).ok();
 
         let raw = if response.content.as_deref().unwrap_or(""
         ).trim().is_empty() {
@@ -215,6 +215,7 @@ impl PlannerModel for MiniMaxPlanner {
                     summary: "Task complete.".to_string(),
                 },
                 reasoning,
+                raw_response,
             });
         }
 
@@ -234,7 +235,7 @@ impl PlannerModel for MiniMaxPlanner {
                 ModelError::InvalidResponse(format!("worker action invalid: {e}\nNormalized JSON: {snippet}"))
             })?;
 
-        Ok(WorkerDecision { action, reasoning })
+        Ok(WorkerDecision { action, reasoning, raw_response })
     }
 }
 
@@ -247,6 +248,8 @@ impl MiniMaxPlanner {
         tools: Option<Vec<MiniMaxToolDefinition>>,
     ) -> Result<MiniMaxResponseMessage, ModelError> {
         let endpoint = format!("{}{}", self.base_url.trim_end_matches('/'), MINIMAX_CHAT_PATH);
+        let tool_choice = tools.as_ref().map(|_| "auto".to_string());
+        let parallel_tool_calls = tools.as_ref().map(|_| true);
         let body = MiniMaxChatRequest {
             model: self.model.clone(),
             messages: vec![
@@ -263,8 +266,8 @@ impl MiniMaxPlanner {
             temperature: 0.1,
             stream: false,
             tools,
-            tool_choice: Some("auto".to_string()),
-            parallel_tool_calls: Some(true),
+            tool_choice,
+            parallel_tool_calls,
         };
 
         let response = self
@@ -339,7 +342,7 @@ struct MiniMaxChoice {
     message: MiniMaxResponseMessage,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Serialize, Deserialize)]
 struct MiniMaxResponseMessage {
     #[serde(default)]
     content: Option<String>,
@@ -362,14 +365,14 @@ struct MiniMaxFunctionDefinition {
     parameters: serde_json::Value,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Serialize, Deserialize)]
 struct MiniMaxToolCall {
     #[serde(rename = "type")]
     tool_type: String,
     function: MiniMaxFunctionCall,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Serialize, Deserialize)]
 struct MiniMaxFunctionCall {
     name: String,
     arguments: String,

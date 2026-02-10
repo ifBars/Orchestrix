@@ -4,7 +4,8 @@ use tauri::Emitter;
 use tokio::sync::broadcast;
 use tokio::time;
 
-use super::BusEvent;
+use super::event_bus::BusEvent;
+use super::event_types::should_flush_immediately;
 
 const DEFAULT_FLUSH_INTERVAL: Duration = Duration::from_millis(100);
 const DEFAULT_MAX_BATCH: usize = 50;
@@ -15,10 +16,10 @@ impl EventBatcher {
     /// Spawn a background task that batches events and emits them to the Tauri
     /// frontend via `orchestrix://events`.
     ///
-    /// - "Immediate" events (category starts with `task` or event_type starts
-    ///   with `agent.step_`) are flushed instantly as a single-element batch.
-    /// - All other events are buffered and flushed every 100ms or when the
-    ///   buffer reaches 50 events.
+    /// Events for which [should_flush_immediately] returns true are sent
+    /// immediately (after flushing the current buffer to preserve order).
+    /// All other events are buffered and flushed every 100ms or when the
+    /// buffer reaches 50 events.
     pub fn start(
         mut rx: broadcast::Receiver<BusEvent>,
         app_handle: tauri::AppHandle,
@@ -32,8 +33,7 @@ impl EventBatcher {
                     result = rx.recv() => {
                         match result {
                             Ok(event) => {
-                                if is_immediate(&event) {
-                                    // Flush buffer first so ordering is preserved
+                                if should_flush_immediately(&event) {
                                     if !buffer.is_empty() {
                                         flush(&app_handle, &mut buffer);
                                     }
@@ -49,7 +49,6 @@ impl EventBatcher {
                                 tracing::warn!("event batcher lagged, dropped {n} events");
                             }
                             Err(broadcast::error::RecvError::Closed) => {
-                                // Bus shut down — flush remainder and exit.
                                 if !buffer.is_empty() {
                                     flush(&app_handle, &mut buffer);
                                 }
@@ -66,10 +65,6 @@ impl EventBatcher {
             }
         })
     }
-}
-
-fn is_immediate(event: &BusEvent) -> bool {
-    event.category == "task" || event.event_type.starts_with("agent.step_")
 }
 
 fn flush(app_handle: &tauri::AppHandle, buffer: &mut Vec<BusEvent>) {

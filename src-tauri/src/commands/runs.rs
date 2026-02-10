@@ -105,22 +105,38 @@ pub async fn run_plan_mode(
     )
     .map_err(AppError::Other)?;
 
-    // Generate the plan markdown artifact for user review
-    // This uses the PLAN mode system prompt which directs the AI to ONLY write markdown
+    // Generate the plan markdown artifact for user review.
+    // Plan mode uses its own tool set (read-only + agent.create_artifact + agent.request_build_mode).
+    let plan_mode_tools = state.orchestrator.tool_registry().list_for_plan_mode();
     let _ = generate_plan_markdown_artifact(
         state.db.clone(),
         state.bus.clone(),
-        task_id,
+        task_id.clone(),
         task.prompt,
         provider,
         cfg.api_key,
         effective_model,
         cfg.base_url,
-        workspace_root,
-        Some(run_id),
+        workspace_root.clone(),
+        Some(run_id.clone()),
         None,
+        plan_mode_tools,
+        state.orchestrator.tool_registry().clone(),
+        state.orchestrator.approval_gate().clone(),
     )
     .await
+    .map_err(AppError::Other)?;
+
+    // Transition task to awaiting_review so the UI shows the plan and Build button
+    queries::update_task_status(&state.db, &task_id, "awaiting_review", &Utc::now().to_rfc3339())?;
+    emit_and_record(
+        &state.db,
+        &state.bus,
+        "task",
+        "task.status_changed",
+        Some(run_id),
+        serde_json::json!({ "task_id": task_id, "status": "awaiting_review" }),
+    )
     .map_err(AppError::Other)?;
 
     Ok(())
@@ -278,6 +294,7 @@ pub async fn submit_plan_feedback(
         note
     );
 
+    let plan_mode_tools = state.orchestrator.tool_registry().list_for_plan_mode();
     let _ = generate_plan_markdown_artifact(
         state.db.clone(),
         state.bus.clone(),
@@ -287,9 +304,12 @@ pub async fn submit_plan_feedback(
         cfg.api_key,
         effective_model,
         cfg.base_url,
-        workspace_root,
+        workspace_root.clone(),
         Some(run.id.clone()),
         Some(note.to_string()),
+        plan_mode_tools,
+        state.orchestrator.tool_registry().clone(),
+        state.orchestrator.approval_gate().clone(),
     )
     .await
     .map_err(AppError::Other)?;

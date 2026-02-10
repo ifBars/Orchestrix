@@ -672,7 +672,7 @@ mod tests {
     // Windows Unix command translation tests
     #[cfg(target_os = "windows")]
     mod windows_command_translation_tests {
-        use crate::tools::translate_unix_to_windows;
+        use crate::tools::cmd::translate_unix_to_windows;
 
         #[test]
         fn test_which_translates_to_where() {
