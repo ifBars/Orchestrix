@@ -1,4 +1,7 @@
+pub mod approvals;
+pub mod execution;
 pub mod mcp;
+pub mod messages;
 pub mod providers;
 pub mod runs;
 pub mod skills;

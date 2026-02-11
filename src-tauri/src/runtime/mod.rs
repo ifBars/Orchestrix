@@ -5,4 +5,4 @@ pub mod recovery;
 pub mod worktree;
 
 #[cfg(test)]
-mod worktree_tests;
+mod tests;

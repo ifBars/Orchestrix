@@ -469,6 +469,16 @@ impl Orchestrator {
                 error: None,
             };
 
+            // Convert model config to worker format
+            let worker_model_config = model_config.as_ref().map(|c| {
+                super::worker::model::RuntimeModelConfig {
+                    provider: c.provider.clone(),
+                    api_key: c.api_key.clone(),
+                    model: c.model.clone(),
+                    base_url: c.base_url.clone(),
+                }
+            });
+
             let step_result = super::worker::execute_step_with_tools(
                 &self.db,
                 &self.bus,
@@ -482,7 +492,7 @@ impl Orchestrator {
                 step,
                 &workspace_root,
                 &workspace_root,
-                model_config.clone(),
+                worker_model_config,
                 plan.goal_summary.clone(),
                 resolved_task_prompt.clone(),
                 0,

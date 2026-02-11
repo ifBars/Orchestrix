@@ -205,5 +205,5 @@ pub async fn start_task(
     provider: Option<String>,
     model: Option<String>,
 ) -> Result<(), AppError> {
-    super::runs::run_plan_mode(state, task_id, provider, model).await
+    super::execution::run_plan_mode(state, task_id, provider, model).await
 }

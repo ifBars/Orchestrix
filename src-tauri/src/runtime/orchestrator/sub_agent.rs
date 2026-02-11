@@ -106,6 +106,16 @@ pub(super) async fn execute_sub_agent(
             }),
         );
 
+        // Convert model config to worker format
+        let worker_model_config = model_config.as_ref().map(|c| {
+            super::worker::model::RuntimeModelConfig {
+                provider: c.provider.clone(),
+                api_key: c.api_key.clone(),
+                model: c.model.clone(),
+                base_url: c.base_url.clone(),
+            }
+        });
+
         result = match timeout(
             Duration::from_millis(attempt_timeout_ms),
             super::worker::execute_step_with_tools(
@@ -121,7 +131,7 @@ pub(super) async fn execute_sub_agent(
                 &step,
                 workspace_root,
                 &worktree.path,
-                model_config.clone(),
+                worker_model_config,
                 goal_summary.clone(),
                 task_prompt.clone(),
                 0,

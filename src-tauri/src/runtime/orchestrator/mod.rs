@@ -36,9 +36,9 @@ use crate::core::plan::{Plan, PlanStep, StepStatus};
 use crate::db::{queries, Database};
 use crate::model::kimi::KimiPlanner;
 use crate::model::minimax::MiniMaxPlanner;
-use crate::model::{PlannerModel, WorkerAction, WorkerActionRequest, WorkerDecision};
+use crate::model::{PlannerModel, WorkerAction, WorkerActionRequest};
 use crate::policy::PolicyEngine;
-use crate::tools::{infer_tool_call, ToolError, ToolRegistry};
+use crate::tools::{infer_tool_call, ToolRegistry};
 
 use super::approval::{ApprovalGate, ApprovalRequest};
 use super::planner::emit_and_record;

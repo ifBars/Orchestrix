@@ -350,15 +350,18 @@ pub fn run() {
             commands::runs::list_run_artifacts,
             commands::runs::list_tool_calls,
             commands::runs::list_user_messages,
-            commands::runs::run_plan_mode,
-            commands::runs::run_build_mode,
-            commands::runs::approve_plan,
-            commands::runs::submit_plan_feedback,
-            commands::runs::list_pending_approvals,
-            commands::runs::resolve_approval_request,
             commands::runs::get_events_after,
             commands::runs::get_task_events,
-            commands::runs::send_message_to_task,
+            // execution
+            commands::execution::run_plan_mode,
+            commands::execution::run_build_mode,
+            commands::execution::approve_plan,
+            commands::execution::submit_plan_feedback,
+            // approvals
+            commands::approvals::list_pending_approvals,
+            commands::approvals::resolve_approval_request,
+            // messages
+            commands::messages::send_message_to_task,
             // providers
             commands::providers::set_provider_config,
             commands::providers::get_provider_configs,
