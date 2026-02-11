@@ -398,6 +398,15 @@ pub fn run() {
             commands::workspace_skills::get_workspace_skill_content,
             commands::workspace_skills::read_workspace_skill_file,
             commands::workspace_skills::get_active_skills_context,
+            // agent presets
+            commands::agent_presets::list_agent_presets,
+            commands::agent_presets::get_agent_preset,
+            commands::agent_presets::search_agent_presets,
+            commands::agent_presets::create_agent_preset,
+            commands::agent_presets::update_agent_preset,
+            commands::agent_presets::delete_agent_preset,
+            commands::agent_presets::read_agent_preset_file,
+            commands::agent_presets::get_agent_preset_context,
         ])
         .setup(move |app| {
             let rx = bus.subscribe();

@@ -5,7 +5,7 @@ use uuid::Uuid;
 
 use crate::db::queries;
 use crate::runtime::planner::emit_and_record;
-use crate::{load_provider_config, AppError, AppState};
+use crate::{load_workspace_root, AppError, AppState};
 
 #[tauri::command]
 pub async fn send_message_to_task(
@@ -20,8 +20,6 @@ pub async fn send_message_to_task(
         return Err(AppError::Other("message cannot be empty".to_string()));
     }
 
-    let provider = provider.unwrap_or_else(|| "minimax".to_string()).to_ascii_lowercase();
-
     let task = queries::get_task(&state.db, &task_id)?
         .ok_or_else(|| AppError::Other(format!("task not found: {task_id}")))?;
 
@@ -33,14 +31,14 @@ pub async fn send_message_to_task(
         )));
     }
 
-    let cfg = load_provider_config(&state.db, &provider)?.ok_or_else(|| {
-        AppError::Other(format!(
-            "{} not configured. Set provider config in settings or env vars.",
-            provider
-        ))
-    })?;
-
-    let effective_model = model.or(cfg.default_model.clone());
+    let workspace_root = load_workspace_root(&state.db);
+    let resolved = super::execution::resolve_provider_model_for_prompt(
+        &state.db,
+        &workspace_root,
+        &task.prompt,
+        provider,
+        model,
+    )?;
 
     // Create a new run for this continuation
     let run_id = Uuid::new_v4().to_string();
@@ -50,7 +48,12 @@ pub async fn send_message_to_task(
             id: run_id.clone(),
             task_id: task_id.clone(),
             status: "executing".to_string(),
-            plan_json: None,
+            plan_json: Some(super::execution::build_run_context_json(
+                "build_continue",
+                &resolved.provider,
+                resolved.effective_model.as_deref(),
+                resolved.agent_preset_meta.as_ref(),
+            )),
             started_at: Some(Utc::now().to_rfc3339()),
             finished_at: None,
             failure_reason: None,
@@ -112,10 +115,10 @@ pub async fn send_message_to_task(
         .continue_task_with_message(
             task,
             continue_prompt,
-            provider,
-            cfg.api_key,
-            effective_model,
-            cfg.base_url,
+            resolved.provider,
+            resolved.cfg.api_key,
+            resolved.effective_model,
+            resolved.cfg.base_url,
         )
         .map_err(AppError::Other)?;
 

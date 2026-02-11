@@ -4,7 +4,7 @@ This guide explains how to receive and process events from the Rust backend in t
 
 ## Overview
 
-Orchestrix uses an **event-driven architecture** where the backend emits events that the frontend consumes. This enables real-time updates for task progress, tool calls, and agent messages.
+Orchestrix uses an **event-driven architecture** where the backend emits events that the frontend consumes. This enables real-time updates for task progress, tool calls, and agent messages while preserving a human-in-the-loop, transparency-first UX.
 
 ## Event Flow
 
@@ -20,7 +20,7 @@ EventBus.emit()    ---->   orchestrix://    ---->   listen()
                                 │
                                 ▼
                          runtimeEventBuffer
-                         (transform events)
+                       (summary + detail transform)
                                 │
                                 ▼
                          appStore.processEvents()
@@ -139,6 +139,34 @@ export function TaskMonitor({ taskId }: { taskId: string }) {
 ```
 
 ## Event Types
+
+### Human-in-the-Loop Feedback Events
+
+The frontend should render these immediately so users never feel blind to agent activity:
+
+```typescript
+// agent.deciding
+{
+  category: "agent",
+  event_type: "agent.deciding",
+  payload: {
+    task_id: "uuid",
+    run_id: "uuid",
+    turn: 3,
+  }
+}
+
+// agent.tool_calls_preparing
+{
+  category: "agent",
+  event_type: "agent.tool_calls_preparing",
+  payload: {
+    task_id: "uuid",
+    run_id: "uuid",
+    tool_names: ["fs.read", "search.rg"],
+  }
+}
+```
 
 ### BusEvent Structure
 
@@ -462,6 +490,20 @@ useEffect(() => {
   };
 }, []);
 ```
+
+### 5. Keep Timeline Condensed but Fully Inspectable
+
+```typescript
+// Recommended shape for timeline items
+type TimelineItem = {
+  id: string;
+  summary: string;            // always visible
+  severity: "info" | "warn" | "error";
+  detail?: Record<string, unknown>; // expanded on demand
+};
+```
+
+Render summaries by default, and keep raw args/outputs in expandable detail panels so users can inspect everything without cluttering the main flow.
 
 ## Testing Event Handling
 

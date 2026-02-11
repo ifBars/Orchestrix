@@ -9,6 +9,7 @@ Common issues and solutions when working with Orchestrix.
 - [API/Model Issues](#apimodel-issues)
 - [Database Issues](#database-issues)
 - [Frontend Issues](#frontend-issues)
+- [UX and Transparency Issues](#ux-and-transparency-issues)
 - [Development Issues](#development-issues)
 - [Getting Help](#getting-help)
 
@@ -373,6 +374,41 @@ bun run tsc
 # - Type mismatches between Rust/TypeScript
 ```
 
+## UX and Transparency Issues
+
+### Timeline Feels Too Noisy
+
+**Symptom**: Users see too many low-value rows and lose the main execution story.
+
+**Solutions**:
+
+1. Group event rows by phase or step in the conversation timeline
+2. Keep summary rows collapsed by default and expand only on demand
+3. Prioritize warnings/failures ahead of successful routine events
+4. Ensure duplicate status indicators are removed in favor of one authoritative timeline
+
+### Missing AI Activity Visibility
+
+**Symptom**: The UI appears stuck or users cannot tell what the agent is doing.
+
+**Solutions**:
+
+1. Verify immediate feedback events are being emitted (`agent.deciding`, `agent.tool_calls_preparing`)
+2. Confirm `tool.call_started` and `tool.call_finished` are present in incoming batches
+3. Check event-to-conversation mapping in runtime event buffer
+4. Confirm the selected task context matches incoming `task_id`/`run_id`
+
+### Long Runs Cause UI Slowness
+
+**Symptom**: Timeline scrolling and updates become sluggish on large runs.
+
+**Solutions**:
+
+1. Add list virtualization/windowing for long timelines
+2. Process batches incrementally instead of reprocessing full history each tick
+3. Use narrow selectors (`useShallow`) to avoid global re-renders
+4. Reduce expensive formatting work in render paths
+
 ## Development Issues
 
 ### Changes Not Persisting
@@ -532,7 +568,7 @@ RUST_LOG=orchestrix=debug bun tauri dev 2>&1 | tail -100
 ### Where to Get Help
 
 - **GitHub Issues**: Report bugs and feature requests
-- **Documentation**: Check README.md, ARCHITECTURE.md, CODING_STANDARDS.md
+- **Documentation**: Check README.md, UX_PRINCIPLES.md, ARCHITECTURE.md, CODING_STANDARDS.md
 - **Examples**: See examples/ directory
 - **Logs**: Enable debug logging for detailed information
 

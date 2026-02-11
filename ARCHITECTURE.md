@@ -6,6 +6,7 @@ System design and technical architecture of Orchestrix.
 
 - [High-Level Architecture](#high-level-architecture)
 - [Data Flow](#data-flow)
+- [UX and Performance Guardrails](#ux-and-performance-guardrails)
 - [Component Overview](#component-overview)
 - [Event System](#event-system)
 - [Database Schema](#database-schema)
@@ -195,6 +196,38 @@ Frontend (React)
 └─────────────────┘
 ```
 
+## UX and Performance Guardrails
+
+Orchestrix UX is designed to keep users continuously informed without flooding them with low-value noise.
+
+### Human-in-the-Loop Checkpoints
+
+- **Plan gate**: execution starts only after explicit user plan approval
+- **Execution oversight**: user can monitor, cancel, and provide feedback while runs are active
+- **Policy gate**: sensitive operations are permission-gated and auditable
+- **Artifact review**: outcomes stay inspectable with run/step/tool traceability
+
+### Transparency Requirements
+
+- Every meaningful model/tool transition emits an event
+- No hidden background actions that bypass the timeline
+- Frontend state must be reconstructible from events + database records
+- Timeline items should preserve task/run/step correlation IDs
+
+### Condensed Visualization Patterns
+
+- Use step/phase grouping to collapse repetitive event bursts
+- Show compact summaries first, expand to raw args/output on demand
+- Prioritize failures/warnings in the visual hierarchy
+- Keep one authoritative execution timeline per run
+
+### Performance and Scale Constraints
+
+- Backend emits append-only events and batches high-frequency traffic
+- Critical feedback events flush immediately for responsiveness
+- Frontend uses selector-based subscriptions and incremental event transforms
+- Long timelines should be windowed/virtualized to keep rendering responsive
+
 ## Component Overview
 
 ### Frontend Components
@@ -252,7 +285,7 @@ pub struct BusEvent {
 | Category | Events | Description |
 |----------|--------|-------------|
 | `task` | `task.created`, `task.status_changed` | Task lifecycle |
-| `agent` | `agent.planning_started`, `agent.plan_ready`, `agent.plan_message`, `agent.plan_delta`, `agent.step_started`, `agent.subagent_started`, `agent.subagent_completed` | Agent execution |
+| `agent` | `agent.planning_started`, `agent.deciding`, `agent.tool_calls_preparing`, `agent.plan_ready`, `agent.plan_message`, `agent.plan_delta`, `agent.step_started`, `agent.subagent_started`, `agent.subagent_completed` | Agent execution |
 | `tool` | `tool.call_started`, `tool.call_finished` | Tool invocations |
 | `artifact` | `artifact.created` | Generated artifacts |
 | `system` | `system.error`, `system.warning` | System events |
@@ -262,6 +295,7 @@ pub struct BusEvent {
 High-frequency events are batched before reaching the frontend:
 - **Flush interval**: 100ms
 - **Max batch size**: 50 events
+- **Immediate flush set**: `task.*`, `agent.step_*`, `agent.deciding`, `agent.tool_calls_preparing`
 - **Delivery guarantee**: At-least-once (persisted to DB)
 
 ## Database Schema
@@ -442,7 +476,7 @@ All shared state uses `Arc` for thread-safe reference counting.
 3. Backend updates database
 4. Backend emits events via EventBus
 5. EventBatcher batches and sends to frontend
-6. Frontend receives events, updates stores
+6. Frontend receives events, applies incremental transforms, updates stores
 7. React re-renders based on store changes
 
 ## Security Model
@@ -483,4 +517,4 @@ Skills are MCP-compatible:
 
 ---
 
-For implementation details, see [CODING_STANDARDS.md](./CODING_STANDARDS.md).
+For implementation details, see [CODING_STANDARDS.md](./CODING_STANDARDS.md) and [UX_PRINCIPLES.md](./UX_PRINCIPLES.md).

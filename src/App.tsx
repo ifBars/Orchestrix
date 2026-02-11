@@ -7,6 +7,7 @@ import { Sidebar } from "@/components/Sidebar";
 import { ChatInterface } from "@/components/Chat/ChatInterface";
 import { Composer } from "@/components/Composer";
 import { ArtifactPanel } from "@/components/Artifacts/ArtifactPanel";
+import { AgentsSheet } from "@/components/Agents/AgentsSheet";
 import { SettingsSheet } from "@/components/Settings/SettingsSheet";
 import { SkillsSheet } from "@/components/Settings/SkillsSheet";
 import appIcon from "../src-tauri/icons/icon.png";
@@ -23,6 +24,7 @@ function App() {
   const [artifactsOpen, setArtifactsOpen] = useState(false);
   const [darkMode, setDarkMode] = useState(true);
   const [chatActiveTab, setChatActiveTab] = useState<"chat" | "review">("chat");
+  const [mainPanel, setMainPanel] = useState<"chat" | "agents">("chat");
 
   useEffect(() => {
     bootstrap().catch(console.error);
@@ -52,7 +54,7 @@ function App() {
   return (
     <>
       <IdeShell
-        isArtifactsOpen={artifactsOpen}
+        isArtifactsOpen={mainPanel === "chat" && artifactsOpen}
         header={
           <Header
             darkMode={darkMode}
@@ -65,17 +67,23 @@ function App() {
           <Sidebar
             onOpenSettings={() => setSettingsOpen(true)}
             onOpenSkills={() => setSkillsOpen(true)}
+            onOpenAgents={() => setMainPanel("agents")}
+            onOpenChat={() => setMainPanel("chat")}
           />
         }
-        main={selectedTask ? (
-          <ChatInterface 
-            task={selectedTask} 
+        main={mainPanel === "agents" ? (
+          <AgentsSheet onClose={() => setMainPanel("chat")} />
+        ) : selectedTask ? (
+          <ChatInterface
+            task={selectedTask}
             activeTab={chatActiveTab}
             onActiveTabChange={setChatActiveTab}
           />
-        ) : <EmptyState />}
-        composer={<Composer />}
-        artifacts={selectedTask ? (
+        ) : (
+          <EmptyState />
+        )}
+        composer={mainPanel === "chat" ? <Composer /> : null}
+        artifacts={mainPanel === "chat" && selectedTask ? (
           <ArtifactPanel 
             taskId={selectedTask.id} 
             onOpenReview={() => setChatActiveTab("review")}

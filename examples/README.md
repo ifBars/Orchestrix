@@ -2,6 +2,8 @@
 
 This directory contains example implementations and guides for common tasks in Orchestrix.
 
+All examples should preserve the core product contract: human-in-the-loop review, full AI transparency, and condensed non-cluttered UI rendering.
+
 ## Available Examples
 
 ### Backend (Rust)

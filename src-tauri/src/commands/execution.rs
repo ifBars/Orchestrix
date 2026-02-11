@@ -2,13 +2,89 @@
 
 use std::fs::OpenOptions;
 use std::io::Write;
+use std::path::Path;
 
 use chrono::Utc;
 use uuid::Uuid;
 
+use crate::core::agent_presets;
 use crate::db::queries;
 use crate::runtime::planner::{emit_and_record, generate_plan_markdown_artifact};
 use crate::{load_provider_config, load_workspace_root, AppError, AppState};
+
+pub(crate) struct ResolvedModelConfig {
+    pub provider: String,
+    pub cfg: crate::ProviderConfig,
+    pub effective_model: Option<String>,
+    pub agent_preset_meta: Option<serde_json::Value>,
+}
+
+pub(crate) fn resolve_provider_model_for_prompt(
+    db: &crate::db::Database,
+    workspace_root: &Path,
+    task_prompt: &str,
+    provider: Option<String>,
+    model: Option<String>,
+) -> Result<ResolvedModelConfig, AppError> {
+    let mut resolved_provider = provider
+        .unwrap_or_else(|| "minimax".to_string())
+        .to_ascii_lowercase();
+    let mut requested_model = model;
+    let mut agent_preset_meta = None;
+
+    if let Some(preset) = agent_presets::resolve_agent_preset_from_prompt(task_prompt, workspace_root) {
+        agent_preset_meta = Some(serde_json::json!({
+            "id": preset.id,
+            "name": preset.name,
+            "mode": preset.mode,
+            "model": preset.model,
+        }));
+
+        if let Some(preset_model) = preset.model.as_deref() {
+            let trimmed = preset_model.trim();
+            if !trimmed.is_empty() {
+                let (provider_override, model_override) =
+                    agent_presets::parse_model_override(trimmed);
+                if let Some(provider_override) = provider_override {
+                    resolved_provider = provider_override;
+                }
+                requested_model = Some(model_override);
+            }
+        }
+    }
+
+    let cfg = load_provider_config(db, &resolved_provider)?.ok_or_else(|| {
+        AppError::Other(format!(
+            "{} not configured. Set provider config in settings or env vars.",
+            resolved_provider
+        ))
+    })?;
+
+    let effective_model = requested_model.or(cfg.default_model.clone());
+
+    Ok(ResolvedModelConfig {
+        provider: resolved_provider,
+        cfg,
+        effective_model,
+        agent_preset_meta,
+    })
+}
+
+pub(crate) fn build_run_context_json(
+    mode: &str,
+    provider: &str,
+    model: Option<&str>,
+    agent_preset_meta: Option<&serde_json::Value>,
+) -> String {
+    serde_json::json!({
+        "metadata_version": 1,
+        "mode": mode,
+        "provider": provider,
+        "model": model,
+        "agent_preset": agent_preset_meta,
+    })
+    .to_string()
+}
 
 #[tauri::command]
 pub async fn run_plan_mode(
@@ -17,18 +93,17 @@ pub async fn run_plan_mode(
     provider: Option<String>,
     model: Option<String>,
 ) -> Result<(), AppError> {
-    let provider = provider.unwrap_or_else(|| "minimax".to_string()).to_ascii_lowercase();
-
     let task = queries::get_task(&state.db, &task_id)?
         .ok_or_else(|| AppError::Other(format!("task not found: {task_id}")))?;
-    let cfg = load_provider_config(&state.db, &provider)?.ok_or_else(|| {
-        AppError::Other(format!(
-            "{provider} not configured. Set provider config in settings or env vars."
-        ))
-    })?;
-
-    let effective_model = model.or(cfg.default_model.clone());
     let workspace_root = load_workspace_root(&state.db);
+
+    let resolved = resolve_provider_model_for_prompt(
+        &state.db,
+        &workspace_root,
+        &task.prompt,
+        provider,
+        model,
+    )?;
 
     // Immediately update task status to planning and emit event
     // This ensures the UI refreshes to show the planning state
@@ -42,7 +117,12 @@ pub async fn run_plan_mode(
             id: run_id.clone(),
             task_id: task_id.clone(),
             status: "planning".to_string(),
-            plan_json: None,
+            plan_json: Some(build_run_context_json(
+                "plan",
+                &resolved.provider,
+                resolved.effective_model.as_deref(),
+                resolved.agent_preset_meta.as_ref(),
+            )),
             started_at: Some(Utc::now().to_rfc3339()),
             finished_at: None,
             failure_reason: None,
@@ -67,10 +147,10 @@ pub async fn run_plan_mode(
         state.bus.clone(),
         task_id.clone(),
         task.prompt,
-        provider,
-        cfg.api_key,
-        effective_model,
-        cfg.base_url,
+        resolved.provider,
+        resolved.cfg.api_key,
+        resolved.effective_model,
+        resolved.cfg.base_url,
         workspace_root.clone(),
         Some(run_id.clone()),
         None,
@@ -108,21 +188,26 @@ pub fn run_build_mode(
     provider: Option<String>,
     model: Option<String>,
 ) -> Result<(), AppError> {
-    let provider = provider.unwrap_or_else(|| "minimax".to_string()).to_ascii_lowercase();
-
     let task = queries::get_task(&state.db, &task_id)?
         .ok_or_else(|| AppError::Other(format!("task not found: {task_id}")))?;
-    let cfg = load_provider_config(&state.db, &provider)?.ok_or_else(|| {
-        AppError::Other(format!(
-            "{provider} not configured. Set provider config in settings or env vars."
-        ))
-    })?;
-
-    let effective_model = model.or(cfg.default_model.clone());
+    let workspace_root = load_workspace_root(&state.db);
+    let resolved = resolve_provider_model_for_prompt(
+        &state.db,
+        &workspace_root,
+        &task.prompt,
+        provider,
+        model,
+    )?;
 
     state
         .orchestrator
-        .approve_plan(task, provider, cfg.api_key, effective_model, cfg.base_url)
+        .approve_plan(
+            task,
+            resolved.provider,
+            resolved.cfg.api_key,
+            resolved.effective_model,
+            resolved.cfg.base_url,
+        )
         .map_err(AppError::Other)?;
     Ok(())
 }
@@ -150,15 +235,16 @@ pub async fn submit_plan_feedback(
         return Err(AppError::Other("feedback note cannot be empty".to_string()));
     }
 
-    let provider = provider.unwrap_or_else(|| "minimax".to_string()).to_ascii_lowercase();
     let task = queries::get_task(&state.db, &task_id)?
         .ok_or_else(|| AppError::Other(format!("task not found: {task_id}")))?;
-    let cfg = load_provider_config(&state.db, &provider)?.ok_or_else(|| {
-        AppError::Other(format!(
-            "{provider} not configured. Set provider config in settings or env vars."
-        ))
-    })?;
-    let effective_model = model.or(cfg.default_model.clone());
+    let workspace_root = load_workspace_root(&state.db);
+    let resolved = resolve_provider_model_for_prompt(
+        &state.db,
+        &workspace_root,
+        &task.prompt,
+        provider,
+        model,
+    )?;
 
     let run = queries::get_latest_run_for_task(&state.db, &task_id)?
         .ok_or_else(|| AppError::Other("no run found for task".to_string()))?;
@@ -169,7 +255,6 @@ pub async fn submit_plan_feedback(
         )));
     }
 
-    let workspace_root = load_workspace_root(&state.db);
     let run_dir = workspace_root
         .join(".orchestrix")
         .join("runs")
@@ -266,10 +351,10 @@ pub async fn submit_plan_feedback(
         state.bus.clone(),
         task.id.clone(),
         revised_prompt,
-        provider,
-        cfg.api_key,
-        effective_model,
-        cfg.base_url,
+        resolved.provider,
+        resolved.cfg.api_key,
+        resolved.effective_model,
+        resolved.cfg.base_url,
         workspace_root.clone(),
         Some(run.id.clone()),
         Some(note.to_string()),

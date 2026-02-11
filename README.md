@@ -1,6 +1,6 @@
 # Orchestrix
 
-A lightweight, desktop AI agent management application built with Tauri, Rust, and React. Orchestrate AI agents to work on coding tasks, manage workflows, and automate development workflows.
+A lightweight, desktop AI agent management application built with Tauri, Rust, and React. Orchestrix is designed for scalable, high-visibility, human-in-the-loop agent workflows with a condensed and readable UX.
 
 ## Overview
 
@@ -9,6 +9,9 @@ Orchestrix is a **backend-authoritative, event-driven** desktop application desi
 - **Conversation-first execution**: Natural chat interface for task management
 - **Multi-provider support**: Works with MiniMax and Kimi models
 - **Plan-then-execute workflow**: AI plans tasks before execution with human-in-the-loop review
+- **Full execution visibility**: Users can inspect decisions, tool calls, and artifacts in real time
+- **Condensed timeline UX**: High-signal summaries with on-demand detail expansion
+- **Performance-first event pipeline**: Batched event streaming built for long-running tasks
 - **Sub-agent delegation**: Parallel task execution via specialized sub-agents
 - **Tool-based operations**: File system, command execution, git operations, and more
 - **Full audit trail**: All events and tool calls persisted to SQLite
@@ -17,8 +20,10 @@ Orchestrix is a **backend-authoritative, event-driven** desktop application desi
 
 ### Agent Management
 - Create and manage AI tasks through natural conversation
-- Plan review and approval before execution
+- Plan review and explicit approval before execution
 - Real-time progress monitoring via event streaming
+- Human-in-the-loop controls during execution (review, feedback, cancel)
+- Condensed progress visualization with expandable technical details
 - Sub-agent delegation for parallel work
 
 ### Model Support
@@ -37,6 +42,12 @@ Orchestrix is a **backend-authoritative, event-driven** desktop application desi
 - Git worktree isolation for sub-agents
 - Artifact generation and review
 - Conflict detection and resolution
+
+### UX and Performance
+- Transparent event-to-UI mapping with no hidden agent side effects
+- Progressive disclosure to avoid clutter while preserving full detail access
+- Event batching and store-level optimization for responsive rendering at scale
+- Crash-recoverable state reconstruction from DB + event history
 
 ## Quick Start
 
@@ -111,12 +122,15 @@ bun tauri dev
 - **Backend-authoritative**: All orchestration, state, and execution live in Rust
 - **Event-driven UI**: Frontend renders state via streamed events; never controls logic
 - **Plan-first execution**: Every task begins with a structured planning phase
+- **Human-in-the-loop by default**: User review and approval gates are first-class
+- **Transparency-first UX**: Users can always inspect what the AI is doing
 - **Minimal surface area**: No embedded editor, no live code manipulation by humans
 
 ## Documentation
 
 - **[SETUP.md](./SETUP.md)** - Detailed installation and configuration
 - **[ARCHITECTURE.md](./ARCHITECTURE.md)** - System design and data flow
+- **[UX_PRINCIPLES.md](./UX_PRINCIPLES.md)** - Human-in-the-loop UX and scaling guardrails
 - **[CODING_STANDARDS.md](./CODING_STANDARDS.md)** - Code style and conventions
 - **[AGENTS.md](./AGENTS.md)** - Agent architecture and execution model
 - **[SKILLS_GUIDE.md](./SKILLS_GUIDE.md)** - Working with the skills system

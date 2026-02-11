@@ -6,7 +6,8 @@ The goals are:
 - deterministic execution,
 - strict parent-child boundaries,
 - explicit lifecycle transitions,
-- structured outputs and gating.
+- structured outputs and gating,
+- human-visible traceability for every delegated action.
 
 ## 1) Scope
 
@@ -100,6 +101,8 @@ Parent is the only component allowed to mutate global run outcome.
 ## 6) Event Contract
 
 Sub-agent events must be append-only and auditable.
+
+They must also remain UI-friendly: summary information should be available for condensed timeline rendering, with full details available on expansion.
 
 Required event sequence per child:
 - `agent.subagent_created`

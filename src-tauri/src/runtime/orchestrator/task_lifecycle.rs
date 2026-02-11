@@ -62,11 +62,34 @@ impl Orchestrator {
         {
             existing
         } else {
+            let workspace_root = self.current_workspace_root();
+            let agent_preset_meta = crate::core::agent_presets::resolve_agent_preset_from_prompt(
+                &task.prompt,
+                &workspace_root,
+            )
+            .map(|preset| {
+                serde_json::json!({
+                    "id": preset.id,
+                    "name": preset.name,
+                    "mode": preset.mode,
+                    "model": preset.model,
+                })
+            });
+
             let run = queries::RunRow {
                 id: Uuid::new_v4().to_string(),
                 task_id: task.id.clone(),
                 status: "executing".to_string(),
-                plan_json: None,
+                plan_json: Some(
+                    serde_json::json!({
+                        "metadata_version": 1,
+                        "mode": "build",
+                        "provider": provider.clone(),
+                        "model": model.clone(),
+                        "agent_preset": agent_preset_meta,
+                    })
+                    .to_string(),
+                ),
                 started_at: Some(Utc::now().to_rfc3339()),
                 finished_at: None,
                 failure_reason: None,

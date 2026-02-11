@@ -9,6 +9,7 @@ Complete instructions for setting up the Orchestrix development environment.
 - [Configuration](#configuration)
 - [Development Workflow](#development-workflow)
 - [Platform-Specific Notes](#platform-specific-notes)
+- [Verification](#verification)
 
 ## Prerequisites
 
@@ -265,7 +266,13 @@ After setup, verify everything works:
 3. **Create a test task**
    - Click "New Task"
    - Enter: "Hello world"
-   - You should see the AI generate a plan
+   - You should see the AI generate a plan and wait for review
+
+4. **Validate human-in-the-loop UX**
+   - Review the plan before approval
+   - Approve and confirm execution events appear in the timeline
+   - Expand a tool/event row and verify detailed payload visibility
+   - Confirm the timeline remains condensed (summary first, details on demand)
 
 ## Troubleshooting Setup
 
@@ -314,6 +321,7 @@ For more issues, see [TROUBLESHOOTING.md](./TROUBLESHOOTING.md).
 ## Next Steps
 
 1. Read [ARCHITECTURE.md](./ARCHITECTURE.md) to understand the system
-2. Review [CODING_STANDARDS.md](./CODING_STANDARDS.md) for code conventions
-3. Check out the [examples/](./examples/) directory for sample code
-4. Start developing! Create a new task and explore the codebase.
+2. Review [UX_PRINCIPLES.md](./UX_PRINCIPLES.md) for UX, transparency, and performance guardrails
+3. Review [CODING_STANDARDS.md](./CODING_STANDARDS.md) for code conventions
+4. Check out the [examples/](./examples/) directory for sample code
+5. Start developing! Create a new task and explore the codebase.

@@ -281,6 +281,11 @@ pub async fn execute_step_with_tools(
                         .and_then(|v| v.as_str())
                         .unwrap_or("")
                         .trim();
+                    let agent_preset_id = tool_args
+                        .get("agent_preset_id")
+                        .and_then(|v| v.as_str())
+                        .map(str::trim)
+                        .filter(|v| !v.is_empty());
 
                     let result = spawn_and_execute_delegated_sub_agent(
                         db,
@@ -295,6 +300,7 @@ pub async fn execute_step_with_tools(
                         step.idx,
                         turn,
                         objective,
+                        agent_preset_id,
                         &task_prompt,
                         &goal_summary,
                         skills_context,
@@ -312,6 +318,8 @@ pub async fn execute_step_with_tools(
                             "status": "succeeded",
                             "sub_agent_id": result.sub_agent_id,
                             "output_path": result.output_path,
+                            "agent_preset_id": result.agent_preset_id,
+                            "agent_preset_name": result.agent_preset_name,
                             "merge": result.merge_message,
                         }));
                     } else {
@@ -319,6 +327,8 @@ pub async fn execute_step_with_tools(
                             "tool_name": "subagent.spawn",
                             "status": "failed",
                             "sub_agent_id": result.sub_agent_id,
+                            "agent_preset_id": result.agent_preset_id,
+                            "agent_preset_name": result.agent_preset_name,
                             "error": result.error,
                             "merge": result.merge_message,
                         }));

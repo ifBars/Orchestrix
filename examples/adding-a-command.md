@@ -4,7 +4,7 @@ This guide shows how to add a new command that can be called from the frontend.
 
 ## Overview
 
-Tauri commands are Rust functions exposed to the frontend via IPC. They are the primary way the frontend interacts with the backend.
+Tauri commands are Rust functions exposed to the frontend via IPC. They are the primary way the frontend interacts with the backend, and they should support transparent, human-in-the-loop UX through auditable event emission.
 
 ## Step-by-Step Guide
 
@@ -259,6 +259,8 @@ fn test_get_task_stats() {
 5. **Handle errors gracefully** - Return `AppError` for failures
 6. **Keep commands focused** - One command should do one thing
 7. **Add TypeScript types** - Mirror Rust types exactly
+8. **Emit auditable events** - Surface command progress/outcomes to the timeline
+9. **Design for summary + detail** - Return concise status fields plus inspectable metadata
 
 ## Common Issues
 

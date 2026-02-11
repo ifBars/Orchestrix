@@ -8,6 +8,7 @@ use std::path::Path;
 use chrono::Utc;
 use uuid::Uuid;
 
+use crate::core::agent_presets;
 use crate::core::plan::{PlanStep, StepStatus};
 use crate::db::{queries, Database};
 use crate::runtime::planner::emit_and_record;
@@ -18,6 +19,8 @@ use crate::tools::ToolRegistry;
 pub struct SubAgentExecutionResult {
     pub success: bool,
     pub sub_agent_id: String,
+    pub agent_preset_id: Option<String>,
+    pub agent_preset_name: Option<String>,
     pub output_path: Option<String>,
     pub error: Option<String>,
     pub merge_message: Option<String>,
@@ -40,6 +43,7 @@ pub async fn spawn_and_execute_delegated_sub_agent(
     step_idx: u32,
     turn: usize,
     objective: &str,
+    agent_preset_id: Option<&str>,
     task_prompt: &str,
     goal_summary: &str,
     skills_context: &str,
@@ -54,6 +58,8 @@ pub async fn spawn_and_execute_delegated_sub_agent(
         return SubAgentExecutionResult {
             success: false,
             sub_agent_id: String::new(),
+            agent_preset_id: None,
+            agent_preset_name: None,
             output_path: None,
             error: Some("objective is required".to_string()),
             merge_message: None,
@@ -65,6 +71,8 @@ pub async fn spawn_and_execute_delegated_sub_agent(
         return SubAgentExecutionResult {
             success: false,
             sub_agent_id: String::new(),
+            agent_preset_id: None,
+            agent_preset_name: None,
             output_path: None,
             error: Some("delegation disabled by contract".to_string()),
             merge_message: None,
@@ -75,18 +83,52 @@ pub async fn spawn_and_execute_delegated_sub_agent(
         return SubAgentExecutionResult {
             success: false,
             sub_agent_id: String::new(),
+            agent_preset_id: None,
+            agent_preset_name: None,
             output_path: None,
             error: Some("max delegation depth reached".to_string()),
             merge_message: None,
         };
     }
 
+    let selected_agent_preset = if let Some(preset_id) = agent_preset_id {
+        match agent_presets::get_agent_preset(workspace_root, preset_id) {
+            Some(preset) => Some(preset),
+            None => {
+                return SubAgentExecutionResult {
+                    success: false,
+                    sub_agent_id: String::new(),
+                    agent_preset_id: Some(preset_id.to_string()),
+                    agent_preset_name: None,
+                    output_path: None,
+                    error: Some(format!("agent preset not found: {}", preset_id)),
+                    merge_message: None,
+                }
+            }
+        }
+    } else {
+        None
+    };
+
+    let preset_id = selected_agent_preset.as_ref().map(|p| p.id.clone());
+    let preset_name = selected_agent_preset.as_ref().map(|p| p.name.clone());
+
     // Create restricted tool list for child (no subagent.spawn)
-    let delegated_allowed_tools: Vec<String> = available_tools
+    let mut delegated_allowed_tools: Vec<String> = available_tools
         .iter()
         .filter(|name| name.as_str() != "subagent.spawn")
         .cloned()
         .collect();
+
+    if let Some(preset) = selected_agent_preset.as_ref() {
+        apply_agent_preset_tool_constraints(&mut delegated_allowed_tools, preset);
+    }
+
+    let delegated_skills_context = if let Some(preset) = selected_agent_preset.as_ref() {
+        build_delegated_agent_context(skills_context, preset)
+    } else {
+        skills_context.to_string()
+    };
 
     const SUB_AGENT_ATTEMPT_TIMEOUT_SECS: u64 = 300;
 
@@ -106,6 +148,14 @@ pub async fn spawn_and_execute_delegated_sub_agent(
                     "title": format!("Delegated objective {}", turn),
                     "description": objective,
                 },
+                "agent_preset": selected_agent_preset.as_ref().map(|preset| {
+                    serde_json::json!({
+                        "id": preset.id,
+                        "name": preset.name,
+                        "mode": preset.mode,
+                        "description": preset.description,
+                    })
+                }),
                 "contract": {
                     "permissions": {
                         "allowed_tools": delegated_allowed_tools,
@@ -129,6 +179,8 @@ pub async fn spawn_and_execute_delegated_sub_agent(
         return SubAgentExecutionResult {
             success: false,
             sub_agent_id: child.id,
+            agent_preset_id: preset_id,
+            agent_preset_name: preset_name,
             output_path: None,
             error: Some(format!("failed to insert sub-agent: {}", error)),
             merge_message: None,
@@ -147,6 +199,8 @@ pub async fn spawn_and_execute_delegated_sub_agent(
             "step_idx": step_idx,
             "name": child.name,
             "objective": objective,
+            "agent_preset_id": preset_id.clone(),
+            "agent_preset_name": preset_name.clone(),
         }),
     );
 
@@ -184,7 +238,7 @@ pub async fn spawn_and_execute_delegated_sub_agent(
         orchestrator_model_config,
         goal_summary.to_string(),
         task_prompt.to_string(),
-        skills_context.to_string(),
+        delegated_skills_context,
     ))
     .await;
 
@@ -325,6 +379,8 @@ pub async fn spawn_and_execute_delegated_sub_agent(
             "step_idx": step_idx,
             "final_status": final_status,
             "close_reason": close_reason,
+            "agent_preset_id": preset_id.clone(),
+            "agent_preset_name": preset_name.clone(),
         }),
     );
 
@@ -339,8 +395,85 @@ pub async fn spawn_and_execute_delegated_sub_agent(
     SubAgentExecutionResult {
         success: child_result.success,
         sub_agent_id: child_result.sub_agent_id,
+        agent_preset_id: preset_id,
+        agent_preset_name: preset_name,
         output_path: child_result.output_path,
         error: child_result.error,
         merge_message: child_result.merge_message,
+    }
+}
+
+fn apply_agent_preset_tool_constraints(
+    allowed_tools: &mut Vec<String>,
+    preset: &agent_presets::AgentPreset,
+) {
+    let mut deny_set: std::collections::HashSet<String> = std::collections::HashSet::new();
+
+    if let Some(tools) = &preset.tools {
+        for (tool_name, permission) in tools {
+            if matches!(permission, agent_presets::ToolPermission::Bool(false)) {
+                for mapped in map_tool_aliases(tool_name) {
+                    deny_set.insert(mapped);
+                }
+            }
+        }
+    }
+
+    if let Some(permission) = &preset.permission {
+        if matches!(permission.edit, Some(agent_presets::ToolPermission::Bool(false)))
+            || matches!(permission.write, Some(agent_presets::ToolPermission::Bool(false)))
+        {
+            deny_set.insert("fs.write".to_string());
+        }
+        if matches!(permission.bash, Some(agent_presets::ToolPermission::Bool(false))) {
+            deny_set.insert("cmd.exec".to_string());
+        }
+        if matches!(
+            permission.webfetch,
+            Some(agent_presets::ToolPermission::Bool(false))
+        ) {
+            deny_set.insert("webfetch".to_string());
+        }
+    }
+
+    if deny_set.is_empty() {
+        return;
+    }
+
+    allowed_tools.retain(|tool_name| !deny_set.contains(tool_name));
+}
+
+fn map_tool_aliases(alias: &str) -> Vec<String> {
+    match alias {
+        "write" | "edit" => vec!["fs.write".to_string()],
+        "bash" => vec!["cmd.exec".to_string()],
+        "webfetch" => vec!["webfetch".to_string()],
+        "read" => vec!["fs.read".to_string()],
+        "list" => vec!["fs.list".to_string()],
+        _ => vec![alias.to_string()],
+    }
+}
+
+fn build_delegated_agent_context(
+    existing_context: &str,
+    preset: &agent_presets::AgentPreset,
+) -> String {
+    let preset_context = format!(
+        "# Delegated Agent Preset\n\nID: {}\nName: {}\nMode: {:?}\n\nDescription:\n{}\n\nPrompt:\n{}",
+        preset.id,
+        preset.name,
+        preset.mode,
+        if preset.description.trim().is_empty() {
+            "(no description)"
+        } else {
+            &preset.description
+        },
+        preset.prompt,
+    );
+
+    if existing_context.trim().is_empty() {
+        preset_context
+    } else {
+        format!("{}\n\n{}", existing_context, preset_context)
     }
 }

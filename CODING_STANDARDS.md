@@ -8,6 +8,7 @@ This document outlines the coding standards and best practices for the Orchestri
 - [TypeScript / React Standards](#typescript--react-standards)
 - [Rust Standards](#rust-standards)
 - [Styling Standards](#styling-standards)
+- [UX Standards](#ux-standards)
 - [State Management](#state-management)
 - [Event System](#event-system)
 - [Database Conventions](#database-conventions)
@@ -34,13 +35,26 @@ This document outlines the coding standards and best practices for the Orchestri
 - **Memoization**: Use `useMemo` and `useCallback` appropriately to prevent unnecessary re-renders
 - **Bundle Size**: Keep dependencies minimal; prefer lighter alternatives when possible
 - **Event Batching**: High-frequency events are batched before reaching the frontend (100ms flush, 50-item max). UI code should never assume single-event delivery
+- **Incremental Processing**: Process incoming events incrementally; avoid full timeline recomputation on every batch
+- **Long List Strategy**: Use virtualization/windowing for long timelines or task lists
 
 ### Architecture
 
 - **Backend-authoritative**: All orchestration, state, and execution live in the Rust backend
 - **Event-driven UI**: The frontend renders state via streamed events; it never controls logic
 - **Plan-first execution**: Every task begins with a structured planning phase
+- **Human-in-the-loop by default**: Plan review and intervention points are first-class
+- **Transparency-first UX**: Users can inspect model/tool activity throughout runs
+- **Condensed visualization**: Prioritize high-signal summaries with expandable detail
 - **Minimal surface area**: No embedded editor, no live code manipulation by humans
+
+### UX and Transparency
+
+- **No hidden transitions**: Any meaningful agent or tool transition must produce an auditable event
+- **Progressive disclosure**: Show concise summary rows first; expand to full raw details on demand
+- **Single source of truth**: Timeline status and badges derive from event stream + DB, not duplicated local heuristics
+- **Readable at scale**: Group repetitive events by phase/step and elevate errors/warnings in hierarchy
+- **Human control always available**: Cancel/review actions stay visible while runs are active
 
 ## TypeScript / React Standards
 
@@ -503,6 +517,30 @@ import { Plus, Settings, Trash2 } from "lucide-react";
 
 Standard sizes: `10`, `12`, `13`, `14`, `16`, `24`.
 
+## UX Standards
+
+### Agent Timeline UX
+
+- **Keep users involved**: planning, execution, and completion states should always be visible and actionable
+- **Phase-first view**: clearly present `planning`, `awaiting_review`, `executing`, `completed`, and `failed`
+- **Summary-first rendering**: default to concise timeline rows (status, one-line summary, timestamp)
+- **Expandable diagnostics**: raw tool args/output/logs must be available without leaving context
+- **Error prominence**: warnings and failures should appear before routine informational entries
+
+### Human-in-the-Loop Review UX
+
+- Plan approval UI must be explicit and blocking before build-mode execution
+- Feedback loops should preserve context (task, run, step references)
+- Permission-gated actions should display why approval is required
+- Completion views should link artifacts back to execution steps and tool calls
+
+### Non-Cluttered Visualization Rules
+
+- Avoid duplicate status surfaces that disagree with timeline truth
+- Group bursty events under step/phase containers
+- Collapse repetitive success items when detail density is high
+- Keep copy short, concrete, and stateful (what happened, where, result)
+
 ## State Management
 
 ### Zustand Stores
@@ -565,7 +603,7 @@ Events use `{category}.{action}` dotted notation:
 | Category | Event Types |
 |----------|-------------|
 | `task` | `task.status_changed` |
-| `agent` | `agent.planning_started`, `agent.plan_ready`, `agent.plan_message`, `agent.plan_delta`, `agent.step_started`, `agent.subagent_started`, `agent.subagent_completed`, `agent.subagent_failed` |
+| `agent` | `agent.planning_started`, `agent.deciding`, `agent.tool_calls_preparing`, `agent.plan_ready`, `agent.plan_message`, `agent.plan_delta`, `agent.step_started`, `agent.subagent_started`, `agent.subagent_completed`, `agent.subagent_failed` |
 | `tool` | `tool.call_started`, `tool.call_finished` |
 | `artifact` | `artifact.created` |
 | `log` | *(reserved)* |
@@ -577,6 +615,13 @@ Events use `{category}.{action}` dotted notation:
 - Field names in payloads use `snake_case`
 - `task_id` is always included in the payload when relevant
 - `run_id` is set on the `BusEvent` itself, not duplicated in the payload
+- No meaningful model/tool transition may occur without an emitted event
+
+### Batching and Immediacy
+
+- Default event flush interval is 100ms with max batch size 50
+- Immediate flush applies to interaction-critical events: `task.*`, `agent.step_*`, `agent.deciding`, `agent.tool_calls_preparing`
+- Frontend event handlers must support both single-event and multi-event batches
 
 ### Dual Write Pattern
 

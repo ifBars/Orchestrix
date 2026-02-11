@@ -224,6 +224,7 @@ impl Tool for SubAgentSpawnTool {
                 "type": "object",
                 "properties": {
                     "objective": {"type": "string", "description": "Focused delegated objective"},
+                    "agent_preset_id": {"type": "string", "description": "Optional agent preset ID (from @agent:<id>) to use for delegated execution constraints and prompt"},
                     "max_retries": {"type": "integer", "description": "Optional retries for delegated objective"}
                 },
                 "required": ["objective"]

@@ -4,12 +4,14 @@ type IdeShellProps = {
   header: ReactNode;
   sidebar: ReactNode;
   main: ReactNode;
-  composer: ReactNode;
+  composer?: ReactNode;
   artifacts?: ReactNode;
   isArtifactsOpen: boolean;
 };
 
 export function IdeShell({ header, sidebar, main, composer, artifacts, isArtifactsOpen }: IdeShellProps) {
+  const hasComposer = composer != null;
+
   return (
     <div className="flex h-full flex-col overflow-hidden">
       {/* Title bar */}
@@ -29,14 +31,16 @@ export function IdeShell({ header, sidebar, main, composer, artifacts, isArtifac
         {/* Main chat area — always centered */}
         <div className="relative flex min-w-0 flex-1 flex-col">
           {/* Scrollable chat content */}
-          <div className="flex-1 overflow-y-auto px-6 py-6 pb-48">
+          <div className={`flex-1 overflow-y-auto px-6 py-6 ${hasComposer ? "pb-48" : "pb-6"}`}>
             {main}
           </div>
 
           {/* Composer pinned to bottom */}
-          <div className="absolute inset-x-0 bottom-0 border-t border-border/50 bg-background/80 px-6 py-4 backdrop-blur-md">
-            {composer}
-          </div>
+          {hasComposer && (
+            <div className="absolute inset-x-0 bottom-0 border-t border-border/50 bg-background/80 px-6 py-4 backdrop-blur-md">
+              {composer}
+            </div>
+          )}
         </div>
 
         {/* Artifact panel — slide-out overlay */}

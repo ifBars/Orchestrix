@@ -67,7 +67,7 @@ export interface WorkspaceRootView {
 }
 
 export interface WorkspaceReferenceCandidate {
-  kind: "file" | "directory" | "skill";
+  kind: "file" | "directory" | "skill" | "agent";
   value: string;
   display: string;
   description: string;
@@ -250,4 +250,63 @@ export interface McpToolEntry {
   tool_name: string;
   description: string;
   input_schema: unknown;
+}
+
+/**
+ * Agent mode - primary agents can be selected for tasks, subagents can be delegated to.
+ */
+export type AgentMode = "primary" | "subagent";
+
+/**
+ * Tool permission configuration.
+ */
+export type ToolPermission = boolean | "inherit" | Record<string, unknown>;
+
+/**
+ * Permission overrides for tools and operations.
+ */
+export interface PermissionConfig {
+  edit?: ToolPermission;
+  bash?: ToolPermission;
+  write?: ToolPermission;
+  webfetch?: ToolPermission;
+  skill?: Record<string, string>;
+}
+
+/**
+ * A discovered agent preset from an agent markdown file.
+ * Mirrors the Rust AgentPreset struct with OpenCode-compatible frontmatter.
+ */
+export interface AgentPreset {
+  id: string;
+  name: string;
+  description: string;
+  mode: AgentMode;
+  model?: string;
+  temperature?: number;
+  steps?: number;
+  tools?: Record<string, ToolPermission>;
+  permission?: PermissionConfig;
+  prompt: string;
+  tags: string[];
+  file_path: string;
+  source: "workspace" | "global" | "opencode";
+  enabled: boolean;
+  validation_issues: string[];
+}
+
+/**
+ * Input for creating or updating an agent preset.
+ */
+export interface CreateAgentPresetInput {
+  id: string;
+  name: string;
+  description: string;
+  mode: AgentMode;
+  model?: string;
+  temperature?: number;
+  steps?: number;
+  prompt: string;
+  tags?: string[];
+  tools?: Record<string, unknown>;
 }

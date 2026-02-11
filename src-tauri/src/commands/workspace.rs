@@ -1,6 +1,7 @@
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
+use crate::core::agent_presets;
 use crate::db::queries;
 use crate::{load_workspace_root, AppError, AppState, ArtifactContentView, WorkspaceRootView};
 
@@ -60,6 +61,32 @@ pub fn search_workspace_references(
     let (base, needle) = split_base_and_needle(&normalized);
 
     let mut ranked: Vec<(i64, WorkspaceReferenceCandidate)> = Vec::new();
+
+    let agents = agent_presets::scan_agent_presets(&workspace_root);
+    for agent in agents {
+        if !agent.enabled {
+            continue;
+        }
+        let mention = format!("agent:{}", agent.id);
+        let agent_haystack = format!("{} {} {}", mention, agent.name, agent.description);
+        let score = fuzzy_score(&query_lower, &agent_haystack);
+        if score >= 0 {
+            ranked.push((
+                score,
+                WorkspaceReferenceCandidate {
+                    kind: "agent".to_string(),
+                    value: mention,
+                    display: format!("{} ({})", agent.name, agent.id),
+                    description: if agent.description.trim().is_empty() {
+                        "agent preset".to_string()
+                    } else {
+                        agent.description
+                    },
+                    group: "Agents".to_string(),
+                },
+            ));
+        }
+    }
 
     let skills = crate::core::workspace_skills::scan_workspace_skills(&workspace_root);
     for skill in skills {

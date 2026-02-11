@@ -34,6 +34,12 @@ This document outlines design principles and implementation guidelines for appli
 - **Alignment**: Elements should be properly aligned within their containers
 - **Simplicity Over Flashiness**: Focus on clarity and function first
 
+### 5. Transparent Agent UX
+- **Summary-first timeline**: Show concise state, action, and timestamp first
+- **Expandable details**: Tool args/output/logs are visible on demand, not hidden
+- **Human controls always visible**: Review/approve/cancel actions remain obvious
+- **No clutter by default**: Group repetitive events by phase or step
+
 ## Foundation
 
 ### Tailwind v4 Integration

@@ -1,4 +1,4 @@
-import { ArrowUp, FileText, Folder, Loader2, MessageCircle, Paperclip, Sparkles, XCircle } from "lucide-react";
+import { ArrowUp, Bot, FileText, Folder, Loader2, MessageCircle, Paperclip, Sparkles, XCircle } from "lucide-react";
 import { invoke } from "@tauri-apps/api/core";
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
 import { useEffect, useMemo, useRef, useState } from "react";
@@ -25,6 +25,8 @@ export function Composer() {
     sendMessageToTask,
     cancelTask,
     selectedTask,
+    selectedAgentPresetId,
+    setSelectedAgentPreset,
     modelCatalog,
     selectedProvider,
     selectedModel,
@@ -35,6 +37,8 @@ export function Composer() {
       state.sendMessageToTask,
       state.cancelTask,
       state.tasks.find((t) => t.id === state.selectedTaskId) ?? null,
+      state.selectedAgentPresetId,
+      state.setSelectedAgentPreset,
       state.modelCatalog,
       state.selectedProvider,
       state.selectedModel,
@@ -75,7 +79,7 @@ export function Composer() {
       }
     } else {
       // Create new task
-      await createTask(value, { mode });
+      await createTask(value, { mode, agentPresetId: selectedAgentPresetId ?? undefined });
     }
   };
 
@@ -200,6 +204,21 @@ export function Composer() {
         </div>
       )}
 
+      {/* Selected agent preset */}
+      {!canContinueChat && selectedAgentPresetId && (
+        <div className="mb-2 flex items-center gap-2 text-xs text-muted-foreground">
+          <Bot size={12} />
+          <span>Using preset @agent:{selectedAgentPresetId}</span>
+          <button
+            type="button"
+            onClick={() => setSelectedAgentPreset(null)}
+            className="rounded px-1.5 py-0.5 text-[10px] text-muted-foreground/80 hover:bg-accent hover:text-foreground"
+          >
+            Clear
+          </button>
+        </div>
+      )}
+
       {/* Input container */}
       <div className="rounded-2xl border border-border bg-card/90 shadow-sm transition-shadow focus-within:shadow-md focus-within:border-ring/30">
         <textarea
@@ -269,6 +288,8 @@ export function Composer() {
                           <FileText size={12} />
                         ) : item.kind === "directory" ? (
                           <Folder size={12} />
+                        ) : item.kind === "agent" ? (
+                          <Bot size={12} />
                         ) : (
                           <Sparkles size={12} />
                         )}
@@ -351,7 +372,7 @@ export function Composer() {
             </div>
           </div>
 
-          <span className="pr-1 text-[10px] text-muted-foreground/70">Use @ to reference files, folders, and skills</span>
+          <span className="pr-1 text-[10px] text-muted-foreground/70">Use @ to reference files, folders, skills, and agents</span>
 
           {/* Stop button - shown when a task is running */}
           {isWorking ? (

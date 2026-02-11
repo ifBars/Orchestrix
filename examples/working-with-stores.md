@@ -8,6 +8,8 @@ Orchestrix uses Zustand for state management with two main stores:
 - **appStore** - Main application state (tasks, events, settings)
 - **streamStore** - High-frequency reactive counters
 
+Store design should preserve a condensed, transparent UX: summary-first timeline rendering with detail expansion on demand.
+
 ## appStore
 
 The main store is defined in `src/stores/appStore.ts`.
@@ -306,6 +308,17 @@ const usePersistentStore = create(
   )
 );
 ```
+
+### 6. Keep Summary and Detail Separate
+
+```typescript
+type ConversationState = {
+  summaryItems: ConversationItem[];
+  detailByItemId: Record<string, unknown>;
+};
+```
+
+Keep high-signal summary arrays small and cheap to render. Store verbose payloads in keyed detail maps so users can inspect everything without paying full render cost for every update.
 
 ## Common Patterns
 

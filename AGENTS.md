@@ -10,6 +10,9 @@ The app is **agent-management–only** (no human code editing) and is optimized 
 - **Backend-authoritative**: All orchestration, state, and execution live in the Rust backend.
 - **Event-driven UI**: Frontend renders state via streamed events; it never controls logic.
 - **Conversation-first execution**: Agent runs as a natural coding conversation loop and decides tools dynamically.
+- **Human-in-the-loop by default**: User review, approval, and intervention points are first-class.
+- **Transparency-first UX**: Users can inspect decisions, tool activity, and artifacts throughout a run.
+- **Condensed, non-cluttered visualization**: Show high-signal summaries by default with expandable detail.
 - **Minimal surface area**: No embedded editor, no live code manipulation by humans.
 - **Model-agnostic by design**: MiniMax and Kimi are both supported through the same planner/worker interfaces.
 
@@ -85,7 +88,8 @@ Agents do **not** directly manipulate UI or global state.
    - After plan approval, worker agent executes in a natural conversational loop.
    - Worker may call tools one or many at a time (native tool calling where provider supports it).
    - Tools invoked via permission-gated layer.
-   - Events streamed to UI.
+   - Events streamed to UI with progressive disclosure (summary first, full detail on demand).
+   - User remains involved with live visibility and can cancel at any time.
 
 4. **Completion**
    - Task marked as `completed` or `failed`
@@ -168,6 +172,7 @@ All communication happens via events emitted by the backend.
 
 - Events are append-only
 - High-frequency events are batched
+- No meaningful agent/tool transition may occur without a corresponding event
 - UI must be able to reconstruct state from events + DB
 
 ### Event catalog (immediate vs batched)
@@ -234,7 +239,7 @@ The frontend:
 - No silent system-level side effects
 - No leaving the user out of what is happening
 - No redundant UI for chat interfaces
-- No "executing steps" more like a natural coding agent, that can make todo lists with tools, but talks to the user with natural language, and we dont shove random UI in their to hide AI messages
+- No step-runner UI that hides natural agent messages or obscures tool activity
 
 ---
 

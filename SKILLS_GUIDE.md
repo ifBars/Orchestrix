@@ -19,6 +19,7 @@ Skills are modular extensions that provide specialized capabilities to AI agents
 - **Self-contained** - Each skill is a directory with documentation and metadata
 - **Discoverable** - Automatically loaded from `.agents/skills/`
 - **Versioned** - Support versioning for updates
+- **Human-in-the-loop safe** - Extend capabilities without bypassing review and visibility expectations
 
 ## Skill Structure
 
@@ -184,7 +185,7 @@ version: 1.0.0
 
 1. Install dependencies:
    ```bash
-   npm install mylibrary-sdk
+   bun add mylibrary-sdk
    ```
 
 2. Configure environment:
@@ -287,14 +288,14 @@ await invoke("import_context7_skill", {
 
 // Add custom skill
 await invoke("add_custom_skill", {
-  skill: {
-    id: "my-custom-skill",
-    title: "My Custom Skill",
-    description: "...",
-    install_command: "npm install my-package",
-    url: "https://example.com",
-    tags: ["custom"],
-  },
+   skill: {
+     id: "my-custom-skill",
+     title: "My Custom Skill",
+     description: "...",
+     install_command: "bun add my-package",
+     url: "https://example.com",
+     tags: ["custom"],
+   },
 });
 ```
 
@@ -365,6 +366,8 @@ Planned features:
 2. **Include examples**: Show real code patterns
 3. **Explain when**: Clearly state when to use the skill
 4. **Keep updated**: Version and maintain your skills
+5. **Preserve transparency**: Skills must not encourage hidden side effects or skipped review gates
+6. **Keep users involved**: Include patterns that support inspectable outputs and explicit approvals
 
 ### Documentation
 
@@ -433,7 +436,7 @@ version: 1.0.0
 ## Setup
 
 ```bash
-npm install stripe
+bun add stripe
 ```
 
 ## Creating Charges
@@ -526,5 +529,6 @@ async fn test_api_endpoint() {
 ## See Also
 
 - [ARCHITECTURE.md](./ARCHITECTURE.md) - MCP Compatibility section
+- [UX_PRINCIPLES.md](./UX_PRINCIPLES.md) - Human-in-the-loop and transparency guardrails
 - [CODING_STANDARDS.md](./CODING_STANDARDS.md) - Documentation standards
 - [Model Context Protocol](https://modelcontextprotocol.io/)

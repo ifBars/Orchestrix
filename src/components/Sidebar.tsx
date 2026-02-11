@@ -1,4 +1,4 @@
-import { Plus, Settings, Sparkles, Trash2 } from "lucide-react";
+import { Bot, Plus, Settings, Sparkles, Trash2 } from "lucide-react";
 import { useShallow } from "zustand/shallow";
 import { useAppStore } from "@/stores/appStore";
 import { Button } from "@/components/ui/button";
@@ -6,6 +6,8 @@ import { Button } from "@/components/ui/button";
 type SidebarProps = {
   onOpenSettings: () => void;
   onOpenSkills: () => void;
+  onOpenAgents: () => void;
+  onOpenChat: () => void;
 };
 
 function taskAge(iso: string): string {
@@ -27,7 +29,7 @@ const statusDot: Record<string, string> = {
   cancelled: "bg-warning",
 };
 
-export function Sidebar({ onOpenSettings, onOpenSkills }: SidebarProps) {
+export function Sidebar({ onOpenSettings, onOpenSkills, onOpenAgents, onOpenChat }: SidebarProps) {
   const [tasks, selectedTaskId, selectTask, providerConfigs, deleteTask] = useAppStore(
     useShallow((state) => [
       state.tasks,
@@ -46,7 +48,10 @@ export function Sidebar({ onOpenSettings, onOpenSkills }: SidebarProps) {
       <div className="p-3">
         <Button
           className="w-full justify-center gap-2"
-          onClick={() => selectTask(null)}
+          onClick={() => {
+            selectTask(null);
+            onOpenChat();
+          }}
         >
           <Plus size={14} />
           New Conversation
@@ -62,6 +67,14 @@ export function Sidebar({ onOpenSettings, onOpenSkills }: SidebarProps) {
         >
           <Sparkles size={14} />
           Skills
+        </button>
+        <button
+          type="button"
+          className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-sm text-muted-foreground transition-colors hover:bg-accent/50 hover:text-foreground"
+          onClick={onOpenAgents}
+        >
+          <Bot size={14} />
+          Agents
         </button>
         <button
           type="button"
@@ -108,7 +121,10 @@ export function Sidebar({ onOpenSettings, onOpenSkills }: SidebarProps) {
                 >
                   <button
                     type="button"
-                    onClick={() => selectTask(task.id)}
+                    onClick={() => {
+                      selectTask(task.id);
+                      onOpenChat();
+                    }}
                     className="flex w-full items-start gap-2.5 text-left"
                   >
                     <span

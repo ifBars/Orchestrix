@@ -1,6 +1,7 @@
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 
+use crate::core::agent_presets;
 use crate::core::workspace_skills;
 
 const MAX_FILE_CHARS: usize = 12_000;
@@ -14,8 +15,16 @@ pub fn expand_prompt_references(prompt: &str, workspace_root: &Path) -> String {
 
     let mut sections: Vec<String> = Vec::new();
     let workspace_skills = workspace_skills::scan_workspace_skills(workspace_root);
+    let agent_presets = agent_presets::scan_agent_presets(workspace_root);
 
     for token in refs {
+        if let Some(agent_ref) = token.strip_prefix("agent:") {
+            if let Some(section) = resolve_agent_reference(agent_ref, &agent_presets) {
+                sections.push(section);
+            }
+            continue;
+        }
+
         if let Some(skill_ref) = token.strip_prefix("skill:") {
             if let Some(section) = resolve_skill_reference(skill_ref, &workspace_skills) {
                 sections.push(section);
@@ -103,6 +112,34 @@ fn resolve_skill_reference(
     Some(format!(
         "Reference `@skill:{}` (workspace skill):\n\n## {}\n\n{}",
         skill.id, skill.name, skill.content
+    ))
+}
+
+fn resolve_agent_reference(
+    agent_ref: &str,
+    agents: &[agent_presets::AgentPreset],
+) -> Option<String> {
+    let needle = agent_ref.trim().to_ascii_lowercase();
+    if needle.is_empty() {
+        return None;
+    }
+
+    let agent = agents
+        .iter()
+        .find(|a| a.id.to_ascii_lowercase() == needle || a.name.to_ascii_lowercase() == needle)?;
+
+    Some(format!(
+        "Reference `@agent:{}` (agent preset):\n\n## {}\n\nDescription: {}\nMode: {:?}\nConstraints: {}\n\nPrompt:\n{}",
+        agent.id,
+        agent.name,
+        if agent.description.trim().is_empty() {
+            "(no description)"
+        } else {
+            &agent.description
+        },
+        agent.mode,
+        agent.constraints_summary(),
+        agent.prompt
     ))
 }
 

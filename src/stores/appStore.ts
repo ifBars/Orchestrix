@@ -32,7 +32,9 @@ import { runtimeEventBuffer } from "@/runtime/eventBuffer";
 import { useStreamTickStore } from "@/stores/streamStore";
 import type {
   ArtifactRow,
+  AgentPreset,
   BusEvent,
+  CreateAgentPresetInput,
   EventRow,
   ModelCatalogEntry,
   NewCustomSkill,
@@ -67,6 +69,7 @@ type CreateTaskOptions = {
   parentTaskId?: string;
   referenceTaskIds?: string[];
   mode?: "plan" | "build";
+  agentPresetId?: string;
 };
 
 function linkRowsToIds(taskId: string, links: TaskLinkRow[]): string[] {
@@ -88,6 +91,8 @@ type AppStoreState = {
   workspaceRoot: string;
   skills: SkillCatalogItem[];
   workspaceSkills: WorkspaceSkill[];
+  agentPresets: AgentPreset[];
+  selectedAgentPresetId: string | null;
   mcpServers: McpServerConfig[];
   mcpTools: McpToolEntry[];
   artifactsByTask: Record<string, ArtifactRow[]>;
@@ -129,6 +134,13 @@ type AppStoreState = {
   removeSkill: (skillId: string) => Promise<void>;
   refreshWorkspaceSkills: () => Promise<void>;
   getWorkspaceSkillContent: (skillId: string) => Promise<WorkspaceSkill>;
+  refreshAgentPresets: () => Promise<void>;
+  searchAgentPresets: (query: string) => Promise<AgentPreset[]>;
+  createAgentPreset: (input: CreateAgentPresetInput) => Promise<void>;
+  updateAgentPreset: (input: CreateAgentPresetInput) => Promise<void>;
+  deleteAgentPreset: (id: string) => Promise<void>;
+  getAgentPresetContext: (presetId: string) => Promise<string>;
+  setSelectedAgentPreset: (presetId: string | null) => void;
   refreshMcpServers: () => Promise<void>;
   upsertMcpServer: (server: McpServerInput) => Promise<void>;
   removeMcpServer: (serverId: string) => Promise<void>;
@@ -154,6 +166,8 @@ export const useAppStore = create<AppStoreState>((set, get) => ({
   workspaceRoot: "",
   skills: [],
   workspaceSkills: [],
+  agentPresets: [],
+  selectedAgentPresetId: null,
   mcpServers: [],
   mcpTools: [],
   artifactsByTask: {},
@@ -163,13 +177,14 @@ export const useAppStore = create<AppStoreState>((set, get) => ({
   bootstrap: async () => {
     if (get().bootstrapped) return;
 
-    const [tasks, providerConfigs, modelCatalog, workspaceRoot, skills, workspaceSkills, mcpServers, mcpTools] = await Promise.all([
+    const [tasks, providerConfigs, modelCatalog, workspaceRoot, skills, workspaceSkills, agentPresets, mcpServers, mcpTools] = await Promise.all([
       invoke<TaskRow[]>("list_tasks"),
       invoke<ProviderConfigView[]>("get_provider_configs"),
       invoke<ModelCatalogEntry[]>("get_model_catalog"),
       invoke<WorkspaceRootView>("get_workspace_root"),
       invoke<SkillCatalogItem[]>("list_available_skills"),
       invoke<WorkspaceSkill[]>("list_workspace_skills"),
+      invoke<AgentPreset[]>("list_agent_presets"),
       invoke<McpServerConfig[]>("list_mcp_server_configs"),
       invoke<McpToolEntry[]>("list_cached_mcp_tools"),
     ]);
@@ -220,6 +235,7 @@ export const useAppStore = create<AppStoreState>((set, get) => ({
       workspaceRoot: workspaceRoot.workspace_root,
       skills,
       workspaceSkills,
+      agentPresets,
       mcpServers,
       mcpTools,
       artifactsByTask,
@@ -412,8 +428,16 @@ export const useAppStore = create<AppStoreState>((set, get) => ({
   },
 
   createTask: async (prompt: string, options?: CreateTaskOptions) => {
+    let effectivePrompt = prompt;
+    if (options?.agentPresetId) {
+      const mention = `@agent:${options.agentPresetId}`;
+      if (!effectivePrompt.includes(mention)) {
+        effectivePrompt = `${mention}\n${effectivePrompt}`;
+      }
+    }
+
     const created = await invoke<TaskRow>("create_task", {
-      prompt,
+      prompt: effectivePrompt,
       options: {
         parent_task_id: options?.parentTaskId ?? null,
         reference_task_ids: options?.referenceTaskIds ?? null,
@@ -675,6 +699,42 @@ export const useAppStore = create<AppStoreState>((set, get) => ({
 
   getWorkspaceSkillContent: async (skillId: string) => {
     return invoke<WorkspaceSkill>("get_workspace_skill_content", { skillId });
+  },
+
+  refreshAgentPresets: async () => {
+    const agentPresets = await invoke<AgentPreset[]>("list_agent_presets");
+    set({ agentPresets });
+  },
+
+  searchAgentPresets: async (query: string) => {
+    return invoke<AgentPreset[]>("search_agent_presets", { query });
+  },
+
+  createAgentPreset: async (input: CreateAgentPresetInput) => {
+    await invoke("create_agent_preset", { input });
+    await get().refreshAgentPresets();
+  },
+
+  updateAgentPreset: async (input: CreateAgentPresetInput) => {
+    await invoke("update_agent_preset", { input });
+    await get().refreshAgentPresets();
+  },
+
+  deleteAgentPreset: async (id: string) => {
+    await invoke("delete_agent_preset", { id });
+    set((state) => ({
+      selectedAgentPresetId:
+        state.selectedAgentPresetId === id ? null : state.selectedAgentPresetId,
+    }));
+    await get().refreshAgentPresets();
+  },
+
+  getAgentPresetContext: async (presetId: string) => {
+    return invoke<string>("get_agent_preset_context", { presetId });
+  },
+
+  setSelectedAgentPreset: (presetId: string | null) => {
+    set({ selectedAgentPresetId: presetId });
   },
 
   refreshMcpServers: async () => {
