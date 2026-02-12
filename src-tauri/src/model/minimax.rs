@@ -262,6 +262,17 @@ impl PlannerModel for MiniMaxPlanner {
 }
 
 impl MiniMaxPlanner {
+    /// Simple text completion without tools - useful for summarization and other single-turn tasks.
+    pub async fn complete(
+        &self,
+        system: &str,
+        user: &str,
+        max_tokens: u32,
+    ) -> Result<String, ModelError> {
+        let response = self.run_chat_json_native(system, user, max_tokens, None).await?;
+        Ok(response.content.unwrap_or_default())
+    }
+
     async fn run_chat_json_native(
         &self,
         system: &str,

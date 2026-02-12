@@ -43,6 +43,17 @@ impl KimiPlanner {
         }
     }
 
+    /// Simple text completion without tools - useful for summarization and other single-turn tasks.
+    pub async fn complete(
+        &self,
+        system: &str,
+        user: &str,
+        max_tokens: u32,
+    ) -> Result<String, ModelError> {
+        let response = self.run_chat(system, user, max_tokens, None).await?;
+        Ok(response.content.unwrap_or_default())
+    }
+
     /// Single chat completion path with optional tools (OpenAI-compatible). All agents use this.
     async fn run_chat(
         &self,

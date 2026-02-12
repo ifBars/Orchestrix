@@ -209,20 +209,6 @@ pub fn list_conversation_messages_for_task(
     Ok(rows)
 }
 
-/// Count conversation messages for a task to determine if compaction is needed.
-pub fn count_conversation_messages_for_task(db: &Database, task_id: &str) -> Result<i64, DbError> {
-    let conn = db.conn();
-    let mut stmt = conn.prepare(
-        r#"SELECT COUNT(*)
-         FROM events e
-         INNER JOIN runs r ON r.id = e.run_id
-         WHERE r.task_id = ?1
-           AND e.event_type IN ('user.message_sent', 'agent.message', 'agent.plan_message')"#,
-    )?;
-    let count: i64 = stmt.query_row(params![task_id], |row| row.get(0))?;
-    Ok(count)
-}
-
 // ---------------------------------------------------------------------------
 // Conversation summary queries
 // ---------------------------------------------------------------------------
@@ -286,33 +272,6 @@ pub fn get_latest_conversation_summary(
         Some(row) => Ok(Some(row?)),
         None => Ok(None),
     }
-}
-
-pub fn list_conversation_summaries_for_task(
-    db: &Database,
-    task_id: &str,
-) -> Result<Vec<ConversationSummaryRow>, DbError> {
-    let conn = db.conn();
-    let mut stmt = conn.prepare(
-        "SELECT id, task_id, run_id, summary, message_count, token_estimate, created_at
-         FROM conversation_summaries
-         WHERE task_id = ?1
-         ORDER BY created_at ASC",
-    )?;
-    let rows = stmt
-        .query_map(params![task_id], |row| {
-            Ok(ConversationSummaryRow {
-                id: row.get(0)?,
-                task_id: row.get(1)?,
-                run_id: row.get(2)?,
-                summary: row.get(3)?,
-                message_count: row.get(4)?,
-                token_estimate: row.get(5)?,
-                created_at: row.get(6)?,
-            })
-        })?
-        .collect::<Result<Vec<_>, _>>()?;
-    Ok(rows)
 }
 
 pub fn update_task_status(

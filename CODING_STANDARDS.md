@@ -28,6 +28,7 @@ This document outlines the coding standards and best practices for the Orchestri
 - **Single Responsibility**: Each function, component, or module should have one clear purpose
 - **DRY (Don't Repeat Yourself)**: Extract common logic into reusable utilities or components
 - **Type Safety First**: Leverage TypeScript's type system fully; avoid `any` types. Use Rust's type system to enforce invariants at compile time
+- **No Dead Code**: Do not write code "for the future" - write it when you need it. All code must be used or removed. The codebase should compile with zero warnings
 
 ### Performance
 
@@ -287,6 +288,46 @@ impl Serialize for AppError {
 - Never use `.unwrap()` in production code. Use `.expect("reason")` only in tests or provably-safe contexts
 - Provide meaningful error messages: `.map_err(|e| format!("failed to read config: {}", e))?`
 - Propagate errors with `?` wherever possible
+
+### Dead Code Policy
+
+The codebase must compile with zero warnings. This means no dead code:
+
+**Don't write code you don't plan to use immediately.**
+
+- If you write a function, use it now or don't write it
+- If you need something later, write it when you actually need it
+- Never keep code "just in case" - version control preserves history
+- If a field exists in a struct, something should read it
+
+**When you encounter dead code:**
+1. **Use it** - If there's a legitimate use case, implement the feature that uses it
+2. **Remove it** - If it's truly not needed, delete it entirely
+3. **For intentional exports** - Use `#[allow(dead_code)]` with a comment explaining why
+
+**Examples:**
+
+```rust
+// BAD: Dead code that generates warnings
+pub fn get_recent_messages(messages: &[Message], count: usize) -> Vec<Message> {
+    messages.iter().rev().take(count).cloned().collect()
+}
+// Never used anywhere - generates warning
+
+// GOOD: Only write what's needed
+// If you need get_recent_messages, write it when you implement the feature
+
+// GOOD: For intentionally unused fields (e.g., API contracts)
+#[allow(dead_code)]
+pub struct ApiResponse {
+    pub id: String,
+    pub data: String,
+    #[allow(dead_code)]  // Reserved for future API versions
+    pub metadata: Option<String>,
+}
+```
+
+Run `cargo check` before committing and ensure zero warnings.
 
 ### Tauri Commands
 

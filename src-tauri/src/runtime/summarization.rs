@@ -17,6 +17,9 @@ const DEFAULT_COMPACTION_PERCENTAGE: f32 = 0.8;
 /// Default number of recent messages to preserve verbatim during compaction.
 const DEFAULT_PRESERVE_RECENT: usize = 4;
 
+/// Maximum tokens for summarization requests.
+const SUMMARIZATION_MAX_TOKENS: u32 = 32768;
+
 /// Settings for conversation compaction behavior.
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct CompactionSettings {
@@ -61,13 +64,13 @@ pub fn get_model_context_window(model: &str) -> usize {
         "MiniMax-M2" => 204_800,
         "MiniMax-M1" => 204_800,
         "MiniMax-Text-01" => 204_800,
-        
+
         // Kimi models
         "kimi-k2.5" => 256_000,
         "kimi-k2.5-coding" => 256_000,
         "kimi-k2" => 128_000,
         "kimi-for-coding" => 128_000,
-        
+
         // Default for unknown models - conservative 8k
         _ => 8_192,
     }
@@ -78,7 +81,6 @@ pub fn get_model_context_window(model: &str) -> usize {
 pub struct ConversationMessage {
     pub role: String,
     pub content: String,
-    pub created_at: String,
 }
 
 /// Result of assembling a conversation transcript.
@@ -111,7 +113,6 @@ pub fn assemble_transcript(db: &Database, task_id: &str) -> Result<TranscriptRes
         .map(|m| ConversationMessage {
             role: m.role,
             content: m.content,
-            created_at: m.created_at,
         })
         .collect();
 
@@ -181,7 +182,7 @@ pub async fn generate_summary(
         .cloned()
         .unwrap_or_else(default_summary_prompt);
 
-    // Generate summary based on provider
+    // Generate summary based on provider using simple completion (no agent loop)
     let summary_text = if provider == "kimi" {
         summarize_with_kimi(api_key, model, base_url, &system_prompt, &conversation_text).await
     } else {
@@ -212,58 +213,73 @@ pub async fn generate_summary(
     Ok(summary)
 }
 
-/// Summarize using Kimi model.
+/// Summarize using Kimi model with simple completion (no agent loop).
 async fn summarize_with_kimi(
     api_key: &str,
     model: Option<&str>,
     base_url: Option<&str>,
-    _system_prompt: &str,
+    system_prompt: &str,
     conversation: &str,
 ) -> String {
-    let _planner = KimiPlanner::new(
+    let planner = KimiPlanner::new(
         api_key.to_string(),
         model.map(String::from),
         base_url.map(String::from),
     );
 
-    // TODO: Implement actual Kimi API call for simple text completion
-    // For now, return a structured summary based on the conversation content
-    generate_mock_summary(conversation)
+    match planner
+        .complete(system_prompt, conversation, SUMMARIZATION_MAX_TOKENS)
+        .await
+    {
+        Ok(summary) => summary,
+        Err(e) => {
+            tracing::warn!("Kimi summarization failed: {}, falling back to basic summary", e);
+            generate_fallback_summary(conversation)
+        }
+    }
 }
 
-/// Summarize using MiniMax model.
+/// Summarize using MiniMax model with simple completion (no agent loop).
 async fn summarize_with_minimax(
     api_key: &str,
     model: Option<&str>,
     base_url: Option<&str>,
-    _system_prompt: &str,
+    system_prompt: &str,
     conversation: &str,
 ) -> String {
-    let _planner = MiniMaxPlanner::new_with_base_url(
+    let planner = MiniMaxPlanner::new_with_base_url(
         api_key.to_string(),
         model.map(String::from),
         base_url.map(String::from),
     );
 
-    // TODO: Implement actual MiniMax API call for simple text completion
-    // For now, return a structured summary based on the conversation content
-    generate_mock_summary(conversation)
+    match planner
+        .complete(system_prompt, conversation, SUMMARIZATION_MAX_TOKENS)
+        .await
+    {
+        Ok(summary) => summary,
+        Err(e) => {
+            tracing::warn!("MiniMax summarization failed: {}, falling back to basic summary", e);
+            generate_fallback_summary(conversation)
+        }
+    }
 }
 
-/// Generate a mock summary for development/testing.
-fn generate_mock_summary(conversation: &str) -> String {
+/// Generate a fallback summary when API calls fail.
+fn generate_fallback_summary(conversation: &str) -> String {
     let char_count = conversation.len();
+    let line_count = conversation.lines().count();
 
     format!(
-        "**Previous Work Summary** ({} characters of conversation)
+        "**Previous Work Summary** ({} characters, ~{} lines of conversation)
 
 - **Context**: Prior work established codebase foundation and requirements
 - **Key Decisions**: Technical approach was agreed upon, implementation partially completed
 - **Current Status**: Work in progress with ongoing refinements
-- **Next Steps**: Addressing follow-up requests and completing remaining tasks
+- **Note**: This is a fallback summary due to API unavailability. Full conversation history is preserved in the database.
 
-**Note**: This is a development placeholder. In production, this would be generated by the AI model.",
-        char_count
+[Conversation length: {} chars]",
+        char_count, line_count, char_count
     )
 }
 
@@ -443,12 +459,4 @@ pub fn save_compaction_settings(
     .map_err(|e| format!("Failed to save compaction settings: {e}"))?;
 
     Ok(())
-}
-
-/// Get recent messages that should be preserved verbatim.
-pub fn get_recent_messages(
-    messages: &[ConversationMessage],
-    count: usize,
-) -> Vec<ConversationMessage> {
-    messages.iter().rev().take(count).cloned().collect()
 }
