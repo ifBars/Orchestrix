@@ -26,6 +26,10 @@ pub const CATEGORY_LOG: &str = "log";
 
 pub const EVENT_AGENT_DECIDING: &str = "agent.deciding";
 pub const EVENT_AGENT_TOOL_CALLS_PREPARING: &str = "agent.tool_calls_preparing";
+pub const EVENT_AGENT_MESSAGE_STREAM_STARTED: &str = "agent.message_stream_started";
+pub const EVENT_AGENT_MESSAGE_DELTA: &str = "agent.message_delta";
+pub const EVENT_AGENT_MESSAGE_STREAM_COMPLETED: &str = "agent.message_stream_completed";
+pub const EVENT_AGENT_MESSAGE_STREAM_CANCELLED: &str = "agent.message_stream_cancelled";
 
 // ---------------------------------------------------------------------------
 // Flush policy

@@ -26,14 +26,14 @@ export function AgentTodoPanel({ agentTodos, isWorking }: AgentTodoPanelProps) {
   );
 
   return (
-    <div className="rounded-xl border border-border/70 bg-background/90 p-3 shadow-sm backdrop-blur supports-[backdrop-filter]:bg-background/80">
+    <div className="rounded-xl border border-border/75 bg-card/75 p-3 elevation-1 backdrop-blur supports-[backdrop-filter]:bg-card/70">
       <button
         type="button"
         onClick={() => setExpanded(!expanded)}
         className="flex w-full items-center gap-2 text-left"
       >
         <ListChecks size={14} className="text-muted-foreground" />
-        <span className="text-xs font-medium text-foreground">Todo lists ({total})</span>
+        <span className="text-xs font-semibold text-foreground">Todo lists ({total})</span>
         <span className="ml-auto text-[11px] text-muted-foreground">
           {completed} completed{inProgress > 0 ? `, ${inProgress} in progress` : ""}
         </span>
@@ -49,7 +49,7 @@ export function AgentTodoPanel({ agentTodos, isWorking }: AgentTodoPanelProps) {
           {agentTodos.map((list) => (
             <div
               key={list.agentId}
-              className="rounded-lg border border-border/60 bg-card/40 p-2.5"
+              className="rounded-lg border border-border/65 bg-background/65 p-2.5"
             >
               <div className="mb-2 flex items-center justify-between gap-2">
                 <span className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">

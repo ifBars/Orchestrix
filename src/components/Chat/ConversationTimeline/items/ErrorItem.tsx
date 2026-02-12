@@ -7,7 +7,7 @@ type ErrorItemProps = {
 
 export function ErrorItem({ item }: ErrorItemProps) {
   return (
-    <div className="ml-11 flex items-start gap-2 rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2">
+    <div className="ml-11 flex items-start gap-2 rounded-lg border border-destructive/35 bg-destructive/8 px-3 py-2">
       <XCircle size={13} className="mt-0.5 shrink-0 text-destructive" />
       <p className="text-xs text-destructive">{item.errorMessage ?? "Unknown error"}</p>
     </div>

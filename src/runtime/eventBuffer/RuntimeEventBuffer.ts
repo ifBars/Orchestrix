@@ -9,8 +9,9 @@ import type { HandlerContext } from "./types";
 import { TimelineState } from "./timelineState";
 import { PlanState } from "./planState";
 import { TodoState } from "./todoState";
+import { AgentStreamState } from "./agentStreamState";
 import { toDisplayText, appendThinkingDelta } from "./handlers/utils";
-import type { ConversationItem, PlanData, AgentTodoList } from "./types";
+import type { ConversationItem, PlanData, AgentTodoList, AgentMessageStream } from "./types";
 
 const MAX_ITEMS_PER_TASK = 500;
 
@@ -19,17 +20,23 @@ export class RuntimeEventBuffer {
   private timelineState = new TimelineState();
   private planState = new PlanState();
   private todoState = new TodoState();
+  private agentStreamState = new AgentStreamState();
 
   resolveTaskId(event: BusEvent): string | null {
     return resolveTaskId(event, this.runToTask);
   }
 
-  ingest(event: BusEvent, taskId: string): { planChanged: boolean; timelineChanged: boolean } {
+  ingest(event: BusEvent, taskId: string): {
+    planChanged: boolean;
+    timelineChanged: boolean;
+    agentStreamChanged: boolean;
+  } {
     let planChanged = false;
     let timelineChanged = false;
+    let agentStreamChanged = false;
 
     if (this.timelineState.hasSeen(taskId, event.id)) {
-      return { planChanged, timelineChanged };
+      return { planChanged, timelineChanged, agentStreamChanged };
     }
     this.timelineState.addSeen(taskId, event.id);
     this.timelineState.pushRawEvent(taskId, event);
@@ -38,16 +45,17 @@ export class RuntimeEventBuffer {
     const handler = getHandler(event.event_type);
     if (!handler) {
       this.timelineState.trimToMax(taskId, MAX_ITEMS_PER_TASK);
-      return { planChanged, timelineChanged };
+      return { planChanged, timelineChanged, agentStreamChanged };
     }
 
     const ctx = this.buildContext(event, taskId, items);
     const result = handler(ctx);
     planChanged = result.planChanged;
     timelineChanged = result.timelineChanged;
+    agentStreamChanged = result.agentStreamChanged ?? false;
 
     this.timelineState.trimToMax(taskId, MAX_ITEMS_PER_TASK);
-    return { planChanged, timelineChanged };
+    return { planChanged, timelineChanged, agentStreamChanged };
   }
 
   private buildContext(
@@ -79,6 +87,11 @@ export class RuntimeEventBuffer {
       toDisplayText,
       appendThinkingDelta: (delta, thinker) =>
         appendThinkingDelta(items, event, taskId, delta, thinker),
+      startAgentMessageStream: (params) => self.agentStreamState.startStream(taskId, params),
+      appendAgentMessageDelta: (params) => self.agentStreamState.appendDelta(taskId, params),
+      completeAgentMessageStream: (streamId, completedAt, seq) =>
+        self.agentStreamState.completeStream(taskId, streamId, completedAt, seq),
+      clearAgentMessageStream: () => self.agentStreamState.clearStream(taskId),
     };
   }
 
@@ -108,10 +121,15 @@ export class RuntimeEventBuffer {
     return this.todoState.getAgentTodos(taskId);
   }
 
+  getActiveAgentMessageStream(taskId: string): AgentMessageStream | null {
+    return this.agentStreamState.getStream(taskId);
+  }
+
   clearTask(taskId: string): void {
     this.timelineState.clearTask(taskId);
     this.planState.clearTask(taskId);
     this.todoState.clearTask(taskId);
+    this.agentStreamState.clearTask(taskId);
   }
 
   getTimeline(taskId: string): ConversationItem[] {

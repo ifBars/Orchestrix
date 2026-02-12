@@ -10,10 +10,10 @@
 
 #[cfg(test)]
 pub mod tests {
+    use crate::model::kimi::KimiPlanner;
+    use crate::model::minimax::MiniMaxPlanner;
     use crate::model::{PlannerModel, WorkerAction, WorkerActionRequest, WorkerDecision};
     use crate::tests::load_api_key;
-    use crate::model::minimax::MiniMaxPlanner;
-    use crate::model::kimi::KimiPlanner;
     use serde_json::json;
 
     // ====================================================================================
@@ -86,6 +86,7 @@ pub mod tests {
             tool_descriptions: "fs.write: Write to a file".to_string(),
             tool_descriptors: vec![],
             prior_observations: vec![],
+            max_tokens: None,
         };
 
         assert!(req.prior_observations.is_empty());
@@ -109,6 +110,7 @@ pub mod tests {
             tool_descriptions: "Multiple tools available".to_string(),
             tool_descriptors: vec![],
             prior_observations: vec![],
+            max_tokens: None,
         };
 
         assert_eq!(req.available_tools.len(), 4);
@@ -126,6 +128,7 @@ pub mod tests {
             tool_descriptions: "".to_string(),
             tool_descriptors: vec![],
             prior_observations: vec![],
+            max_tokens: None,
         };
 
         let req_json = json!({
@@ -184,9 +187,18 @@ pub mod tests {
             },
         ];
 
-        assert!(matches!(actions[0], crate::model::WorkerAction::ToolCall { .. }));
-        assert!(matches!(actions[1], crate::model::WorkerAction::Complete { .. }));
-        assert!(matches!(actions[2], crate::model::WorkerAction::Delegate { .. }));
+        assert!(matches!(
+            actions[0],
+            crate::model::WorkerAction::ToolCall { .. }
+        ));
+        assert!(matches!(
+            actions[1],
+            crate::model::WorkerAction::Complete { .. }
+        ));
+        assert!(matches!(
+            actions[2],
+            crate::model::WorkerAction::Delegate { .. }
+        ));
     }
 
     // ====================================================================================
@@ -197,11 +209,8 @@ pub mod tests {
     async fn test_minimax_base_url_override() {
         let api_key = load_api_key();
         let custom_url = "https://api.example.com/v1/minimax";
-        let planner = MiniMaxPlanner::new_with_base_url(
-            api_key,
-            None,
-            Some(custom_url.to_string()),
-        );
+        let planner =
+            MiniMaxPlanner::new_with_base_url(api_key, None, Some(custom_url.to_string()));
 
         assert!(!planner.model_id().is_empty());
     }
@@ -256,7 +265,9 @@ pub mod tests {
         let planner = load_api_key();
         let minimax = MiniMaxPlanner::new(planner, None);
 
-        let result = minimax.generate_plan_markdown("Create a hello world program", "", vec![]).await;
+        let result = minimax
+            .generate_plan_markdown("Create a hello world program", "", vec![])
+            .await;
 
         match result {
             Ok(plan) => {
@@ -319,9 +330,9 @@ Create main.py
                     // Check that the plan contains task-relevant keywords
                     let plan_lower = plan.to_lowercase();
                     let task_lower = task.to_lowercase();
-                    let has_relevant_content = task_lower.split_whitespace().any(|word| {
-                        plan_lower.contains(word)
-                    });
+                    let has_relevant_content = task_lower
+                        .split_whitespace()
+                        .any(|word| plan_lower.contains(word));
                     assert!(
                         has_relevant_content,
                         "Plan should contain content relevant to the task: {}",
@@ -352,6 +363,7 @@ Create main.py
             tool_descriptions: "fs.write: Write content to a file".to_string(),
             tool_descriptors: vec![],
             prior_observations: vec![],
+            max_tokens: None,
         };
 
         let result = minimax.decide_worker_action(req).await;
@@ -382,13 +394,11 @@ Create main.py
         let planner = load_api_key();
         let minimax = MiniMaxPlanner::new(planner, None);
 
-        let prior = vec![
-            json!({
-                "tool_name": "fs.write",
-                "status": "succeeded",
-                "output": {"path": "main.py"}
-            })
-        ];
+        let prior = vec![json!({
+            "tool_name": "fs.write",
+            "status": "succeeded",
+            "output": {"path": "main.py"}
+        })];
 
         let req = WorkerActionRequest {
             task_prompt: "Read the file you just wrote".to_string(),
@@ -398,6 +408,7 @@ Create main.py
             tool_descriptions: "fs.read: Read file".to_string(),
             tool_descriptors: vec![],
             prior_observations: prior,
+            max_tokens: None,
         };
 
         let result = minimax.decide_worker_action(req).await;
@@ -461,6 +472,7 @@ Create main.py
             tool_descriptions: "Tool description".to_string(),
             tool_descriptors: vec![],
             prior_observations: vec![],
+            max_tokens: None,
         };
 
         let req_json = json!({
@@ -526,22 +538,21 @@ Create main.py
             tool_descriptions: "Read file".to_string(),
             tool_descriptors: vec![],
             prior_observations: observations,
+            max_tokens: None,
         };
 
         let result = minimax.decide_worker_action(req).await;
 
         match result {
-            Ok(decision) => {
-                match decision.action {
-                    crate::model::WorkerAction::ToolCall { tool_name, .. } => {
-                        assert!(tool_name == "fs.read" || tool_name.is_empty() == false);
-                    }
-                    crate::model::WorkerAction::Complete { summary } => {
-                        assert!(summary.len() > 0);
-                    }
-                    _ => {}
+            Ok(decision) => match decision.action {
+                crate::model::WorkerAction::ToolCall { tool_name, .. } => {
+                    assert!(tool_name == "fs.read" || tool_name.is_empty() == false);
                 }
-            }
+                crate::model::WorkerAction::Complete { summary } => {
+                    assert!(summary.len() > 0);
+                }
+                _ => {}
+            },
             Err(_) => {}
         }
     }
@@ -578,6 +589,7 @@ Create main.py
             tool_descriptions: "Many tools".to_string(),
             tool_descriptors: vec![],
             prior_observations: vec![],
+            max_tokens: None,
         };
 
         assert_eq!(req.available_tools.len(), 20);
@@ -597,6 +609,7 @@ Create main.py
             tool_descriptions: "".to_string(),
             tool_descriptors: vec![],
             prior_observations: vec![],
+            max_tokens: None,
         };
 
         assert!(req.task_prompt.contains("@#$%^&*()_+{}|"));
@@ -612,6 +625,7 @@ Create main.py
             tool_descriptions: "".to_string(),
             tool_descriptors: vec![],
             prior_observations: vec![],
+            max_tokens: None,
         };
 
         assert!(req.task_prompt.contains("你好世界"));
@@ -630,6 +644,7 @@ Create main.py
             tool_descriptions: "".to_string(),
             tool_descriptors: vec![],
             prior_observations: vec![],
+            max_tokens: None,
         };
 
         assert!(req.task_prompt.contains("Line 1\nLine 2"));

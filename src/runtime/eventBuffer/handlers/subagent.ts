@@ -92,12 +92,14 @@ export function handleSubagentAttempt(ctx: HandlerContext): HandlerResult {
 }
 
 export function handleWorktreeMerged(ctx: HandlerContext): HandlerResult {
+  const subAgentId = ctx.event.payload?.sub_agent_id as string | undefined;
   ctx.items.push({
     id: ctx.event.id,
     type: "statusChange",
     timestamp: ctx.event.created_at,
     seq: ctx.event.seq,
     status: "merged",
+    subAgentId,
     content: "Changes merged into main branch",
   });
   return { planChanged: false, timelineChanged: true };

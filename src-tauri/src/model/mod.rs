@@ -4,6 +4,15 @@ mod shared;
 
 pub(crate) use shared::strip_tool_call_markup;
 
+/// Delta type for streaming callbacks.
+#[derive(Debug, Clone)]
+pub enum StreamDelta {
+    /// Content/message text delta
+    Content(String),
+    /// Reasoning/thinking text delta
+    Reasoning(String),
+}
+
 use crate::core::tool::ToolDescriptor;
 
 #[derive(Debug, Clone)]
@@ -18,6 +27,9 @@ pub struct WorkerActionRequest {
     /// Structured tool descriptors for providers with native function calling.
     pub tool_descriptors: Vec<ToolDescriptor>,
     pub prior_observations: Vec<serde_json::Value>,
+    /// Maximum tokens for the response (content + reasoning + tool calls).
+    /// If None, uses provider-specific defaults.
+    pub max_tokens: Option<u32>,
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]

@@ -11,6 +11,7 @@ export type {
   ConversationItem,
   ConversationItemType,
   PlanData,
+  AgentMessageStream,
   AgentTodoItem,
   AgentTodoList,
   HandlerResult,

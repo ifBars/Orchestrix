@@ -1,3 +1,4 @@
+import { memo } from "react";
 import { ErrorItem } from "./ErrorItem";
 import { FileChangeItem } from "./FileChangeItem";
 import { StatusChangeItem } from "./StatusChangeItem";
@@ -12,7 +13,7 @@ type ConversationItemViewProps = {
   item: ConversationItem;
 };
 
-export function ConversationItemView({ item }: ConversationItemViewProps) {
+export const ConversationItemView = memo(function ConversationItemView({ item }: ConversationItemViewProps) {
   switch (item.type) {
     case "userMessage":
       return <UserMessageItem content={item.content ?? ""} />;
@@ -31,6 +32,6 @@ export function ConversationItemView({ item }: ConversationItemViewProps) {
     default:
       return null;
   }
-}
+});
 
 export { ErrorItem, FileChangeItem, StatusChangeItem, ThinkingItem, ToolCallItem, ToolCallBatchItem };

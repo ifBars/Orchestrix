@@ -211,8 +211,15 @@ impl WorktreeManager {
             }
         }
 
-        // Fallback: plain isolated directory.
+        // Fallback: plain isolated directory. Copy a workspace snapshot so
+        // non-git sub-agents can still read/modify project files in isolation.
         std::fs::create_dir_all(&target)?;
+        let copied = copy_workspace_snapshot_for_isolated_dir(workspace_root, &target)?;
+        tracing::info!(
+            "created isolated worktree snapshot for sub-agent {} ({} files)",
+            sub_agent_id,
+            copied
+        );
         let info = WorktreeInfo {
             path: target,
             branch: None,
@@ -247,10 +254,14 @@ impl WorktreeManager {
         };
 
         let Some(branch) = &info.branch else {
+            let synced = sync_isolated_worktree_to_workspace(&info.path, workspace_root)?;
             return Ok(MergeResult {
                 success: true,
                 strategy: MergeStrategy::NoBranch,
-                message: "non-git worktree, nothing to merge".to_string(),
+                message: format!(
+                    "non-git worktree synchronized {} file(s) to workspace",
+                    synced
+                ),
                 conflicted_files: vec![],
             });
         };
@@ -261,10 +272,20 @@ impl WorktreeManager {
         // 2. Check if the branch has any commits beyond the base.
         let has_changes = branch_has_commits(workspace_root, branch, info.base_ref.as_deref());
         if !has_changes {
+            // There may still be ignored/untracked files that were intentionally
+            // produced by the sub-agent but not committed. Sync them by content.
+            let synced = sync_isolated_worktree_to_workspace(&info.path, workspace_root)?;
             return Ok(MergeResult {
                 success: true,
                 strategy: MergeStrategy::Skipped,
-                message: "no new commits on agent branch".to_string(),
+                message: if synced > 0 {
+                    format!(
+                        "no new commits on agent branch; synchronized {} file(s)",
+                        synced
+                    )
+                } else {
+                    "no new commits on agent branch".to_string()
+                },
                 conflicted_files: vec![],
             });
         }
@@ -664,6 +685,93 @@ fn run_git_command(cwd: &Path, args: &[&str]) -> Result<String, String> {
     } else {
         Err(String::from_utf8_lossy(&output.stderr).to_string())
     }
+}
+
+fn should_skip_snapshot_entry(path: &Path) -> bool {
+    matches!(
+        path.file_name().and_then(|n| n.to_str()),
+        Some(".git") | Some(".orchestrix")
+    )
+}
+
+fn copy_workspace_snapshot_for_isolated_dir(
+    workspace_root: &Path,
+    isolated_root: &Path,
+) -> Result<u64, WorktreeError> {
+    copy_tree(workspace_root, isolated_root, true)
+}
+
+fn sync_isolated_worktree_to_workspace(
+    isolated_root: &Path,
+    workspace_root: &Path,
+) -> Result<u64, WorktreeError> {
+    copy_tree(isolated_root, workspace_root, false)
+}
+
+fn copy_tree(src_root: &Path, dst_root: &Path, copy_all: bool) -> Result<u64, WorktreeError> {
+    let mut copied = 0_u64;
+    copy_tree_inner(src_root, dst_root, copy_all, &mut copied)?;
+    Ok(copied)
+}
+
+fn copy_tree_inner(
+    src: &Path,
+    dst: &Path,
+    copy_all: bool,
+    copied: &mut u64,
+) -> Result<(), WorktreeError> {
+    let entries = std::fs::read_dir(src)?;
+    for entry in entries {
+        let entry = entry?;
+        let src_path = entry.path();
+        if should_skip_snapshot_entry(&src_path) {
+            continue;
+        }
+
+        let file_name = entry.file_name();
+        let dst_path = dst.join(file_name);
+        let file_type = entry.file_type()?;
+
+        if file_type.is_dir() {
+            std::fs::create_dir_all(&dst_path)?;
+            copy_tree_inner(&src_path, &dst_path, copy_all, copied)?;
+            continue;
+        }
+
+        if !file_type.is_file() {
+            continue;
+        }
+
+        let needs_copy = if copy_all {
+            true
+        } else {
+            !files_equal(&src_path, &dst_path)?
+        };
+
+        if needs_copy {
+            if let Some(parent) = dst_path.parent() {
+                std::fs::create_dir_all(parent)?;
+            }
+            std::fs::copy(&src_path, &dst_path)?;
+            *copied += 1;
+        }
+    }
+    Ok(())
+}
+
+fn files_equal(a: &Path, b: &Path) -> Result<bool, std::io::Error> {
+    if !b.exists() {
+        return Ok(false);
+    }
+    let a_meta = std::fs::metadata(a)?;
+    let b_meta = std::fs::metadata(b)?;
+    if a_meta.len() != b_meta.len() {
+        return Ok(false);
+    }
+
+    let a_bytes = std::fs::read(a)?;
+    let b_bytes = std::fs::read(b)?;
+    Ok(a_bytes == b_bytes)
 }
 
 // ---------------------------------------------------------------------------

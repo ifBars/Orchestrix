@@ -1,4 +1,3 @@
-import type { ConversationItem } from "../types";
 import type { HandlerContext, HandlerResult } from "../types";
 
 export function handleThinkingDelta(ctx: HandlerContext): HandlerResult {
@@ -14,6 +13,7 @@ export function handleThinkingDelta(ctx: HandlerContext): HandlerResult {
 export function handleMessage(ctx: HandlerContext): HandlerResult {
   const content = ctx.event.payload?.content;
   if (typeof content === "string" && content.trim()) {
+    ctx.clearAgentMessageStream();
     const trimmed = content.trim();
     const isDuplicate = ctx.items
       .slice(-5)
@@ -36,22 +36,71 @@ export function handleMessage(ctx: HandlerContext): HandlerResult {
 
 export function handleMessageDelta(ctx: HandlerContext): HandlerResult {
   const delta = ctx.event.payload?.content;
-  if (typeof delta === "string") {
-    const msgId = `agent-delta-${ctx.taskId}`;
-    const existingIdx = ctx.items.findIndex((it) => it.type === "agentMessage" && it.id === msgId);
-    const prevContent = existingIdx >= 0 ? (ctx.items[existingIdx].content ?? "") : "";
-    const nextItem: ConversationItem = {
-      id: msgId,
-      type: "agentMessage",
-      timestamp: ctx.event.created_at,
+  if (typeof delta === "string" && delta.length > 0) {
+    const streamId =
+      typeof ctx.event.payload?.stream_id === "string" ? (ctx.event.payload.stream_id as string) : undefined;
+    const subAgentId =
+      typeof ctx.event.payload?.sub_agent_id === "string"
+        ? (ctx.event.payload.sub_agent_id as string)
+        : undefined;
+    const stepIdx =
+      typeof ctx.event.payload?.step_idx === "number"
+        ? (ctx.event.payload.step_idx as number)
+        : undefined;
+    const turn = typeof ctx.event.payload?.turn === "number" ? (ctx.event.payload.turn as number) : undefined;
+
+    ctx.appendAgentMessageDelta({
+      streamId,
+      delta,
+      createdAt: ctx.event.created_at,
       seq: ctx.event.seq,
-      content: `${prevContent}${delta}`,
-    };
-    if (existingIdx >= 0) ctx.items[existingIdx] = nextItem;
-    else ctx.items.push(nextItem);
-    return { planChanged: false, timelineChanged: true };
+      subAgentId,
+      stepIdx,
+      turn,
+    });
+
+    return { planChanged: false, timelineChanged: false, agentStreamChanged: true };
   }
   return { planChanged: false, timelineChanged: false };
+}
+
+export function handleMessageStreamStarted(ctx: HandlerContext): HandlerResult {
+  ctx.removeLastTransient();
+  const streamId =
+    typeof ctx.event.payload?.stream_id === "string"
+      ? (ctx.event.payload.stream_id as string)
+      : `stream-${ctx.taskId}-${ctx.event.id}`;
+  const subAgentId =
+    typeof ctx.event.payload?.sub_agent_id === "string"
+      ? (ctx.event.payload.sub_agent_id as string)
+      : undefined;
+  const stepIdx =
+    typeof ctx.event.payload?.step_idx === "number"
+      ? (ctx.event.payload.step_idx as number)
+      : undefined;
+  const turn = typeof ctx.event.payload?.turn === "number" ? (ctx.event.payload.turn as number) : undefined;
+
+  ctx.startAgentMessageStream({
+    streamId,
+    createdAt: ctx.event.created_at,
+    seq: ctx.event.seq,
+    subAgentId,
+    stepIdx,
+    turn,
+  });
+  return { planChanged: false, timelineChanged: false, agentStreamChanged: true };
+}
+
+export function handleMessageStreamCompleted(ctx: HandlerContext): HandlerResult {
+  const streamId =
+    typeof ctx.event.payload?.stream_id === "string" ? (ctx.event.payload.stream_id as string) : undefined;
+  ctx.completeAgentMessageStream(streamId, ctx.event.created_at, ctx.event.seq);
+  return { planChanged: false, timelineChanged: false, agentStreamChanged: true };
+}
+
+export function handleMessageStreamCancelled(ctx: HandlerContext): HandlerResult {
+  ctx.clearAgentMessageStream();
+  return { planChanged: false, timelineChanged: false, agentStreamChanged: true };
 }
 
 export function handleDeciding(ctx: HandlerContext): HandlerResult {
@@ -69,6 +118,7 @@ export function handleDeciding(ctx: HandlerContext): HandlerResult {
 }
 
 export function handleToolCallsPreparing(ctx: HandlerContext): HandlerResult {
+  ctx.removeLastTransient();
   const toolNames = (ctx.event.payload?.tool_names as string[] | undefined) ?? [];
   const content = toolNames.length > 0 ? `Preparing: ${toolNames.join(", ")}` : "Preparing tool calls…";
   const id = `preparing-${ctx.taskId}`;
@@ -85,6 +135,7 @@ export function handleToolCallsPreparing(ctx: HandlerContext): HandlerResult {
 }
 
 export function handleSubagentsScheduled(ctx: HandlerContext): HandlerResult {
+  ctx.removeLastTransient();
   const count = ctx.event.payload?.count as number | undefined;
   ctx.items.push({
     id: ctx.event.id,

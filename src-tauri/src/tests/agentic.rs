@@ -13,13 +13,13 @@
 
 #[cfg(test)]
 pub mod tests {
+    use crate::model::kimi::KimiPlanner;
+    use crate::model::minimax::MiniMaxPlanner;
     use crate::model::{
         PlannerModel, WorkerAction, WorkerActionRequest, WorkerDecision, WorkerToolCall,
     };
-    use crate::tools::ToolRegistry;
     use crate::tests::load_api_key;
-    use crate::model::minimax::MiniMaxPlanner;
-    use crate::model::kimi::KimiPlanner;
+    use crate::tools::ToolRegistry;
     use serde_json::json;
 
     fn create_tool_registry() -> ToolRegistry {
@@ -42,6 +42,7 @@ pub mod tests {
             tool_descriptions: registry.tool_reference_for_build_mode(),
             tool_descriptors: tools,
             prior_observations,
+            max_tokens: None,
         }
     }
 
@@ -63,6 +64,7 @@ pub mod tests {
             tool_descriptions,
             tool_descriptors: tools.clone(),
             prior_observations: vec![],
+            max_tokens: None,
         };
 
         assert!(!req.task_prompt.is_empty());
@@ -71,10 +73,7 @@ pub mod tests {
         assert_eq!(req.available_tools.len(), tools.len());
         assert!(req.tool_descriptors.len() > 0);
 
-        let has_fs_write = req
-            .available_tools
-            .iter()
-            .any(|t| t == "fs.write");
+        let has_fs_write = req.available_tools.iter().any(|t| t == "fs.write");
         assert!(has_fs_write, "fs.write should be in available tools");
     }
 
@@ -88,7 +87,7 @@ pub mod tests {
             }),
             json!({
                 "tool_name": "fs.read",
-                "status": "succeeded", 
+                "status": "succeeded",
                 "output": {"content": "test content"}
             }),
         ];
@@ -101,14 +100,8 @@ pub mod tests {
         );
 
         assert_eq!(req.prior_observations.len(), 2);
-        assert_eq!(
-            req.prior_observations[0]["tool_name"],
-            "fs.write"
-        );
-        assert_eq!(
-            req.prior_observations[1]["status"],
-            "succeeded"
-        );
+        assert_eq!(req.prior_observations[0]["tool_name"], "fs.write");
+        assert_eq!(req.prior_observations[1]["status"], "succeeded");
     }
 
     // ====================================================================================
@@ -187,10 +180,7 @@ pub mod tests {
 
         match &decision.action {
             WorkerAction::Complete { summary } => {
-                assert_eq!(
-                    summary,
-                    "Successfully created all required files"
-                );
+                assert_eq!(summary, "Successfully created all required files");
             }
             _ => panic!("Expected Complete variant"),
         }
@@ -202,16 +192,15 @@ pub mod tests {
             action: WorkerAction::Delegate {
                 objective: "Create unit tests for the new feature".to_string(),
             },
-            reasoning: Some("This task should be delegated to a specialized testing agent".to_string()),
+            reasoning: Some(
+                "This task should be delegated to a specialized testing agent".to_string(),
+            ),
             raw_response: None,
         };
 
         match &decision.action {
             WorkerAction::Delegate { objective } => {
-                assert_eq!(
-                    objective,
-                    "Create unit tests for the new feature"
-                );
+                assert_eq!(objective, "Create unit tests for the new feature");
             }
             _ => panic!("Expected Delegate variant"),
         }
@@ -327,17 +316,12 @@ pub mod tests {
         ];
 
         let next_action = match prior_observations.last() {
-            Some(obs) if obs["status"] == "failed" => {
-                Some("Should retry with different approach")
-            }
+            Some(obs) if obs["status"] == "failed" => Some("Should retry with different approach"),
             _ => None,
         };
 
         assert!(next_action.is_some());
-        assert_eq!(
-            prior_observations[1]["error"],
-            "permission denied"
-        );
+        assert_eq!(prior_observations[1]["error"], "permission denied");
     }
 
     // ====================================================================================
@@ -537,6 +521,7 @@ pub mod tests {
             tool_descriptions: "".to_string(),
             tool_descriptors: vec![],
             prior_observations: vec![],
+            max_tokens: None,
         };
 
         let req_json = json!({
@@ -608,7 +593,10 @@ pub mod tests {
         let lifecycle_events = vec![
             ("agent.subagent_created", "Sub-agent was created"),
             ("agent.subagent_started", "Sub-agent execution started"),
-            ("agent.subagent_completed", "Sub-agent completed successfully"),
+            (
+                "agent.subagent_completed",
+                "Sub-agent completed successfully",
+            ),
             ("agent.subagent_failed", "Sub-agent execution failed"),
             ("agent.subagent_closed", "Sub-agent closed"),
         ];
@@ -649,19 +637,11 @@ pub mod tests {
             }
         });
 
-        let allowed_tools = contract["permissions"]["allowed_tools"]
-            .as_array()
-            .unwrap();
+        let allowed_tools = contract["permissions"]["allowed_tools"].as_array().unwrap();
         assert!(allowed_tools.contains(&json!("fs.read")));
         assert!(allowed_tools.contains(&json!("fs.write")));
-        assert_eq!(
-            contract["permissions"]["max_delegation_depth"],
-            2
-        );
-        assert_eq!(
-            contract["execution"]["close_on_completion"],
-            true
-        );
+        assert_eq!(contract["permissions"]["max_delegation_depth"], 2);
+        assert_eq!(contract["execution"]["close_on_completion"], true);
     }
 
     // ====================================================================================
@@ -714,9 +694,7 @@ pub mod tests {
         });
 
         assert_eq!(error["status"], "denied");
-        assert!(error["error"]
-            .to_string()
-            .contains("not allowed"));
+        assert!(error["error"].to_string().contains("not allowed"));
     }
 
     #[tokio::test]

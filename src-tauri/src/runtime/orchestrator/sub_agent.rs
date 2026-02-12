@@ -84,9 +84,15 @@ pub(super) async fn execute_sub_agent(
     );
 
     let policy = if worktree.strategy == WorktreeStrategy::GitWorktree {
-        PolicyEngine::with_approved_scopes(worktree.path.clone(), approval_gate.approved_scopes_handle())
+        PolicyEngine::with_approved_scopes(
+            worktree.path.clone(),
+            approval_gate.approved_scopes_handle(),
+        )
     } else {
-        PolicyEngine::with_approved_scopes(workspace_root.to_path_buf(), approval_gate.approved_scopes_handle())
+        PolicyEngine::with_approved_scopes(
+            workspace_root.to_path_buf(),
+            approval_gate.approved_scopes_handle(),
+        )
     };
 
     let mut result: Result<String, String> = Err("no-attempt".to_string());
@@ -107,14 +113,15 @@ pub(super) async fn execute_sub_agent(
         );
 
         // Convert model config to worker format
-        let worker_model_config = model_config.as_ref().map(|c| {
-            super::worker::model::RuntimeModelConfig {
-                provider: c.provider.clone(),
-                api_key: c.api_key.clone(),
-                model: c.model.clone(),
-                base_url: c.base_url.clone(),
-            }
-        });
+        let worker_model_config =
+            model_config
+                .as_ref()
+                .map(|c| super::worker::model::RuntimeModelConfig {
+                    provider: c.provider.clone(),
+                    api_key: c.api_key.clone(),
+                    model: c.model.clone(),
+                    base_url: c.base_url.clone(),
+                });
 
         result = match timeout(
             Duration::from_millis(attempt_timeout_ms),
@@ -149,7 +156,10 @@ pub(super) async fn execute_sub_agent(
         }
 
         if attempt < step.max_retries {
-            sleep(Duration::from_millis(SUB_AGENT_RETRY_BACKOFF_MS * (attempt as u64 + 1))).await;
+            sleep(Duration::from_millis(
+                SUB_AGENT_RETRY_BACKOFF_MS * (attempt as u64 + 1),
+            ))
+            .await;
         }
     }
 

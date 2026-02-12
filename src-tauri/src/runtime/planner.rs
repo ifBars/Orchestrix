@@ -3,22 +3,20 @@ use std::sync::Arc;
 use chrono::Utc;
 use uuid::Uuid;
 
-use crate::bus::{BusEvent, EventBus, CATEGORY_AGENT, EVENT_AGENT_DECIDING, EVENT_AGENT_TOOL_CALLS_PREPARING};
+use crate::bus::{
+    BusEvent, EventBus, CATEGORY_AGENT, EVENT_AGENT_DECIDING, EVENT_AGENT_TOOL_CALLS_PREPARING,
+};
 use crate::core::prompt_references::expand_prompt_references;
 use crate::core::tool::ToolDescriptor;
 use crate::db::{queries, Database};
 use crate::model::{
-    kimi::KimiPlanner,
-    minimax::MiniMaxPlanner,
-    strip_tool_call_markup,
-    PlannerModel,
-    WorkerAction,
-    WorkerActionRequest,
-    WorkerToolCall,
+    kimi::KimiPlanner, minimax::MiniMaxPlanner, strip_tool_call_markup, PlannerModel, WorkerAction,
+    WorkerActionRequest, WorkerToolCall,
 };
-use crate::tools::ToolRegistry;
 use crate::policy::PolicyEngine;
 use crate::runtime::approval::ApprovalGate;
+use crate::runtime::plan_mode_settings::get_plan_mode_max_tokens;
+use crate::tools::ToolRegistry;
 
 /// Returned from plan generation; run_id and artifact_path are for future API/UI use.
 #[derive(Debug, Clone)]
@@ -46,6 +44,7 @@ async fn run_multi_turn_planning<P: PlannerModel>(
     policy: &PolicyEngine,
     approval_gate: &ApprovalGate,
     workspace_root: &std::path::Path,
+    max_tokens: u32,
 ) -> Result<(String, Option<String>), String> {
     let mut observations: Vec<serde_json::Value> = Vec::new();
     let mut turn: usize = 0;
@@ -79,19 +78,25 @@ async fn run_multi_turn_planning<P: PlannerModel>(
         let full_context = if skills_context.is_empty() {
             format!("{}\n\n{}", plan_mode_instruction, context)
         } else {
-            format!("{}\n\n{}\n\n{}", plan_mode_instruction, context, skills_context)
+            format!(
+                "{}\n\n{}\n\n{}",
+                plan_mode_instruction, context, skills_context
+            )
         };
         let full_context = full_context.trim();
 
         let decision = planner
             .decide_worker_action(WorkerActionRequest {
                 task_prompt: prompt.to_string(),
-                goal_summary: "Draft an implementation plan and submit it via agent.create_artifact.".to_string(),
+                goal_summary:
+                    "Draft an implementation plan and submit it via agent.create_artifact."
+                        .to_string(),
                 context: full_context.to_string(),
                 available_tools: available_tools.clone(),
                 tool_descriptions: tool_descriptions.clone(),
                 tool_descriptors: tool_descriptors.clone(),
                 prior_observations: observations.clone(),
+                max_tokens: Some(max_tokens),
             })
             .await
             .map_err(|e| e.to_string())?;
@@ -118,7 +123,9 @@ async fn run_multi_turn_planning<P: PlannerModel>(
                 // Model returned plain text completion - treat as the plan (fallback)
                 let cleaned = strip_tool_call_markup(summary.trim()).trim().to_string();
                 if cleaned.is_empty() {
-                    return Err("Planner completed with empty summary (no plan content)".to_string());
+                    return Err(
+                        "Planner completed with empty summary (no plan content)".to_string()
+                    );
                 }
                 let _ = emit_and_record(
                     db,
@@ -133,14 +140,22 @@ async fn run_multi_turn_planning<P: PlannerModel>(
                 );
                 return Ok((cleaned, None));
             }
-            WorkerAction::ToolCall { tool_name, tool_args, rationale } => {
+            WorkerAction::ToolCall {
+                tool_name,
+                tool_args,
+                rationale,
+            } => {
                 // Convert single call to vec for uniform handling
                 handle_planning_tool_calls(
                     db,
                     bus,
                     task_id,
                     run_id,
-                    vec![WorkerToolCall { tool_name, tool_args, rationale }],
+                    vec![WorkerToolCall {
+                        tool_name,
+                        tool_args,
+                        rationale,
+                    }],
                     &mut observations,
                     tool_registry,
                     policy,
@@ -173,7 +188,9 @@ async fn run_multi_turn_planning<P: PlannerModel>(
 
         // Check if agent.create_artifact was called and extract the plan content
         if let Some(plan_content) = extract_plan_from_observations(&observations) {
-            let markdown = strip_tool_call_markup(plan_content.trim()).trim().to_string();
+            let markdown = strip_tool_call_markup(plan_content.trim())
+                .trim()
+                .to_string();
             let artifact_path = extract_plan_artifact_path_from_observations(&observations);
             return Ok((markdown, artifact_path));
         }
@@ -332,7 +349,9 @@ async fn handle_planning_tool_calls(
                     },
                 );
             } else {
-                invocation = Err(ToolError::PolicyDenied(format!("approval denied for scope: {scope}")));
+                invocation = Err(ToolError::PolicyDenied(format!(
+                    "approval denied for scope: {scope}"
+                )));
             }
         }
 
@@ -366,7 +385,11 @@ async fn handle_planning_tool_calls(
                 // For agent.create_artifact, store path to the file the tool wrote so we can copy it
                 // to run dir (avoids re-encoding the content and preserves UTF-8 box-drawing chars).
                 if tool_name == "agent.create_artifact" && output.ok {
-                    let artifact_path = output.data.get("path").and_then(|v| v.as_str()).map(String::from);
+                    let artifact_path = output
+                        .data
+                        .get("path")
+                        .and_then(|v| v.as_str())
+                        .map(String::from);
                     if let Some(content) = tool_args.get("content").and_then(|v| v.as_str()) {
                         let mut obs = serde_json::json!({
                             "tool_name": "agent.create_artifact",
@@ -444,7 +467,9 @@ fn extract_plan_from_observations(observations: &[serde_json::Value]) -> Option<
 }
 
 /// Path to the artifact file written by agent.create_artifact (tool wrote to .orchestrix/artifacts/).
-fn extract_plan_artifact_path_from_observations(observations: &[serde_json::Value]) -> Option<String> {
+fn extract_plan_artifact_path_from_observations(
+    observations: &[serde_json::Value],
+) -> Option<String> {
     for obs in observations.iter().rev() {
         if obs.get("tool_name").and_then(|v| v.as_str()) == Some("agent.create_artifact") {
             if let Some(path) = obs.get("artifact_path").and_then(|v| v.as_str()) {
@@ -515,6 +540,9 @@ pub async fn generate_plan_markdown_artifact(
 
     let planner_model: String;
 
+    // Load plan mode max tokens setting
+    let max_tokens = get_plan_mode_max_tokens(&db);
+
     let existing_markdown = collect_existing_markdown(&db, &task_id);
 
     // Load workspace skills and append their context to the planner input
@@ -525,8 +553,7 @@ pub async fn generate_plan_markdown_artifact(
         let mut ctx = if let Some(note) = revision_note.as_ref() {
             format!(
                 "{}\n\nReviewer feedback to incorporate:\n- {}",
-                existing_markdown,
-                note
+                existing_markdown, note
             )
         } else {
             existing_markdown
@@ -560,6 +587,7 @@ pub async fn generate_plan_markdown_artifact(
             &policy,
             approval_gate.as_ref(),
             &workspace_root,
+            max_tokens,
         )
         .await?
     } else {
@@ -579,19 +607,13 @@ pub async fn generate_plan_markdown_artifact(
             &policy,
             approval_gate.as_ref(),
             &workspace_root,
+            max_tokens,
         )
         .await?
     };
 
-    queries::update_run_status_and_plan(
-        &db,
-        &run_id,
-        "awaiting_review",
-        None,
-        None,
-        None,
-    )
-    .map_err(|e| e.to_string())?;
+    queries::update_run_status_and_plan(&db, &run_id, "awaiting_review", None, None, None)
+        .map_err(|e| e.to_string())?;
 
     // Trim trailing whitespace and excessive blank lines from the markdown (used for parsing and fallback write)
     let trimmed_markdown = trim_excessive_blank_lines(&markdown);
@@ -672,7 +694,10 @@ fn collect_existing_markdown(db: &Database, task_id: &str) -> String {
             continue;
         }
         if let Ok(content) = std::fs::read_to_string(&path) {
-            out.push_str(&format!("\n\n---\nArtifact: {}\n\n{}", artifact.uri_or_content, content));
+            out.push_str(&format!(
+                "\n\n---\nArtifact: {}\n\n{}",
+                artifact.uri_or_content, content
+            ));
         }
     }
     out
@@ -806,11 +831,17 @@ fn parse_plan_from_markdown(md: &str) -> Option<ParsedPlan> {
                     step_line.trim_start_matches('-').trim().to_string()
                 } else if step_line.starts_with('*') {
                     step_line.trim_start_matches('*').trim().to_string()
-                } else if step_line.chars().next().map_or(false, |c| c.is_ascii_digit()) {
+                } else if step_line
+                    .chars()
+                    .next()
+                    .map_or(false, |c| c.is_ascii_digit())
+                {
                     // Skip leading digits then ". " or ") "
                     let rest = step_line
                         .trim_start_matches(|c: char| c.is_ascii_digit())
-                        .trim_start_matches(|c: char| c == '.' || c == ')' || c == ' ' || c == '\t');
+                        .trim_start_matches(|c: char| {
+                            c == '.' || c == ')' || c == ' ' || c == '\t'
+                        });
                     rest.to_string()
                 } else {
                     i += 1;
@@ -877,14 +908,14 @@ fn parse_plan_from_markdown(md: &str) -> Option<ParsedPlan> {
 fn trim_excessive_blank_lines(markdown: &str) -> String {
     // First, trim trailing whitespace from the entire string
     let trimmed = markdown.trim_end();
-    
+
     // Split into lines
     let lines: Vec<&str> = trimmed.lines().collect();
-    
+
     // Build result, keeping at most 2 consecutive blank lines
     let mut result = String::new();
     let mut blank_count = 0;
-    
+
     for line in &lines {
         if line.trim().is_empty() {
             blank_count += 1;
@@ -900,7 +931,7 @@ fn trim_excessive_blank_lines(markdown: &str) -> String {
             result.push_str(line);
         }
     }
-    
+
     // Ensure exactly one trailing newline
     result.push('\n');
     result

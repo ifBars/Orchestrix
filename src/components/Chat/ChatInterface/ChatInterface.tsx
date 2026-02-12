@@ -1,7 +1,7 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useShallow } from "zustand/shallow";
 import { runtimeEventBuffer } from "@/runtime/eventBuffer";
-import { useTaskPlanTick, useTaskTimelineTick } from "@/stores/streamStore";
+import { useTaskAgentStreamTick, useTaskPlanTick, useTaskTimelineTick } from "@/stores/streamStore";
 import { useAppStore } from "@/stores/appStore";
 import { useArtifactReview } from "@/hooks/useArtifactReview";
 import { useExecutionSummary } from "./useExecutionSummary";
@@ -51,10 +51,11 @@ export function ChatInterface({
 
   const planTick = useTaskPlanTick(task.id);
   const timelineTick = useTaskTimelineTick(task.id);
+  const agentStreamTick = useTaskAgentStreamTick(task.id);
 
   const items = useMemo(
     () => runtimeEventBuffer.getItems(task.id),
-    [task.id, timelineTick, planTick]
+    [task.id, timelineTick]
   );
   const plan = useMemo(
     () => runtimeEventBuffer.getPlan(task.id),
@@ -70,11 +71,15 @@ export function ChatInterface({
   );
   const rawEvents = useMemo(
     () => runtimeEventBuffer.getRawEvents(task.id),
-    [task.id, timelineTick, planTick]
+    [task.id, timelineTick, planTick, agentStreamTick]
   );
   const agentTodos = useMemo(
     () => runtimeEventBuffer.getAgentTodos(task.id),
-    [task.id, timelineTick, planTick]
+    [task.id, timelineTick]
+  );
+  const activeAgentStream = useMemo(
+    () => runtimeEventBuffer.getActiveAgentMessageStream(task.id),
+    [task.id, agentStreamTick]
   );
 
   const review = useArtifactReview(task.id, task.status, artifactsByTask);
@@ -110,8 +115,10 @@ export function ChatInterface({
   }, [items, task.prompt]);
 
   const isWorking = task.status === "planning" || task.status === "executing";
-  const renderKey = (item: { id: string; seq: number }, idx: number) =>
-    `${item.id}-${item.seq}-${idx}`;
+  const renderKey = useCallback(
+    (item: { id: string; seq: number }, idx: number) => `${item.id}-${item.seq}-${idx}`,
+    []
+  );
 
   const submitReview = async () => {
     const submission = review.buildReviewSubmission();
@@ -192,6 +199,7 @@ export function ChatInterface({
       plan={plan}
       planStream={planStream}
       assistantMessage={assistantMessage}
+      activeAgentStream={activeAgentStream}
       visibleItems={visibleItems}
       renderKey={renderKey}
       isWorking={isWorking}

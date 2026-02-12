@@ -3,12 +3,9 @@
 //! Provides a unified interface for different LLM providers (MiniMax, Kimi)
 //! used by the worker during step execution.
 
+pub use crate::model::StreamDelta;
 use crate::model::{
-    kimi::KimiPlanner,
-    minimax::MiniMaxPlanner,
-    PlannerModel,
-    WorkerActionRequest,
-    WorkerDecision,
+    kimi::KimiPlanner, minimax::MiniMaxPlanner, WorkerActionRequest, WorkerDecision,
 };
 
 /// Runtime model configuration for worker execution.
@@ -55,11 +52,24 @@ impl WorkerModelClient {
         }
     }
 
-    /// Request a decision from the model.
-    pub async fn decide(&self, req: WorkerActionRequest) -> Result<WorkerDecision, String> {
+    /// Request a decision and stream text deltas as the provider responds.
+    pub async fn decide_streaming<F>(
+        &self,
+        req: WorkerActionRequest,
+        mut on_delta: F,
+    ) -> Result<WorkerDecision, String>
+    where
+        F: FnMut(StreamDelta) -> Result<(), String> + Send,
+    {
         match self {
-            Self::MiniMax(model) => model.decide_worker_action(req).await.map_err(|e| e.to_string()),
-            Self::Kimi(model) => model.decide_worker_action(req).await.map_err(|e| e.to_string()),
+            Self::MiniMax(model) => model
+                .decide_worker_action_streaming(req, |delta| on_delta(delta))
+                .await
+                .map_err(|e| e.to_string()),
+            Self::Kimi(model) => model
+                .decide_worker_action_streaming(req, |delta| on_delta(delta))
+                .await
+                .map_err(|e| e.to_string()),
         }
     }
 }

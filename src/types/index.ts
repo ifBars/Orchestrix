@@ -57,9 +57,14 @@ export interface ProviderConfigView {
   base_url: string | null;
 }
 
+export interface ModelInfo {
+  name: string;
+  context_window: number;
+}
+
 export interface ModelCatalogEntry {
   provider: string;
-  models: string[];
+  models: ModelInfo[];
 }
 
 export interface WorkspaceRootView {
@@ -226,22 +231,95 @@ export interface WorkspaceSkill {
   enabled: boolean;
 }
 
+export type McpTransportType = "stdio" | "http" | "sse";
+
+export interface McpAuthConfig {
+  oauth_token?: string;
+  headers: Record<string, string>;
+  api_key?: string;
+  api_key_header?: string;
+}
+
+export interface ToolFilter {
+  mode: "include" | "exclude";
+  tools: string[];
+  allow_all_read_only: boolean;
+  block_all_modifying: boolean;
+}
+
+export interface ToolOverride {
+  pattern: string;
+  requires_approval: boolean;
+  is_glob: boolean;
+}
+
+export interface ToolApprovalPolicy {
+  global_policy: "always" | "never" | "by_tool";
+  tool_overrides: ToolOverride[];
+  read_only_never_requires_approval: boolean;
+  modifying_always_requires_approval: boolean;
+}
+
 export interface McpServerConfig {
   id: string;
   name: string;
-  command: string;
+  transport: McpTransportType;
+  enabled: boolean;
+  
+  // Stdio fields
+  command?: string;
   args: string[];
   env: Record<string, string>;
-  enabled: boolean;
+  working_dir?: string;
+  
+  // HTTP/SSE fields
+  url?: string;
+  auth: McpAuthConfig;
+  timeout_secs: number;
+  pool_size: number;
+  health_check_interval_secs: number;
+  
+  // Filtering and approval
+  tool_filter: ToolFilter;
+  approval_policy: ToolApprovalPolicy;
 }
 
 export interface McpServerInput {
   id?: string;
   name: string;
-  command: string;
+  transport?: McpTransportType;
+  enabled?: boolean;
+  command?: string;
   args?: string[];
   env?: Record<string, string>;
-  enabled?: boolean;
+  working_dir?: string;
+  url?: string;
+  auth?: McpAuthConfig;
+  timeout_secs?: number;
+  pool_size?: number;
+  tool_filter?: ToolFilter;
+  approval_policy?: ToolApprovalPolicy;
+}
+
+export interface McpServerHealthView {
+  status: "healthy" | "connecting" | "unhealthy" | "disabled";
+  last_check?: string;
+  connected_at?: string;
+  error_count: number;
+}
+
+export interface McpServerView {
+  id: string;
+  name: string;
+  transport: string;
+  enabled: boolean;
+  command?: string;
+  args: string[];
+  url?: string;
+  timeout_secs: number;
+  pool_size: number;
+  tool_count: number;
+  health?: McpServerHealthView;
 }
 
 export interface McpToolEntry {
@@ -250,6 +328,36 @@ export interface McpToolEntry {
   tool_name: string;
   description: string;
   input_schema: unknown;
+  read_only_hint?: boolean;
+  requires_approval: boolean;
+}
+
+export interface McpToolView extends McpToolEntry {}
+
+export interface McpToolsCacheView {
+  total_tools: number;
+  server_count: number;
+  updated_at: string;
+}
+
+export interface McpToolCallResult {
+  success: boolean;
+  result?: unknown;
+  error?: string;
+  duration_ms: number;
+}
+
+export interface McpConnectionTestResult {
+  success: boolean;
+  error?: string;
+  latency_ms?: number;
+  tool_count?: number;
+}
+
+export interface McpStatisticsView {
+  server_count: number;
+  healthy_server_count: number;
+  total_tools: number;
 }
 
 /**
@@ -309,4 +417,24 @@ export interface CreateAgentPresetInput {
   prompt: string;
   tags?: string[];
   tools?: Record<string, unknown>;
+}
+
+/**
+ * Settings for conversation compaction behavior.
+ */
+export interface CompactionSettings {
+  enabled: boolean;
+  /** Percentage of context window to trigger compaction (0.0-1.0) */
+  threshold_percentage: number;
+  preserve_recent: number;
+  custom_prompt: string | null;
+  compaction_model: string | null;
+}
+
+/**
+ * Settings for plan mode behavior.
+ */
+export interface PlanModeSettings {
+  /** Maximum tokens for plan mode responses (content + reasoning + tool calls) */
+  max_tokens: number;
 }

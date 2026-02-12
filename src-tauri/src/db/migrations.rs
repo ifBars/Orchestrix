@@ -189,6 +189,22 @@ CREATE TABLE user_messages (
 CREATE INDEX idx_user_messages_task ON user_messages(task_id, created_at);
 "#,
     },
+    Migration {
+        version: 7,
+        sql: r#"
+CREATE TABLE conversation_summaries (
+    id              TEXT PRIMARY KEY,
+    task_id         TEXT NOT NULL REFERENCES tasks(id),
+    run_id          TEXT NOT NULL REFERENCES runs(id),
+    summary         TEXT NOT NULL,
+    message_count   INTEGER NOT NULL,
+    token_estimate  INTEGER,
+    created_at      TEXT NOT NULL
+);
+
+CREATE INDEX idx_conversation_summaries_task ON conversation_summaries(task_id, created_at);
+"#,
+    },
 ];
 
 pub(super) fn run_migrations(conn: &Connection) -> Result<(), DbError> {

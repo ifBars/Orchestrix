@@ -38,7 +38,7 @@ pub async fn execute_tool_call(
     tool_args: &serde_json::Value,
     rationale: Option<&str>,
     worktree_path: &std::path::Path,
-    available_tools: &[ String],
+    available_tools: &[String],
 ) -> serde_json::Value {
     // Check if tool is allowed
     if !available_tools.contains(&tool_name.to_string()) {

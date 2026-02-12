@@ -205,36 +205,34 @@ You are a worker agent in **BUILD mode** executing a continuous coding conversat
 
 Your job is to implement the task by directly executing tools and writing code. You have already been given a plan (if one exists) or should implement directly from the user's request. DO NOT write planning documents or markdown artifacts in BUILD mode.
 
-Return ONLY valid JSON (no markdown fences, no prose, no extra keys).
-
-You have exactly TWO valid response forms:
-
-FORM 1 - Call a tool:
-{{"action":"tool_call","tool_name":"<exact tool name from Available Tools>","tool_args":{{<args matching that tool's input schema>}},"rationale":"<brief reason>"}}
-
-FORM 2 - Mark completion:
-{{"action":"complete","summary":"<what was accomplished>"}}
+Use native function/tool calling whenever tool use is needed.
+If no tools are needed and the task is complete, respond with a plain-text completion summary.
 
 DECISION PROCESS (follow this every turn):
 1. Read the Task and Goal to understand your objective.
 2. Read Prior Observations carefully. These are the results of tools you already called.
-3. If the observations already show the user goal has been achieved (e.g. files were successfully written, commands ran successfully), you MUST return "complete". Do NOT repeat a tool call that already succeeded.
-4. If more work remains, call the NEXT tool needed. Never re-call a tool with identical arguments that already succeeded.
+3. If the observations already show the user goal has been achieved (e.g. files were successfully written, commands ran successfully), you MUST return a completion summary. Do NOT repeat a tool call that already succeeded.
+4. If more work remains, call the NEXT tool needed via native tool calling. Never re-call a tool with identical arguments that already succeeded.
 
 CRITICAL RULES:
-- "action" MUST be exactly "tool_call" or "complete". Never use the tool name as the action value.
-- "tool_name" must be one of the exact tool names listed (e.g. "fs.write", "cmd.exec").
-- "tool_args" must match the input schema for that tool. Check the schema carefully.
+- Never serialize tool calls as JSON in message text.
+- Tool names must be one of the exact tool names listed (e.g. "fs.write", "cmd.exec").
+- Tool arguments must match the input schema for that tool. Check the schema carefully.
 - Delegation policy:
   - For greenfield scaffolding or building a project from scratch, do not delegate by default.
   - In greenfield work, prefer direct execution via tools in this worker until the scaffold/build is cohesive.
-  - If delegation is needed, use tool_call with tool_name "subagent.spawn" and objective in tool_args.
+  - If delegation is needed, call tool "subagent.spawn" with objective in the tool arguments.
+  - If you have multiple independent delegated objectives, emit them as a single `tool_calls` batch of multiple `subagent.spawn` calls so they can run in parallel.
   - Delegate only clearly parallelizable and low-conflict work (e.g. read-only research, audits, or isolated non-overlapping subtasks).
+- Delegated completion policy:
+  - When a delegated objective is complete, call `agent.complete` with a concise `summary` and optional `outputs` list.
+  - After calling `agent.complete`, stop making further tool calls in that delegated loop.
+  - Do not continue verification loops after completion criteria are already met.
 - For cmd.exec:
    - "cmd" is the binary name (e.g. "mkdir", "bun", "node"), "args" is an array of arguments (e.g. ["-p","src/components"]).
    - CRITICAL: Use "workdir" parameter to run inside subdirectories. NEVER use "cd path && command" syntax.
-   - CORRECT: {{"tool_name":"cmd.exec","tool_args":{{"cmd":"bun","args":["install"],"workdir":"frontend"}}}}
-   - WRONG: {{"tool_name":"cmd.exec","tool_args":{{"command":"cd frontend && bun install"}}}}
+   - CORRECT args: {{"cmd":"bun","args":["install"],"workdir":"frontend"}}
+   - WRONG args: {{"command":"cd frontend && bun install"}}
    - Avoid "command" field unless shell syntax is truly required.
  - For directory discovery and existence checks, ALWAYS use "fs.list" tool. NEVER use "ls", "dir", or shell commands for directory listing.
 - For skill workflows:
@@ -246,8 +244,7 @@ CRITICAL RULES:
 - For fs.write: "path" is relative to workspace root, "content" is the full file content as a string.
 - For fs.read: "path" is relative to workspace root.
 - When writing files, include the COMPLETE file content. Do not use placeholders or truncation.
-- Produce only valid JSON. Escape special characters in strings properly.
-- NEVER repeat a tool call with the same arguments if the prior observation shows it succeeded. Return "complete" instead.
+- NEVER repeat a tool call with the same arguments if the prior observation shows it succeeded. Return a completion summary instead.
 
 ## Switching to PLAN Mode
 
@@ -258,52 +255,6 @@ If the user explicitly asks you to "go back to planning," "revise the plan," or 
 This signals intent to the user to return to planning mode for plan revisions."#,
         base, platform
     )
-}
-
-// ---------------------------------------------------------------------------
-// JSON extraction (brace-counting)
-// ---------------------------------------------------------------------------
-
-/// Extract the first complete JSON object from `input` using brace counting.
-///
-/// This is more robust than the naive first-`{`-to-last-`}` approach because
-/// it correctly handles:
-/// - Multiple JSON objects in one response (e.g. `{...}\n{...}`)
-/// - Escaped characters in strings
-/// - Nested braces
-///
-/// Falls back to the naive approach if brace counting doesn't find a match.
-pub fn extract_json_object(input: &str) -> Option<String> {
-    let start = input.find('{')?;
-    let mut depth = 0i32;
-    let mut in_string = false;
-    let mut escape_next = false;
-
-    for (i, ch) in input[start..].char_indices() {
-        if escape_next {
-            escape_next = false;
-            continue;
-        }
-        match ch {
-            '\\' if in_string => escape_next = true,
-            '"' => in_string = !in_string,
-            '{' if !in_string => depth += 1,
-            '}' if !in_string => {
-                depth -= 1;
-                if depth == 0 {
-                    return Some(input[start..=start + i].to_string());
-                }
-            }
-            _ => {}
-        }
-    }
-
-    // Fallback: first { to last }
-    let end = input.rfind('}')?;
-    if end < start {
-        return None;
-    }
-    Some(input[start..=end].to_string())
 }
 
 // ---------------------------------------------------------------------------
@@ -399,8 +350,13 @@ pub fn strip_tool_call_markup(text: &str) -> String {
             }
             continue;
         }
-        out.push(char::from(bytes[i]));
-        i += 1;
+        if let Some(ch) = text.get(i..).and_then(|s| s.chars().next()) {
+            out.push(ch);
+            i += ch.len_utf8();
+        } else {
+            // Safety fallback for unexpected non-char boundary offsets.
+            i += 1;
+        }
     }
     // Collapse multiple blank lines and trim
     let trimmed = out.trim();
@@ -419,175 +375,6 @@ pub fn strip_tool_call_markup(text: &str) -> String {
         result.push_str(line);
     }
     result.trim().to_string()
-}
-
-// ---------------------------------------------------------------------------
-// Worker JSON normalization
-// ---------------------------------------------------------------------------
-
-/// Normalize worker JSON when the LLM puts the tool name as the `"action"` value
-/// instead of using `"tool_call"`.
-///
-/// Examples:
-/// ```text
-/// {"action": "fs.write", "tool_args": {...}} -> {"action": "tool_call", "tool_name": "fs.write", ...}
-/// {"action": "cmd.exec", "args": {...}}      -> {"action": "tool_call", "tool_name": "cmd.exec", "tool_args": {...}}
-/// ```
-pub fn normalize_worker_json(raw: &str) -> String {
-    let Ok(mut obj) = serde_json::from_str::<serde_json::Value>(raw) else {
-        return raw.to_string();
-    };
-    let Some(map) = obj.as_object_mut() else {
-        return raw.to_string();
-    };
-
-    let action = map
-        .get("action")
-        .and_then(|v| v.as_str())
-        .unwrap_or("")
-        .to_string();
-
-    // If action is already "tool_call" or "complete", we still need to check
-    // if tool_name is present for tool_call actions - the LLM may have provided
-    // a malformed response with action="tool_call" but missing tool_name.
-    if action == "complete" {
-        return serde_json::to_string(&obj).unwrap_or_else(|_| raw.to_string());
-    }
-
-    // Determine whether this looks like a tool call. We check multiple signals:
-    // 1. The action value looks like a tool name (contains a dot, or matches keywords)
-    // 2. The object has "tool_name", "tool_args", "args", "input", or "parameters" keys
-    //    even if "action" is something unexpected
-    // 3. No "action" key at all but "tool_name" is present
-    let action_looks_like_tool = action.contains('.')
-        || [
-            "read", "write", "exec", "search", "status", "diff", "apply", "patch", "list", "load",
-            "remove", "spawn", "commit", "log",
-        ]
-        .iter()
-        .any(|kw| action.contains(kw));
-
-    let has_tool_call_keys = map.contains_key("tool_name")
-        || map.contains_key("tool_args")
-        || (map.contains_key("args") && !action.is_empty() && action != "complete");
-
-    let is_tool_call = action_looks_like_tool || has_tool_call_keys;
-
-    if is_tool_call {
-        map.insert(
-            "action".to_string(),
-            serde_json::Value::String("tool_call".to_string()),
-        );
-
-        // If tool_name is not present, infer it from the action value or argument keys.
-        if !map.contains_key("tool_name") {
-            if action_looks_like_tool && !action.is_empty() && action != "tool_call" {
-                map.insert(
-                    "tool_name".to_string(),
-                    serde_json::Value::String(action.clone()),
-                );
-            } else {
-                // Infer tool_name from argument keys
-                let inferred_tool = infer_tool_from_args(map);
-                if let Some(tool_name) = inferred_tool {
-                    map.insert(
-                        "tool_name".to_string(),
-                        serde_json::Value::String(tool_name),
-                    );
-                }
-                // else: tool_name truly missing — serde will catch it downstream
-            }
-        }
-
-        // Handle various LLM naming conventions for tool arguments.
-        normalize_tool_args(map);
-    }
-
-    serde_json::to_string(&obj).unwrap_or_else(|_| raw.to_string())
-}
-
-/// Infer the tool name based on argument keys present in the request.
-/// This helps when the LLM provides action="tool_call" but forgets tool_name.
-fn infer_tool_from_args(map: &serde_json::Map<String, serde_json::Value>) -> Option<String> {
-    // Check for cmd.exec indicators
-    if map.contains_key("cmd") || map.contains_key("command") || map.contains_key("workdir") {
-        return Some("cmd.exec".to_string());
-    }
-
-    // Check for fs.write indicators (has both path and content)
-    if map.contains_key("path") && map.contains_key("content") {
-        return Some("fs.write".to_string());
-    }
-
-    // Check for fs.list indicators
-    if map.contains_key("path")
-        && (map.contains_key("recursive")
-            || map.contains_key("max_depth")
-            || map.contains_key("limit")
-            || map.contains_key("files_only")
-            || map.contains_key("dirs_only"))
-    {
-        return Some("fs.list".to_string());
-    }
-
-    // Check for fs.read indicators (has path but not content)
-    if map.contains_key("path") && !map.contains_key("content") {
-        return Some("fs.read".to_string());
-    }
-
-    // Check for fs.search indicators
-    if map.contains_key("pattern") {
-        return Some("fs.search".to_string());
-    }
-
-    // Check for git.status indicators
-    if map.contains_key("status") && !map.contains_key("cmd") {
-        return Some("git.status".to_string());
-    }
-
-    // Check for subagent.spawn indicators
-    if map.contains_key("objective") && map.contains_key("goal") {
-        return Some("subagent.spawn".to_string());
-    }
-
-    None
-}
-
-/// Extract tool_args from non-standard keys the LLM may have used.
-fn normalize_tool_args(map: &mut serde_json::Map<String, serde_json::Value>) {
-    if map.contains_key("tool_args") {
-        return;
-    }
-
-    if let Some(args) = map.remove("args") {
-        map.insert("tool_args".to_string(), args);
-    } else if let Some(input) = map.remove("input") {
-        map.insert("tool_args".to_string(), input);
-    } else if let Some(params) = map.remove("parameters") {
-        map.insert("tool_args".to_string(), params);
-    } else {
-        // Collect remaining non-standard keys as tool_args.
-        let reserved = ["action", "tool_name", "tool_args", "rationale"];
-        let extra_keys: Vec<String> = map
-            .keys()
-            .filter(|k| !reserved.contains(&k.as_str()))
-            .cloned()
-            .collect();
-        if !extra_keys.is_empty() {
-            let mut tool_args = serde_json::Map::new();
-            for key in extra_keys {
-                if let Some(val) = map.remove(&key) {
-                    tool_args.insert(key, val);
-                }
-            }
-            map.insert(
-                "tool_args".to_string(),
-                serde_json::Value::Object(tool_args),
-            );
-        } else {
-            map.insert("tool_args".to_string(), serde_json::json!({}));
-        }
-    }
 }
 
 #[cfg(test)]
@@ -657,5 +444,27 @@ mod tests {
         assert!(out.contains("# Plan: Three.js 3D Car Racing Game"));
         assert!(out.contains("## Overview"));
         assert!(out.contains("I'll create a comprehensive plan"));
+    }
+
+    #[test]
+    fn strip_tool_call_markup_preserves_unicode_text() {
+        let text =
+            "I follow a test-driven loop: implement -> test -> observe -> adjust - ensuring every change is validated. Unicode: → —";
+        let out = strip_tool_call_markup(&text);
+        assert_eq!(out, text);
+    }
+
+    #[test]
+    fn strip_tool_call_markup_preserves_unicode_while_stripping_tags() {
+        let leaked = concat!(
+            "Workflow: implement -> test -> observe -> adjust.\n",
+            "minimax:tool_call [blocked] invoke xmlns=\"http://example.com\" name=\"agent.create_artifact\">\n",
+            "Unicode survives: → —"
+        );
+        let out = strip_tool_call_markup(leaked);
+        assert!(!out.contains("minimax:tool_call"));
+        assert!(!out.contains("invoke xmlns="));
+        assert!(out.contains("Workflow: implement -> test -> observe -> adjust."));
+        assert!(out.contains("Unicode survives: → —"));
     }
 }

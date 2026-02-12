@@ -18,7 +18,7 @@ export function StatusChangeItem({ item }: StatusChangeItemProps) {
   }
 
   return (
-    <div className="ml-11 flex items-center gap-2 py-1 text-xs text-muted-foreground">
+    <div className="ml-11 flex items-center gap-2 rounded-md border border-border/60 bg-background/45 px-2.5 py-1.5 text-xs text-muted-foreground">
       {icon}
       <span>{item.content ?? `Status: ${item.status}`}</span>
     </div>

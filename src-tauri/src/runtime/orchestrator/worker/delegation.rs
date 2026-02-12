@@ -91,7 +91,11 @@ pub async fn spawn_and_execute_delegated_sub_agent(
         };
     }
 
-    let selected_agent_preset = if let Some(preset_id) = agent_preset_id {
+    let requested_preset_id = agent_preset_id
+        .and_then(normalize_agent_preset_reference)
+        .or_else(|| agent_presets::extract_agent_preset_id_from_prompt(objective));
+
+    let selected_agent_preset = if let Some(preset_id) = requested_preset_id.as_deref() {
         match agent_presets::get_agent_preset(workspace_root, preset_id) {
             Some(preset) => Some(preset),
             None => {
@@ -208,7 +212,10 @@ pub async fn spawn_and_execute_delegated_sub_agent(
     let delegated_step = PlanStep {
         idx: step_idx,
         title: format!("Delegated objective {}", turn),
-        description: objective.to_string(),
+        description: format!(
+            "{}\n\nCompletion rule: once the objective output is produced, call agent.complete with a concise summary and outputs, then stop.",
+            objective
+        ),
         tool_intent: None,
         status: StepStatus::Pending,
         max_retries: 0,
@@ -242,6 +249,15 @@ pub async fn spawn_and_execute_delegated_sub_agent(
     ))
     .await;
 
+    // Persist child report/output outside ephemeral worktree so the parent can
+    // inspect it after merge + cleanup.
+    child_result.output_path = persist_child_output_path(
+        workspace_root,
+        run_id,
+        &child_result.sub_agent_id,
+        child_result.output_path.as_deref(),
+    );
+
     // Merge worktree if successful
     if child_result.success {
         match worktree_manager.merge_worktree(workspace_root, &child_result.sub_agent_id) {
@@ -266,9 +282,7 @@ pub async fn spawn_and_execute_delegated_sub_agent(
                 let conflicted_json = if merge_result.conflicted_files.is_empty() {
                     None
                 } else {
-                    Some(
-                        serde_json::to_string(&merge_result.conflicted_files).unwrap_or_default(),
-                    )
+                    Some(serde_json::to_string(&merge_result.conflicted_files).unwrap_or_default())
                 };
                 let _ = queries::update_worktree_log_merge(
                     db,
@@ -293,8 +307,7 @@ pub async fn spawn_and_execute_delegated_sub_agent(
                     );
                 } else {
                     child_result.success = false;
-                    child_result.error =
-                        Some(format!("merge failed: {}", merge_result.message));
+                    child_result.error = Some(format!("merge failed: {}", merge_result.message));
                     let _ = queries::update_sub_agent_status(
                         db,
                         &child_result.sub_agent_id,
@@ -403,6 +416,38 @@ pub async fn spawn_and_execute_delegated_sub_agent(
     }
 }
 
+fn persist_child_output_path(
+    workspace_root: &Path,
+    run_id: &str,
+    sub_agent_id: &str,
+    output_path: Option<&str>,
+) -> Option<String> {
+    let src = output_path?;
+    let src_path = Path::new(src);
+    if !src_path.exists() || !src_path.is_file() {
+        return None;
+    }
+
+    let reports_dir = workspace_root
+        .join(".orchestrix")
+        .join("sub-agent-reports")
+        .join(run_id);
+    if std::fs::create_dir_all(&reports_dir).is_err() {
+        return None;
+    }
+
+    let file_name = src_path
+        .file_name()
+        .and_then(|n| n.to_str())
+        .unwrap_or("step-result.md");
+    let dest = reports_dir.join(format!("{}-{}", sub_agent_id, file_name));
+    if std::fs::copy(src_path, &dest).is_err() {
+        return None;
+    }
+
+    Some(dest.to_string_lossy().to_string())
+}
+
 fn apply_agent_preset_tool_constraints(
     allowed_tools: &mut Vec<String>,
     preset: &agent_presets::AgentPreset,
@@ -420,12 +465,19 @@ fn apply_agent_preset_tool_constraints(
     }
 
     if let Some(permission) = &preset.permission {
-        if matches!(permission.edit, Some(agent_presets::ToolPermission::Bool(false)))
-            || matches!(permission.write, Some(agent_presets::ToolPermission::Bool(false)))
-        {
+        if matches!(
+            permission.edit,
+            Some(agent_presets::ToolPermission::Bool(false))
+        ) || matches!(
+            permission.write,
+            Some(agent_presets::ToolPermission::Bool(false))
+        ) {
             deny_set.insert("fs.write".to_string());
         }
-        if matches!(permission.bash, Some(agent_presets::ToolPermission::Bool(false))) {
+        if matches!(
+            permission.bash,
+            Some(agent_presets::ToolPermission::Bool(false))
+        ) {
             deny_set.insert("cmd.exec".to_string());
         }
         if matches!(
@@ -475,5 +527,24 @@ fn build_delegated_agent_context(
         preset_context
     } else {
         format!("{}\n\n{}", existing_context, preset_context)
+    }
+}
+
+fn normalize_agent_preset_reference(raw: &str) -> Option<String> {
+    let trimmed = raw.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+
+    let normalized = trimmed
+        .strip_prefix("@agent:")
+        .or_else(|| trimmed.strip_prefix("agent:"))
+        .unwrap_or(trimmed)
+        .trim();
+
+    if normalized.is_empty() {
+        None
+    } else {
+        Some(normalized.to_string())
     }
 }

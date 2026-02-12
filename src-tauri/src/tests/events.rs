@@ -163,13 +163,7 @@ pub mod tests {
 
     #[tokio::test]
     async fn test_subagent_state_transitions() {
-        let states = vec![
-            "created",
-            "running",
-            "failed",
-            "completed",
-            "closed",
-        ];
+        let states = vec!["created", "running", "failed", "completed", "closed"];
 
         let valid_transitions = vec![
             ("created", "running"),
@@ -184,10 +178,7 @@ pub mod tests {
             assert!(states.contains(to));
         }
 
-        let invalid_transitions = vec![
-            ("created", "completed"),
-            ("closed", "created"),
-        ];
+        let invalid_transitions = vec![("created", "completed"), ("closed", "created")];
 
         for (from, to) in &invalid_transitions {
             assert!(!valid_transitions.contains(&(from, to)));
@@ -196,7 +187,14 @@ pub mod tests {
 
     #[tokio::test]
     async fn test_subagent_with_retry_state() {
-        let states = vec!["created", "running", "failed", "running", "completed", "closed"];
+        let states = vec![
+            "created",
+            "running",
+            "failed",
+            "running",
+            "completed",
+            "closed",
+        ];
 
         assert!(states.contains(&"failed"));
         assert!(states.contains(&"running"));
@@ -489,7 +487,10 @@ pub mod tests {
             }
         });
 
-        assert_eq!(timeout_event["payload"]["error"], "sub-agent attempt timed out");
+        assert_eq!(
+            timeout_event["payload"]["error"],
+            "sub-agent attempt timed out"
+        );
         assert_eq!(timeout_event["payload"]["attempt"], 2);
     }
 
@@ -506,7 +507,10 @@ pub mod tests {
         ];
 
         let completed = steps.iter().filter(|s| s["status"] == "completed").count();
-        let in_progress = steps.iter().filter(|s| s["status"] == "in_progress").count();
+        let in_progress = steps
+            .iter()
+            .filter(|s| s["status"] == "in_progress")
+            .count();
         let pending = steps.iter().filter(|s| s["status"] == "pending").count();
 
         assert_eq!(completed, 1);
@@ -573,6 +577,10 @@ pub mod tests {
             "agent.subagent_waiting_for_merge",
             "agent.subagent_closed",
             "agent.worktree_merged",
+            "agent.message_stream_started",
+            "agent.message_delta",
+            "agent.message_stream_completed",
+            "agent.message_stream_cancelled",
             "agent.message",
             "agent.thinking_delta",
             "agent.deciding",

@@ -36,19 +36,19 @@ export function ArtifactPanel({ taskId, onOpenReview }: ArtifactPanelProps) {
   }, [active]);
 
   return (
-    <div className="flex h-full w-full flex-col">
-      {/* Header */}
-      <div className="flex items-center justify-between border-b border-border/50 px-4 py-3">
-        <span className="text-xs font-semibold uppercase tracking-widest text-muted-foreground/70">
+    <div className="flex h-full w-full flex-col bg-card/40">
+      <div className="flex items-center justify-between border-b border-border/60 px-4 py-3">
+        <span className="text-xs font-semibold uppercase tracking-widest text-muted-foreground/75">
           Artifacts
         </span>
-        <span className="text-[10px] text-muted-foreground/50">{artifacts.length}</span>
+        <span className="rounded-full bg-muted px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground/80">
+          {artifacts.length}
+        </span>
       </div>
 
-      {/* List */}
       <div className="min-h-0 flex-1 overflow-y-auto p-2">
         {artifacts.length === 0 ? (
-          <div className="p-6 text-center text-xs text-muted-foreground/50">
+          <div className="rounded-lg border border-dashed border-border/70 bg-background/55 p-6 text-center text-xs text-muted-foreground/60">
             No artifacts yet
           </div>
         ) : (
@@ -72,16 +72,16 @@ export function ArtifactPanel({ taskId, onOpenReview }: ArtifactPanelProps) {
                       setActive(selected ? null : artifact);
                     }
                   }}
-                  className={`flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left transition-colors ${
+                  className={`flex w-full items-center gap-2 rounded-lg border px-3 py-2 text-left transition-colors ${
                     selected
-                      ? "bg-accent/60 text-foreground"
-                      : "text-muted-foreground hover:bg-accent/30 hover:text-foreground"
+                      ? "border-primary/35 bg-accent/60 text-foreground"
+                      : "border-transparent bg-background/45 text-muted-foreground hover:border-border/70 hover:bg-accent/35 hover:text-foreground"
                   }`}
                 >
                   <FileText size={13} className="shrink-0" />
                   <div className="min-w-0 flex-1">
                     <p className="truncate text-xs">{fileName}</p>
-                    <p className="truncate text-[10px] text-muted-foreground/60">{artifact.kind}</p>
+                    <p className="truncate text-[10px] text-muted-foreground/65">{artifact.kind}</p>
                   </div>
                 </button>
               );
@@ -90,10 +90,9 @@ export function ArtifactPanel({ taskId, onOpenReview }: ArtifactPanelProps) {
         )}
       </div>
 
-      {/* Preview pane */}
       {preview && (
-        <div className="border-t border-border/50">
-          <div className="flex items-center justify-between px-3 py-2">
+        <div className="border-t border-border/60 bg-background/35">
+          <div className="flex items-center justify-between px-3 py-2.5">
             <span className="truncate text-xs font-medium text-foreground">
               {preview.path.split(/[/\\]/).pop()}
             </span>
@@ -124,7 +123,7 @@ export function ArtifactPanel({ taskId, onOpenReview }: ArtifactPanelProps) {
               </button>
             </div>
           </div>
-          <div className="max-h-64 overflow-auto border-t border-border/30 p-3 text-xs text-muted-foreground">
+          <div className="max-h-64 overflow-auto border-t border-border/40 p-3 text-xs text-muted-foreground">
             {preview.is_markdown ? (
               <div className="prose prose-sm max-w-none text-foreground dark:prose-invert prose-p:my-2 prose-headings:my-2">
                 <Streamdown plugins={{ code }}>{preview.content}</Streamdown>

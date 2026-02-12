@@ -13,39 +13,35 @@ export function IdeShell({ header, sidebar, main, composer, artifacts, isArtifac
   const hasComposer = composer != null;
 
   return (
-    <div className="flex h-full flex-col overflow-hidden">
-      {/* Title bar */}
+    <div className="relative flex h-full flex-col overflow-hidden bg-background/70">
       <header
         data-tauri-drag-region
-        className="elevation-1 h-10 shrink-0 border-b border-border bg-sidebar/85 backdrop-blur-sm"
+        className="elevation-1 h-10 shrink-0 border-b border-border/80 bg-card/75 backdrop-blur-md"
       >
         {header}
       </header>
 
-      <div className="flex min-h-0 flex-1">
-        {/* Sidebar */}
-        <aside className="elevation-1 w-64 shrink-0 border-r border-sidebar-border bg-sidebar/90">
+      <div className="flex min-h-0 flex-1 bg-background/20">
+        <aside className="elevation-1 w-64 shrink-0 border-r border-sidebar-border/90 bg-sidebar/92">
           {sidebar}
         </aside>
 
-        {/* Main chat area — always centered */}
         <div className="relative flex min-w-0 flex-1 flex-col">
-          {/* Scrollable chat content */}
-          <div className={`flex-1 overflow-y-auto px-6 py-6 ${hasComposer ? "pb-48" : "pb-6"}`}>
-            {main}
+          {/* Main scrollable content */}
+          <div className="min-h-0 flex-1 overflow-y-auto scroll-smooth px-6 pt-6 pb-6">
+            <div className="w-full">{main}</div>
           </div>
 
-          {/* Composer pinned to bottom */}
+          {/* Composer - no longer absolute, part of flex layout */}
           {hasComposer && (
-            <div className="absolute inset-x-0 bottom-0 border-t border-border/50 bg-background/80 px-6 py-4 backdrop-blur-md">
-              {composer}
+            <div className="shrink-0 border-t border-border/70 bg-background/88 px-6 pb-4 pt-3 backdrop-blur-xl">
+              <div className="w-full">{composer}</div>
             </div>
           )}
         </div>
 
-        {/* Artifact panel — slide-out overlay */}
         {isArtifactsOpen && artifacts && (
-          <aside className="elevation-2 w-80 shrink-0 border-l border-border bg-card/80 backdrop-blur-sm">
+          <aside className="elevation-2 w-80 shrink-0 border-l border-border/80 bg-card/88 backdrop-blur-md">
             {artifacts}
           </aside>
         )}

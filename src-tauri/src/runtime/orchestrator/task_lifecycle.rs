@@ -22,7 +22,8 @@ impl Orchestrator {
                 .await;
             if let Err(error) = result {
                 let failed_at = Utc::now().to_rfc3339();
-                let _ = queries::update_task_status(&orchestrator.db, &task_id, "failed", &failed_at);
+                let _ =
+                    queries::update_task_status(&orchestrator.db, &task_id, "failed", &failed_at);
                 let _ = emit_and_record(
                     &orchestrator.db,
                     &orchestrator.bus,
@@ -32,7 +33,10 @@ impl Orchestrator {
                     serde_json::json!({ "task_id": task_id, "status": "failed", "error": error }),
                 );
             }
-            let mut guard = orchestrator.active.lock().expect("orchestrator mutex poisoned");
+            let mut guard = orchestrator
+                .active
+                .lock()
+                .expect("orchestrator mutex poisoned");
             guard.remove(&task_id);
         });
 
@@ -98,8 +102,8 @@ impl Orchestrator {
             run
         };
 
-        let artifacts =
-            queries::list_markdown_artifacts_for_task(&self.db, &task.id).map_err(|e| e.to_string())?;
+        let artifacts = queries::list_markdown_artifacts_for_task(&self.db, &task.id)
+            .map_err(|e| e.to_string())?;
 
         let mut artifact_bundle = String::new();
         for artifact in artifacts {
@@ -177,7 +181,8 @@ impl Orchestrator {
 
             if let Err(error) = result {
                 let failed_at = Utc::now().to_rfc3339();
-                let _ = queries::update_task_status(&orchestrator.db, &task_id, "failed", &failed_at);
+                let _ =
+                    queries::update_task_status(&orchestrator.db, &task_id, "failed", &failed_at);
                 let _ = emit_and_record(
                     &orchestrator.db,
                     &orchestrator.bus,
@@ -188,7 +193,10 @@ impl Orchestrator {
                 );
             }
 
-            let mut guard = orchestrator.active.lock().expect("orchestrator mutex poisoned");
+            let mut guard = orchestrator
+                .active
+                .lock()
+                .expect("orchestrator mutex poisoned");
             guard.remove(&task_id);
         });
 
@@ -214,8 +222,8 @@ impl Orchestrator {
             return Err("no run found for task".to_string());
         };
 
-        let artifacts =
-            queries::list_markdown_artifacts_for_task(&self.db, &task.id).map_err(|e| e.to_string())?;
+        let artifacts = queries::list_markdown_artifacts_for_task(&self.db, &task.id)
+            .map_err(|e| e.to_string())?;
 
         let mut artifact_bundle = String::new();
         for artifact in artifacts {
@@ -292,7 +300,8 @@ impl Orchestrator {
 
             if let Err(error) = result {
                 let failed_at = Utc::now().to_rfc3339();
-                let _ = queries::update_task_status(&orchestrator.db, &task_id, "failed", &failed_at);
+                let _ =
+                    queries::update_task_status(&orchestrator.db, &task_id, "failed", &failed_at);
                 let _ = emit_and_record(
                     &orchestrator.db,
                     &orchestrator.bus,
@@ -303,7 +312,10 @@ impl Orchestrator {
                 );
             }
 
-            let mut guard = orchestrator.active.lock().expect("orchestrator mutex poisoned");
+            let mut guard = orchestrator
+                .active
+                .lock()
+                .expect("orchestrator mutex poisoned");
             guard.remove(&task_id);
         });
 
@@ -340,8 +352,12 @@ impl Orchestrator {
                     Some(&Utc::now().to_rfc3339()),
                     Some("recovery: planning interrupted before plan persisted"),
                 );
-                let _ =
-                    queries::update_task_status(&self.db, &task.id, "failed", &Utc::now().to_rfc3339());
+                let _ = queries::update_task_status(
+                    &self.db,
+                    &task.id,
+                    "failed",
+                    &Utc::now().to_rfc3339(),
+                );
                 continue;
             }
 
@@ -363,7 +379,9 @@ impl Orchestrator {
                     serde_json::json!({ "task_id": task.id, "run_id": run.id }),
                 );
 
-                let _ = self.execute_plan(run.id, task.id, task.prompt, plan, None).await;
+                let _ = self
+                    .execute_plan(run.id, task.id, task.prompt, plan, None)
+                    .await;
             }
         }
     }
@@ -448,7 +466,8 @@ impl Orchestrator {
         );
 
         // Load workspace skills and build context for agent injection
-        let workspace_skills = crate::core::workspace_skills::scan_workspace_skills(&workspace_root);
+        let workspace_skills =
+            crate::core::workspace_skills::scan_workspace_skills(&workspace_root);
         let skills_context = crate::core::workspace_skills::build_skills_context(&workspace_skills);
 
         let checkpoint = queries::get_checkpoint(&self.db, &run_id).map_err(|e| e.to_string())?;
@@ -493,14 +512,15 @@ impl Orchestrator {
             };
 
             // Convert model config to worker format
-            let worker_model_config = model_config.as_ref().map(|c| {
-                super::worker::model::RuntimeModelConfig {
-                    provider: c.provider.clone(),
-                    api_key: c.api_key.clone(),
-                    model: c.model.clone(),
-                    base_url: c.base_url.clone(),
-                }
-            });
+            let worker_model_config =
+                model_config
+                    .as_ref()
+                    .map(|c| super::worker::model::RuntimeModelConfig {
+                        provider: c.provider.clone(),
+                        api_key: c.api_key.clone(),
+                        model: c.model.clone(),
+                        base_url: c.base_url.clone(),
+                    });
 
             let step_result = super::worker::execute_step_with_tools(
                 &self.db,

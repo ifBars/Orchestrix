@@ -603,7 +603,7 @@ Events use `{category}.{action}` dotted notation:
 | Category | Event Types |
 |----------|-------------|
 | `task` | `task.status_changed` |
-| `agent` | `agent.planning_started`, `agent.deciding`, `agent.tool_calls_preparing`, `agent.plan_ready`, `agent.plan_message`, `agent.plan_delta`, `agent.step_started`, `agent.subagent_started`, `agent.subagent_completed`, `agent.subagent_failed` |
+| `agent` | `agent.planning_started`, `agent.deciding`, `agent.tool_calls_preparing`, `agent.plan_ready`, `agent.plan_message`, `agent.plan_delta`, `agent.message_stream_started`, `agent.message_delta`, `agent.message_stream_completed`, `agent.message_stream_cancelled`, `agent.step_started`, `agent.subagent_started`, `agent.subagent_completed`, `agent.subagent_failed` |
 | `tool` | `tool.call_started`, `tool.call_finished` |
 | `artifact` | `artifact.created` |
 | `log` | *(reserved)* |

@@ -1,11 +1,13 @@
 use serde::{Deserialize, Serialize};
+use futures::StreamExt;
 
-use crate::core::tool::ToolDescriptor;
-use super::shared::{
-    extract_json_object, normalize_worker_json, plan_markdown_system_prompt,
-    strip_tool_call_markup,
+use super::shared::{plan_markdown_system_prompt, strip_tool_call_markup};
+use super::{
+    ModelError, PlannerModel, StreamDelta, WorkerAction, WorkerActionRequest, WorkerDecision,
+    WorkerToolCall,
 };
-use super::{ModelError, PlannerModel, WorkerAction, WorkerActionRequest, WorkerDecision, WorkerToolCall};
+use crate::core::tool::ToolDescriptor;
+use crate::runtime::plan_mode_settings::{DEFAULT_PLAN_MODE_MAX_TOKENS, WORKER_MAX_TOKENS};
 
 const DEFAULT_MINIMAX_BASE_URL: &str = "https://api.minimaxi.chat";
 const MINIMAX_CHAT_PATH: &str = "/v1/text/chatcompletion_v2";
@@ -24,7 +26,11 @@ impl MiniMaxPlanner {
         Self::new_with_base_url(api_key, model, None)
     }
 
-    pub fn new_with_base_url(api_key: String, model: Option<String>, base_url: Option<String>) -> Self {
+    pub fn new_with_base_url(
+        api_key: String,
+        model: Option<String>,
+        base_url: Option<String>,
+    ) -> Self {
         Self {
             api_key,
             model: model.unwrap_or_else(|| "MiniMax-M2.1".to_string()),
@@ -70,12 +76,7 @@ impl MiniMaxPlanner {
             )
         };
         let response = self
-            .run_chat_json_native(
-                &plan_markdown_system_prompt(),
-                &user,
-                2200,
-                tools,
-            )
+            .run_chat_json_native(&plan_markdown_system_prompt(), &user, DEFAULT_PLAN_MODE_MAX_TOKENS, tools)
             .await?;
 
         let markdown = if let Some(ref tool_calls) = response.tool_calls {
@@ -112,17 +113,15 @@ impl MiniMaxPlanner {
 
         Ok(markdown)
     }
-}
 
-impl PlannerModel for MiniMaxPlanner {
-    fn model_id(&self) -> &'static str {
-        "MiniMax-M2.1"
-    }
-
-    async fn decide_worker_action(
+    pub async fn decide_worker_action_streaming<F>(
         &self,
         req: WorkerActionRequest,
-    ) -> Result<WorkerDecision, ModelError> {
+        mut on_delta: F,
+    ) -> Result<WorkerDecision, ModelError>
+    where
+        F: FnMut(StreamDelta) -> Result<(), String> + Send,
+    {
         let system = "You are an autonomous coding worker agent. Use native function calling for tools whenever tool use is needed. You may call multiple tools in one response when beneficial. If and only if the task is complete, respond with plain text summary.";
         let tools_text = if !req.tool_descriptions.is_empty() {
             req.tool_descriptions.clone()
@@ -160,17 +159,29 @@ impl PlannerModel for MiniMaxPlanner {
             })
             .collect();
 
+        let max_tokens = req.max_tokens.unwrap_or(WORKER_MAX_TOKENS);
         let response = self
-            .run_chat_json_native(system, &user, 16000, if tools.is_empty() { None } else { Some(tools) })
+            .run_chat_json_native_streaming(
+                system,
+                &user,
+                max_tokens,
+                if tools.is_empty() { None } else { Some(tools) },
+                &mut on_delta,
+            )
             .await?;
 
-        // Capture model reasoning (chain-of-thought) before we consume the content.
-        // Strip any tool-call XML that MiniMax may leak into reasoning_content.
         let reasoning = response
             .reasoning_content
             .as_deref()
             .filter(|r| !r.trim().is_empty())
-            .map(|r| strip_tool_call_markup(r));
+            .map(strip_tool_call_markup);
+
+        tracing::debug!(
+            "MiniMax worker response - content: {:?}, reasoning_content: {:?}, tool_calls: {:?}",
+            response.content,
+            response.reasoning_content,
+            response.tool_calls
+        );
 
         if let Some(tool_calls) = response.tool_calls.as_ref() {
             if !tool_calls.is_empty() {
@@ -179,8 +190,9 @@ impl PlannerModel for MiniMaxPlanner {
                     if call.tool_type != "function" {
                         continue;
                     }
-                    let args_json = serde_json::from_str::<serde_json::Value>(&call.function.arguments)
-                        .unwrap_or_else(|_| serde_json::json!({}));
+                    let args_json =
+                        serde_json::from_str::<serde_json::Value>(&call.function.arguments)
+                            .unwrap_or_else(|_| serde_json::json!({}));
                     calls.push(WorkerToolCall {
                         tool_name: call.function.name.clone(),
                         tool_args: args_json,
@@ -199,17 +211,17 @@ impl PlannerModel for MiniMaxPlanner {
             }
         }
 
-        // Capture raw response before consuming fields
         let raw_response = serde_json::to_string(&response).ok();
-
-        let raw = if response.content.as_deref().unwrap_or(""
-        ).trim().is_empty() {
+        let raw = if response.content.as_deref().unwrap_or("").trim().is_empty() {
             response.reasoning_content.unwrap_or_default()
         } else {
             response.content.unwrap_or_default()
         };
 
+        tracing::debug!("MiniMax worker raw content: {}", raw);
+
         if raw.trim().is_empty() {
+            tracing::debug!("MiniMax worker returning complete - empty response");
             return Ok(WorkerDecision {
                 action: WorkerAction::Complete {
                     summary: "Task complete.".to_string(),
@@ -219,23 +231,33 @@ impl PlannerModel for MiniMaxPlanner {
             });
         }
 
-        let json_text = extract_json_object(raw.trim())
-            .ok_or_else(|| {
-                ModelError::InvalidResponse("worker returned no JSON object".to_string())
-            })?;
-        let normalized = normalize_worker_json(&json_text);
-        let action = serde_json::from_str::<WorkerAction>(&normalized)
-            .map_err(|e| {
-                // Truncate the normalized JSON for the error message to avoid huge dumps.
-                let snippet = if normalized.len() > 300 {
-                    format!("{}...", &normalized[..300])
-                } else {
-                    normalized.clone()
-                };
-                ModelError::InvalidResponse(format!("worker action invalid: {e}\nNormalized JSON: {snippet}"))
-            })?;
+        let summary = strip_tool_call_markup(raw.trim()).trim().to_string();
 
-        Ok(WorkerDecision { action, reasoning, raw_response })
+        Ok(WorkerDecision {
+            action: WorkerAction::Complete {
+                summary: if summary.is_empty() {
+                    "Task complete.".to_string()
+                } else {
+                    summary
+                },
+            },
+            reasoning,
+            raw_response,
+        })
+    }
+}
+
+impl PlannerModel for MiniMaxPlanner {
+    fn model_id(&self) -> &'static str {
+        "MiniMax-M2.1"
+    }
+
+    async fn decide_worker_action(
+        &self,
+        req: WorkerActionRequest,
+    ) -> Result<WorkerDecision, ModelError> {
+        let noop = |_delta: StreamDelta| Ok::<(), String>(());
+        self.decide_worker_action_streaming(req, noop).await
     }
 }
 
@@ -247,7 +269,11 @@ impl MiniMaxPlanner {
         max_tokens: u32,
         tools: Option<Vec<MiniMaxToolDefinition>>,
     ) -> Result<MiniMaxResponseMessage, ModelError> {
-        let endpoint = format!("{}{}", self.base_url.trim_end_matches('/'), MINIMAX_CHAT_PATH);
+        let endpoint = format!(
+            "{}{}",
+            self.base_url.trim_end_matches('/'),
+            MINIMAX_CHAT_PATH
+        );
         let tool_choice = tools.as_ref().map(|_| "auto".to_string());
         let parallel_tool_calls = tools.as_ref().map(|_| true);
         let body = MiniMaxChatRequest {
@@ -270,9 +296,16 @@ impl MiniMaxPlanner {
             parallel_tool_calls,
         };
 
+        tracing::debug!(
+            "MiniMax API request to {} with model {} and tools: {:?}",
+            endpoint,
+            self.model,
+            body.tools.as_ref().map(|t| t.len())
+        );
+
         let response = self
             .client
-            .post(endpoint)
+            .post(&endpoint)
             .header("Content-Type", "application/json")
             .bearer_auth(&self.api_key)
             .json(&body)
@@ -286,11 +319,18 @@ impl MiniMaxPlanner {
             .await
             .map_err(|e| ModelError::Request(e.to_string()))?;
 
+        tracing::debug!(
+            "MiniMax API response: status={status}, body={}",
+            text
+        );
+
         if status.as_u16() == 401 || status.as_u16() == 403 {
             return Err(ModelError::Auth(format!("MiniMax auth failed ({status})")));
         }
         if !status.is_success() {
-            return Err(ModelError::Request(format!("MiniMax error {status}: {text}")));
+            return Err(ModelError::Request(format!(
+                "MiniMax error {status}: {text}"
+            )));
         }
 
         let parsed: MiniMaxChatResponse = serde_json::from_str(&text)
@@ -302,9 +342,297 @@ impl MiniMaxPlanner {
             .next()
             .map(|choice| choice.message)
             .ok_or_else(|| {
-                ModelError::InvalidResponse("missing choices[0].message from MiniMax response".to_string())
+                ModelError::InvalidResponse(
+                    "missing choices[0].message from MiniMax response".to_string(),
+                )
             })
     }
+
+    async fn run_chat_json_native_streaming(
+        &self,
+        system: &str,
+        user: &str,
+        max_tokens: u32,
+        tools: Option<Vec<MiniMaxToolDefinition>>,
+        on_delta: &mut (dyn FnMut(StreamDelta) -> Result<(), String> + Send),
+    ) -> Result<MiniMaxResponseMessage, ModelError> {
+        let endpoint = format!(
+            "{}{}",
+            self.base_url.trim_end_matches('/'),
+            MINIMAX_CHAT_PATH
+        );
+        let tool_choice = tools.as_ref().map(|_| "auto".to_string());
+        let parallel_tool_calls = tools.as_ref().map(|_| true);
+        let body = MiniMaxChatRequest {
+            model: self.model.clone(),
+            messages: vec![
+                MiniMaxMessage {
+                    role: "system".to_string(),
+                    content: system.to_string(),
+                },
+                MiniMaxMessage {
+                    role: "user".to_string(),
+                    content: user.to_string(),
+                },
+            ],
+            max_tokens,
+            temperature: 0.1,
+            stream: true,
+            tools,
+            tool_choice,
+            parallel_tool_calls,
+        };
+
+        tracing::debug!(
+            "MiniMax streaming request to {} with model {} and tools: {:?}",
+            endpoint,
+            self.model,
+            body.tools.as_ref().map(|t| t.len())
+        );
+
+        let response = self
+            .client
+            .post(&endpoint)
+            .header("Content-Type", "application/json")
+            .bearer_auth(&self.api_key)
+            .json(&body)
+            .send()
+            .await
+            .map_err(|e| ModelError::Request(e.to_string()))?;
+
+        let status = response.status();
+        if status.as_u16() == 401 || status.as_u16() == 403 {
+            let body = response.text().await.unwrap_or_default();
+            return Err(ModelError::Auth(format!(
+                "MiniMax auth failed ({status}): {body}"
+            )));
+        }
+        if !status.is_success() {
+            let body = response.text().await.unwrap_or_default();
+            return Err(ModelError::Request(format!(
+                "MiniMax error {status}: {body}"
+            )));
+        }
+
+        let mut content = String::new();
+        let mut reasoning = String::new();
+        let mut tool_call_accumulators: Vec<MiniMaxToolCallAccumulator> = Vec::new();
+        let mut full_tool_calls: Vec<MiniMaxToolCall> = Vec::new();
+        let mut saw_content_delta = false;
+
+        let mut stream = response.bytes_stream();
+        let mut buffer = String::new();
+        let mut done = false;
+
+        while let Some(chunk) = stream.next().await {
+            let bytes = chunk.map_err(|e| ModelError::Request(e.to_string()))?;
+            buffer.push_str(&String::from_utf8_lossy(&bytes));
+
+            while let Some(newline_idx) = buffer.find('\n') {
+                let mut line = buffer[..newline_idx].to_string();
+                if line.ends_with('\r') {
+                    line.pop();
+                }
+                buffer.drain(..=newline_idx);
+
+                if process_minimax_stream_line(
+                    &line,
+                    &mut content,
+                    &mut reasoning,
+                    &mut tool_call_accumulators,
+                    &mut full_tool_calls,
+                    &mut saw_content_delta,
+                    on_delta,
+                )? {
+                    done = true;
+                    break;
+                }
+            }
+
+            if done {
+                break;
+            }
+        }
+
+        if !done && !buffer.trim().is_empty() {
+            let _ = process_minimax_stream_line(
+                buffer.trim_end_matches('\r'),
+                &mut content,
+                &mut reasoning,
+                &mut tool_call_accumulators,
+                &mut full_tool_calls,
+                &mut saw_content_delta,
+                on_delta,
+            )?;
+        }
+
+        let tool_calls = if !tool_call_accumulators.is_empty() {
+            Some(
+                tool_call_accumulators
+                    .into_iter()
+                    .filter_map(|entry| {
+                        if entry.function_name.trim().is_empty() {
+                            return None;
+                        }
+                        Some(MiniMaxToolCall {
+                            tool_type: if entry.tool_type.trim().is_empty() {
+                                "function".to_string()
+                            } else {
+                                entry.tool_type
+                            },
+                            function: MiniMaxFunctionCall {
+                                name: entry.function_name,
+                                arguments: entry.arguments,
+                            },
+                        })
+                    })
+                    .collect::<Vec<_>>(),
+            )
+        } else if !full_tool_calls.is_empty() {
+            Some(full_tool_calls)
+        } else {
+            None
+        };
+
+        Ok(MiniMaxResponseMessage {
+            content: if content.is_empty() {
+                None
+            } else {
+                Some(content)
+            },
+            reasoning_content: if reasoning.is_empty() {
+                None
+            } else {
+                Some(reasoning)
+            },
+            tool_calls,
+        })
+    }
+}
+
+#[derive(Debug, Default)]
+struct MiniMaxToolCallAccumulator {
+    tool_type: String,
+    function_name: String,
+    arguments: String,
+}
+
+fn process_minimax_stream_line(
+    line: &str,
+    content: &mut String,
+    reasoning: &mut String,
+    tool_call_accumulators: &mut Vec<MiniMaxToolCallAccumulator>,
+    full_tool_calls: &mut Vec<MiniMaxToolCall>,
+    saw_content_delta: &mut bool,
+    on_delta: &mut (dyn FnMut(StreamDelta) -> Result<(), String> + Send),
+) -> Result<bool, ModelError> {
+    let trimmed = line.trim();
+    if trimmed.is_empty() {
+        return Ok(false);
+    }
+    if trimmed.starts_with(':') || trimmed.starts_with("event:") {
+        return Ok(false);
+    }
+
+    let payload = if let Some(raw) = trimmed.strip_prefix("data:") {
+        raw.trim()
+    } else {
+        trimmed
+    };
+
+    if payload.is_empty() {
+        return Ok(false);
+    }
+    if payload == "[DONE]" {
+        return Ok(true);
+    }
+
+    let chunk: MiniMaxStreamChunk = match serde_json::from_str(payload) {
+        Ok(value) => value,
+        Err(err) => {
+            tracing::debug!("MiniMax stream chunk parse failed: {err}; payload={payload}");
+            return Ok(false);
+        }
+    };
+
+    for choice in chunk.choices {
+        if let Some(delta) = choice.delta {
+            if let Some(delta_content) = delta.content {
+                if !delta_content.is_empty() {
+                    *saw_content_delta = true;
+                    content.push_str(&delta_content);
+                    on_delta(StreamDelta::Content(delta_content))
+                        .map_err(ModelError::Request)?;
+                }
+            }
+
+            if let Some(delta_reasoning) = delta.reasoning_content {
+                if !delta_reasoning.is_empty() {
+                    reasoning.push_str(&delta_reasoning);
+                    on_delta(StreamDelta::Reasoning(delta_reasoning))
+                        .map_err(ModelError::Request)?;
+                }
+            }
+
+            if let Some(tool_calls) = delta.tool_calls {
+                for call in tool_calls {
+                    let idx = call.index.unwrap_or(0);
+                    if tool_call_accumulators.len() <= idx {
+                        tool_call_accumulators.resize_with(idx + 1, MiniMaxToolCallAccumulator::default);
+                    }
+
+                    let entry = &mut tool_call_accumulators[idx];
+                    if let Some(tool_type) = call.tool_type {
+                        if !tool_type.is_empty() {
+                            entry.tool_type = tool_type;
+                        }
+                    }
+                    if let Some(function) = call.function {
+                        if let Some(name) = function.name {
+                            if !name.is_empty() {
+                                entry.function_name.push_str(&name);
+                            }
+                        }
+                        if let Some(arguments) = function.arguments {
+                            if !arguments.is_empty() {
+                                entry.arguments.push_str(&arguments);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        if let Some(message) = choice.message {
+            if !*saw_content_delta {
+                if let Some(message_content) = message.content {
+                    if !message_content.is_empty() {
+                        content.push_str(&message_content);
+                        on_delta(StreamDelta::Content(message_content))
+                            .map_err(ModelError::Request)?;
+                    }
+                }
+            }
+
+            if reasoning.is_empty() {
+                if let Some(message_reasoning) = message.reasoning_content {
+                    if !message_reasoning.is_empty() {
+                        reasoning.push_str(&message_reasoning);
+                        on_delta(StreamDelta::Reasoning(message_reasoning))
+                            .map_err(ModelError::Request)?;
+                    }
+                }
+            }
+
+            if let Some(tool_calls) = message.tool_calls {
+                if !tool_calls.is_empty() {
+                    full_tool_calls.extend(tool_calls);
+                }
+            }
+        }
+    }
+
+    Ok(false)
 }
 
 // ---------------------------------------------------------------------------
@@ -340,6 +668,48 @@ struct MiniMaxChatResponse {
 #[derive(Debug, Deserialize)]
 struct MiniMaxChoice {
     message: MiniMaxResponseMessage,
+}
+
+#[derive(Debug, Deserialize)]
+struct MiniMaxStreamChunk {
+    #[serde(default)]
+    choices: Vec<MiniMaxStreamChoice>,
+}
+
+#[derive(Debug, Deserialize)]
+struct MiniMaxStreamChoice {
+    #[serde(default)]
+    delta: Option<MiniMaxStreamDelta>,
+    #[serde(default)]
+    message: Option<MiniMaxResponseMessage>,
+}
+
+#[derive(Debug, Deserialize, Default)]
+struct MiniMaxStreamDelta {
+    #[serde(default)]
+    content: Option<String>,
+    #[serde(default)]
+    reasoning_content: Option<String>,
+    #[serde(default)]
+    tool_calls: Option<Vec<MiniMaxToolCallDelta>>,
+}
+
+#[derive(Debug, Deserialize)]
+struct MiniMaxToolCallDelta {
+    #[serde(default)]
+    index: Option<usize>,
+    #[serde(rename = "type", default)]
+    tool_type: Option<String>,
+    #[serde(default)]
+    function: Option<MiniMaxFunctionCallDelta>,
+}
+
+#[derive(Debug, Deserialize, Default)]
+struct MiniMaxFunctionCallDelta {
+    #[serde(default)]
+    name: Option<String>,
+    #[serde(default)]
+    arguments: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]

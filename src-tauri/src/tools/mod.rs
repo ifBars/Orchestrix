@@ -33,6 +33,7 @@
 
 // Public exports
 pub use registry::ToolRegistry;
+#[allow(unused_imports)]
 pub use types::{ToolCallInput, ToolCallOutput, ToolError};
 
 // Submodules

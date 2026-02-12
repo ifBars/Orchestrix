@@ -226,6 +226,7 @@ Orchestrix UX is designed to keep users continuously informed without flooding t
 - Backend emits append-only events and batches high-frequency traffic
 - Critical feedback events flush immediately for responsiveness
 - Frontend uses selector-based subscriptions and incremental event transforms
+- Active message streaming uses dedicated stream state so token deltas do not rebuild the full timeline list
 - Long timelines should be windowed/virtualized to keep rendering responsive
 
 ## Component Overview
@@ -285,7 +286,7 @@ pub struct BusEvent {
 | Category | Events | Description |
 |----------|--------|-------------|
 | `task` | `task.created`, `task.status_changed` | Task lifecycle |
-| `agent` | `agent.planning_started`, `agent.deciding`, `agent.tool_calls_preparing`, `agent.plan_ready`, `agent.plan_message`, `agent.plan_delta`, `agent.step_started`, `agent.subagent_started`, `agent.subagent_completed` | Agent execution |
+| `agent` | `agent.planning_started`, `agent.deciding`, `agent.tool_calls_preparing`, `agent.plan_ready`, `agent.plan_message`, `agent.plan_delta`, `agent.message_stream_started`, `agent.message_delta`, `agent.message_stream_completed`, `agent.message_stream_cancelled`, `agent.step_started`, `agent.subagent_started`, `agent.subagent_completed` | Agent execution |
 | `tool` | `tool.call_started`, `tool.call_finished` | Tool invocations |
 | `artifact` | `artifact.created` | Generated artifacts |
 | `system` | `system.error`, `system.warning` | System events |

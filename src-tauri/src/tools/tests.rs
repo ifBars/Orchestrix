@@ -25,6 +25,7 @@ mod tests {
         assert!(names.contains(&"git.commit".to_string()));
         assert!(names.contains(&"git.log".to_string()));
         assert!(names.contains(&"agent.todo".to_string()));
+        assert!(names.contains(&"agent.complete".to_string()));
         assert!(names.contains(&"skills.list".to_string()));
         assert!(names.contains(&"skills.load".to_string()));
         assert!(names.contains(&"skills.remove".to_string()));
@@ -32,11 +33,11 @@ mod tests {
         assert!(names.contains(&"agent.request_build_mode".to_string()));
         assert!(names.contains(&"agent.request_plan_mode".to_string()));
         assert!(names.contains(&"agent.create_artifact".to_string()));
-        // 18 built-in tools
+        // 19 built-in tools
         assert_eq!(
             names.len(),
-            18,
-            "expected 18 built-in tools, got: {:?}",
+            19,
+            "expected 19 built-in tools, got: {:?}",
             names
         );
     }

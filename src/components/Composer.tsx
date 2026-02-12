@@ -178,27 +178,27 @@ export function Composer() {
   };
 
   return (
-    <div className="mx-auto w-full max-w-3xl">
+    <div className="mr-auto w-full max-w-[1180px]">
       {/* Attached files */}
       {attachments.length > 0 && (
-        <div className="mb-2 flex flex-wrap gap-1.5">
+        <div className="mb-2.5 flex flex-wrap gap-1.5">
           {attachments.slice(0, 5).map((file) => (
             <span
               key={file}
-              className="inline-flex items-center rounded-full border border-border bg-muted/50 px-2.5 py-0.5 text-xs text-muted-foreground"
+              className="inline-flex items-center rounded-full border border-border/80 bg-background/80 px-2.5 py-0.5 text-xs text-muted-foreground"
             >
               {file.split(/[/\\]/).pop() ?? file}
             </span>
           ))}
           {attachments.length > 5 && (
-            <span className="text-xs text-muted-foreground">+{attachments.length - 5} more</span>
+            <span className="text-xs text-muted-foreground/80">+{attachments.length - 5} more</span>
           )}
         </div>
       )}
 
       {/* Continue chat indicator */}
       {canContinueChat && (
-        <div className="mb-2 flex items-center gap-2 text-xs text-muted-foreground">
+        <div className="mb-2 flex items-center gap-2 rounded-md border border-border/70 bg-background/65 px-2.5 py-1 text-xs text-muted-foreground">
           <MessageCircle size={12} />
           <span>Continuing conversation with previous task</span>
         </div>
@@ -206,13 +206,13 @@ export function Composer() {
 
       {/* Selected agent preset */}
       {!canContinueChat && selectedAgentPresetId && (
-        <div className="mb-2 flex items-center gap-2 text-xs text-muted-foreground">
+        <div className="mb-2 flex items-center gap-2 rounded-md border border-border/70 bg-background/65 px-2.5 py-1 text-xs text-muted-foreground">
           <Bot size={12} />
           <span>Using preset @agent:{selectedAgentPresetId}</span>
           <button
             type="button"
             onClick={() => setSelectedAgentPreset(null)}
-            className="rounded px-1.5 py-0.5 text-[10px] text-muted-foreground/80 hover:bg-accent hover:text-foreground"
+            className="rounded px-1.5 py-0.5 text-[10px] text-muted-foreground/80 hover:bg-accent/70 hover:text-foreground"
           >
             Clear
           </button>
@@ -220,7 +220,7 @@ export function Composer() {
       )}
 
       {/* Input container */}
-      <div className="rounded-2xl border border-border bg-card/90 shadow-sm transition-shadow focus-within:shadow-md focus-within:border-ring/30">
+      <div className="elevation-2 rounded-2xl border border-border/80 bg-card/92 transition-colors focus-within:border-ring/40">
         <textarea
           ref={textareaRef}
           value={prompt}
@@ -254,7 +254,7 @@ export function Composer() {
               submit().catch(console.error);
             }
           }}
-          className="block w-full resize-none bg-transparent px-4 pt-3 pb-2 text-sm text-foreground outline-none placeholder:text-muted-foreground/60"
+          className="block w-full resize-none bg-transparent px-4 pt-3 pb-2 text-sm leading-relaxed text-foreground outline-none placeholder:text-muted-foreground/70"
           placeholder={
             canContinueChat
               ? "Send a follow-up message..."
@@ -265,11 +265,11 @@ export function Composer() {
         />
 
         {mentionOpen && mentionItems.length > 0 && (
-          <div className="mx-3 mb-1 rounded-xl border border-border bg-background/95 p-1">
+          <div className="mx-3 mb-2 rounded-xl border border-border/80 bg-background/95 p-1.5 elevation-2">
             {(() => {
               let flatIndex = 0;
               return mentionGroups.map((group) => (
-                <div key={group.group} className="mb-1 last:mb-0">
+                <div key={group.group} className="mb-1.5 last:mb-0">
                   <div className="px-2 py-1 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground/60">
                     {group.group}
                   </div>
@@ -281,7 +281,9 @@ export function Composer() {
                         type="button"
                         onClick={() => insertMention(item)}
                         className={`flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left text-xs transition-colors ${
-                          idx === mentionIndex ? "bg-accent text-foreground" : "text-muted-foreground hover:bg-accent/60"
+                          idx === mentionIndex
+                            ? "bg-accent text-foreground"
+                            : "text-muted-foreground hover:bg-accent/60"
                         }`}
                       >
                         {item.kind === "file" ? (
@@ -305,16 +307,18 @@ export function Composer() {
         )}
 
         {/* Bottom bar */}
-        <div className="flex items-center justify-between gap-2 px-3 pb-2.5">
+        <div className="flex items-center justify-between gap-2 border-t border-border/70 px-3 pb-2.5 pt-2">
           <div className="flex items-center gap-1">
             {/* Plan/Build mode toggle - only show when creating new tasks */}
             {!canContinueChat && !isWorking && (
-              <div className="mr-1 inline-flex items-center rounded-md border border-border bg-muted/30 p-0.5">
+              <div className="mr-1 inline-flex items-center rounded-md border border-border/80 bg-background/65 p-0.5">
                 <button
                   type="button"
                   onClick={() => setMode("plan")}
-                  className={`rounded px-2 py-1 text-[11px] ${
-                    mode === "plan" ? "bg-card text-foreground" : "text-muted-foreground"
+                  className={`rounded px-2 py-1 text-[11px] transition-colors ${
+                    mode === "plan"
+                      ? "bg-primary/15 text-foreground"
+                      : "text-muted-foreground hover:bg-accent/50"
                   }`}
                 >
                   Plan
@@ -322,8 +326,10 @@ export function Composer() {
                 <button
                   type="button"
                   onClick={() => setMode("build")}
-                  className={`rounded px-2 py-1 text-[11px] ${
-                    mode === "build" ? "bg-card text-foreground" : "text-muted-foreground"
+                  className={`rounded px-2 py-1 text-[11px] transition-colors ${
+                    mode === "build"
+                      ? "bg-primary/15 text-foreground"
+                      : "text-muted-foreground hover:bg-accent/50"
                   }`}
                 >
                   Build
@@ -336,7 +342,7 @@ export function Composer() {
               <button
                 type="button"
                 onClick={pickFiles}
-                className="rounded-lg p-1.5 text-muted-foreground/60 transition-colors hover:bg-accent hover:text-foreground"
+                className="rounded-lg p-1.5 text-muted-foreground/70 transition-colors hover:bg-accent/70 hover:text-foreground"
                 title="Attach files"
               >
                 <Paperclip size={14} />
@@ -350,10 +356,10 @@ export function Composer() {
                 onChange={(e) => {
                   const provider = e.target.value;
                   const fallback =
-                    modelCatalog.find((item) => item.provider === provider)?.models[0] ?? "";
+                    modelCatalog.find((item) => item.provider === provider)?.models[0]?.name ?? "";
                   selectProviderModel(provider, fallback);
                 }}
-                className="h-6 rounded-md border-0 bg-muted/40 px-2 text-[11px] text-muted-foreground outline-none transition-colors hover:bg-muted/70"
+                className="h-7 rounded-md border border-border/70 bg-background/70 px-2 text-[11px] text-muted-foreground outline-none transition-colors hover:bg-accent/60 focus-visible:border-ring/70"
               >
                 <option value="minimax">MiniMax</option>
                 <option value="kimi">Kimi</option>
@@ -361,18 +367,20 @@ export function Composer() {
               <select
                 value={selectedModel}
                 onChange={(e) => selectProviderModel(selectedProvider, e.target.value)}
-                className="h-6 rounded-md border-0 bg-muted/40 px-2 text-[11px] text-muted-foreground outline-none transition-colors hover:bg-muted/70"
+                className="h-7 rounded-md border border-border/70 bg-background/70 px-2 text-[11px] text-muted-foreground outline-none transition-colors hover:bg-accent/60 focus-visible:border-ring/70"
               >
                 {models.map((model) => (
-                  <option key={model} value={model}>
-                    {model}
+                  <option key={model.name} value={model.name}>
+                    {model.name}
                   </option>
                 ))}
               </select>
             </div>
           </div>
 
-          <span className="pr-1 text-[10px] text-muted-foreground/70">Use @ to reference files, folders, skills, and agents</span>
+          <span className="hidden pr-1 text-[10px] text-muted-foreground/75 md:inline">
+            Use @ to reference files, folders, skills, and agents
+          </span>
 
           {/* Stop button - shown when a task is running */}
           {isWorking ? (
@@ -394,7 +402,7 @@ export function Composer() {
               disabled={!canSubmit}
               className={`flex h-8 w-8 items-center justify-center rounded-lg transition-all ${
                 canSubmit
-                  ? "bg-primary text-primary-foreground hover:brightness-110"
+                  ? "bg-primary text-primary-foreground hover:bg-primary/90"
                   : "bg-muted text-muted-foreground/40"
               }`}
               title={

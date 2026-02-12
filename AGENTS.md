@@ -183,6 +183,10 @@ Events for which the batcher flushes immediately (no 100ms delay): `task.*`, `ag
 
 - `agent.deciding` — emitted at the start of each worker turn before the model is called; payload: `task_id`, `run_id`, `step_idx`, `sub_agent_id`, `turn`. Frontend shows "Thinking…".
 - `agent.tool_calls_preparing` — emitted when the model has returned tool calls but before any `tool.call_started`; payload: `task_id`, `run_id`, `tool_names[]`, `step_idx`, `sub_agent_id`. Frontend shows "Preparing: fs.write, …".
+- `agent.message_stream_started` — emitted when the worker begins streaming assistant text; payload: `task_id`, `sub_agent_id`, `step_idx`, `turn`, `stream_id`.
+- `agent.message_delta` — emitted for incremental assistant text chunks; payload: `task_id`, `sub_agent_id`, `step_idx`, `turn`, `stream_id`, `content`.
+- `agent.message_stream_completed` — emitted after final text chunk; payload: `task_id`, `sub_agent_id`, `step_idx`, `turn`, `stream_id`.
+- `agent.message_stream_cancelled` — emitted when a partial stream is discarded (for example, provider switches to tool-calling output); payload: `task_id`, `sub_agent_id`, `step_idx`, `turn`, `stream_id`, `reason`.
 
 **Planning (plan mode) events:**
 

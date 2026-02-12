@@ -16,6 +16,7 @@ pub fn parse_sub_agent_contract(context_json: Option<&str>) -> SubAgentContract 
 
 /// Sub-agent contract definition.
 #[derive(Debug, Clone, serde::Deserialize)]
+#[allow(dead_code)]
 pub struct SubAgentContract {
     #[serde(default)]
     pub permissions: SubAgentPermissions,
@@ -55,6 +56,7 @@ impl Default for SubAgentPermissions {
 
 /// Execution settings for a sub-agent.
 #[derive(Debug, Clone, serde::Deserialize)]
+#[allow(dead_code)]
 pub struct SubAgentExecution {
     #[serde(default = "default_timeout")]
     pub attempt_timeout_ms: u64,

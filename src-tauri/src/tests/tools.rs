@@ -10,8 +10,8 @@
 
 #[cfg(test)]
 pub mod tests {
-    use serde_json::json;
     use crate::tools::{ToolCallInput, ToolCallOutput, ToolError};
+    use serde_json::json;
 
     // ====================================================================================
     // TOOL DESCRIPTOR TESTS
@@ -56,7 +56,13 @@ pub mod tests {
 
         assert_eq!(descriptor["name"], "fs.write");
         assert!(descriptor["parameters"]["required"].is_array());
-        assert!(descriptor["parameters"]["required"].as_array().unwrap().len() == 2);
+        assert!(
+            descriptor["parameters"]["required"]
+                .as_array()
+                .unwrap()
+                .len()
+                == 2
+        );
     }
 
     #[tokio::test]
@@ -77,7 +83,10 @@ pub mod tests {
         });
 
         assert_eq!(descriptor["name"], "cmd.exec");
-        assert!(descriptor["parameters"]["required"].as_array().unwrap().contains(&json!("command")));
+        assert!(descriptor["parameters"]["required"]
+            .as_array()
+            .unwrap()
+            .contains(&json!("command")));
     }
 
     #[tokio::test]
@@ -118,8 +127,12 @@ pub mod tests {
         });
 
         assert_eq!(descriptor["name"], "agent.todo");
-        let status_enum = &descriptor["parameters"]["properties"]["todos"]["items"]["properties"]["status"]["enum"];
-        assert!(status_enum.as_array().unwrap().contains(&json!("in_progress")));
+        let status_enum = &descriptor["parameters"]["properties"]["todos"]["items"]["properties"]
+            ["status"]["enum"];
+        assert!(status_enum
+            .as_array()
+            .unwrap()
+            .contains(&json!("in_progress")));
     }
 
     // ====================================================================================
@@ -292,11 +305,7 @@ pub mod tests {
 
     #[tokio::test]
     async fn test_shell_task_selects_cmd_tool() {
-        let shell_tasks = vec![
-            "Run build script",
-            "Install dependencies",
-            "Run tests",
-        ];
+        let shell_tasks = vec!["Run build script", "Install dependencies", "Run tests"];
 
         for _task in &shell_tasks {
             let tool = "cmd.exec";
@@ -392,7 +401,10 @@ pub mod tests {
         });
 
         assert_eq!(descriptor["name"], "skills.load");
-        assert!(descriptor["parameters"]["required"].as_array().unwrap().contains(&json!("skill")));
+        assert!(descriptor["parameters"]["required"]
+            .as_array()
+            .unwrap()
+            .contains(&json!("skill")));
     }
 
     #[tokio::test]
@@ -426,7 +438,10 @@ pub mod tests {
         });
 
         assert_eq!(descriptor["name"], "subagent.spawn");
-        assert!(descriptor["parameters"]["required"].as_array().unwrap().contains(&json!("objective")));
+        assert!(descriptor["parameters"]["required"]
+            .as_array()
+            .unwrap()
+            .contains(&json!("objective")));
     }
 
     #[tokio::test]
@@ -436,7 +451,10 @@ pub mod tests {
             "max_retries": 2
         });
 
-        assert_eq!(spawn_input["objective"], "Create unit tests for authentication module");
+        assert_eq!(
+            spawn_input["objective"],
+            "Create unit tests for authentication module"
+        );
         assert_eq!(spawn_input["max_retries"], 2);
     }
 
@@ -580,6 +598,7 @@ pub mod tests {
             "git.log",
             "skills.list",
             "agent.todo",
+            "agent.complete",
             "subagent.spawn",
             "skills.load",
             "skills.remove",
@@ -588,16 +607,37 @@ pub mod tests {
             "agent.create_artifact",
         ];
 
-        assert_eq!(tool_names.len(), 18);
+        assert_eq!(tool_names.len(), 19);
     }
 
     #[tokio::test]
     async fn test_tools_categorized_correctly() {
         let categories = vec![
             ("fs", vec!["fs.read", "fs.write", "fs.list"]),
-            ("git", vec!["git.status", "git.diff", "git.apply_patch", "git.commit", "git.log"]),
-            ("agent", vec!["agent.todo", "agent.create_artifact", "agent.request_build_mode", "agent.request_plan_mode"]),
-            ("skills", vec!["skills.list", "skills.load", "skills.remove"]),
+            (
+                "git",
+                vec![
+                    "git.status",
+                    "git.diff",
+                    "git.apply_patch",
+                    "git.commit",
+                    "git.log",
+                ],
+            ),
+            (
+                "agent",
+                vec![
+                    "agent.todo",
+                    "agent.complete",
+                    "agent.create_artifact",
+                    "agent.request_build_mode",
+                    "agent.request_plan_mode",
+                ],
+            ),
+            (
+                "skills",
+                vec!["skills.list", "skills.load", "skills.remove"],
+            ),
             ("search", vec!["search.rg"]),
             ("cmd", vec!["cmd.exec"]),
             ("subagent", vec!["subagent.spawn"]),

@@ -57,13 +57,13 @@ export function ReviewWorkspace(props: ReviewWorkspaceProps) {
 
   return (
     <div className="flex h-full w-full flex-col pb-2">
-      <div className="flex items-center justify-between border-b border-border/40 px-4 py-2">
+      <div className="sticky top-0 z-10 flex items-center justify-between border-b border-border/60 bg-card/80 px-4 py-2.5 backdrop-blur supports-[backdrop-filter]:bg-card/72">
         <div className="flex items-center gap-2">
-          <span className="text-sm font-medium text-foreground">Implementation Plan</span>
+          <span className="text-sm font-semibold text-foreground">Implementation Plan</span>
           <select
             value={props.selectedArtifactPath ?? ""}
             onChange={(e) => props.onSelectArtifact(e.target.value)}
-            className="h-8 rounded-md border border-border bg-background px-2 text-xs text-muted-foreground"
+            className="h-8 rounded-md border border-border/80 bg-background/85 px-2 text-xs text-muted-foreground outline-none focus-visible:border-ring/70"
           >
             {props.markdownArtifacts.map((artifact) => (
               <option key={artifact.id} value={artifact.uri_or_content}>
@@ -77,7 +77,7 @@ export function ReviewWorkspace(props: ReviewWorkspaceProps) {
             type="button"
             onClick={() => props.onSubmitReview().catch(console.error)}
             disabled={props.submittingReview}
-            className="inline-flex items-center gap-2 rounded-lg border border-border bg-card px-3 py-1.5 text-xs font-medium text-foreground transition-colors hover:bg-accent disabled:cursor-not-allowed disabled:opacity-50"
+            className="inline-flex items-center gap-2 rounded-lg border border-border/80 bg-background/75 px-3 py-1.5 text-xs font-medium text-foreground transition-colors hover:bg-accent/70 disabled:cursor-not-allowed disabled:opacity-50"
           >
             {props.submittingReview ? (
               <Loader2 size={12} className="animate-spin" />
@@ -102,7 +102,7 @@ export function ReviewWorkspace(props: ReviewWorkspaceProps) {
           <button
             type="button"
             onClick={props.onBackToChat}
-            className="rounded-lg border border-border px-3 py-1.5 text-xs text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+            className="rounded-lg border border-border/80 px-3 py-1.5 text-xs text-muted-foreground transition-colors hover:bg-accent/70 hover:text-foreground"
           >
             <span className="inline-flex items-center gap-1.5">
               <X size={12} />
@@ -111,7 +111,7 @@ export function ReviewWorkspace(props: ReviewWorkspaceProps) {
           </button>
 
           {props.showGeneralReviewInput && props.activeComments.length === 0 && (
-            <div className="absolute right-0 top-10 z-20 w-80 rounded-lg border border-border/60 bg-card/95 p-2.5 shadow-lg backdrop-blur">
+            <div className="absolute right-0 top-10 z-20 w-80 rounded-lg border border-border/70 bg-card/95 p-2.5 elevation-2 backdrop-blur">
               <div className="mb-1 text-[10px] uppercase tracking-wider text-muted-foreground">
                 General review feedback
               </div>
@@ -133,7 +133,7 @@ export function ReviewWorkspace(props: ReviewWorkspaceProps) {
           >
             <div
               ref={proseRef}
-              className="prose prose-sm max-w-none text-foreground dark:prose-invert"
+              className="prose prose-sm max-w-none rounded-xl border border-border/60 bg-background/55 p-5 text-foreground dark:prose-invert"
             >
               <Streamdown plugins={{ code }}>{props.previewText}</Streamdown>
             </div>

@@ -52,76 +52,82 @@ export function Header({ darkMode, artifactsOpen, onToggleTheme, onToggleArtifac
     <div
       data-tauri-drag-region
       onMouseDown={startDrag}
-      className="flex h-full items-center justify-between px-3"
+      className="flex h-full items-center justify-between gap-3 px-3"
     >
-      {/* Left section: logo + workspace */}
       <div className="flex min-w-0 items-center gap-3">
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 rounded-md border border-border/70 bg-background/70 px-2.5 py-1">
           <div className="h-[22px] w-[22px]">
             <img src={appIcon} alt="Orchestrix" className="h-full w-full object-contain" />
           </div>
-          <span className="text-sm font-semibold tracking-tight">Orchestrix</span>
+          <div>
+            <p className="text-[11px] font-semibold leading-none tracking-tight text-foreground">Orchestrix</p>
+            <p className="mt-0.5 text-[10px] leading-none text-muted-foreground">Agent Workspace</p>
+          </div>
         </div>
-
-        <div className="h-4 w-px bg-border/50" />
 
         <button
           type="button"
           onClick={pickWorkspace}
-          className="no-drag flex items-center gap-1.5 rounded-md px-2 py-1 text-xs text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+          className="no-drag flex min-w-0 items-center gap-1.5 rounded-md border border-border/70 bg-background/55 px-2.5 py-1 text-xs text-muted-foreground transition-colors hover:bg-accent/55 hover:text-foreground"
+          title={workspaceRoot || "Select workspace"}
         >
           <Folder size={12} />
-          <span className="max-w-36 truncate">{workspaceName}</span>
+          <span className="max-w-40 truncate">{workspaceName}</span>
           <ChevronDown size={10} />
         </button>
       </div>
 
-      {/* Right section: controls */}
-      <div className="no-drag flex items-center gap-0.5">
-        <button
-          type="button"
-          onClick={onToggleArtifacts}
-          className={`rounded-md p-1.5 transition-colors ${
-            artifactsOpen
-              ? "bg-accent text-foreground"
-              : "text-muted-foreground hover:bg-accent hover:text-foreground"
-          }`}
-          title="Toggle artifacts panel"
-        >
-          <PanelRight size={14} />
-        </button>
-        <button
-          type="button"
-          onClick={onToggleTheme}
-          className="rounded-md p-1.5 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
-          title="Toggle theme"
-        >
-          {darkMode ? <Sun size={14} /> : <Moon size={14} />}
-        </button>
+      <div className="no-drag flex items-center gap-2">
+        <div className="flex items-center rounded-md border border-border/70 bg-background/55 p-0.5">
+          <button
+            type="button"
+            onClick={onToggleArtifacts}
+            className={`rounded-md p-1.5 transition-colors ${
+              artifactsOpen
+                ? "bg-accent text-foreground"
+                : "text-muted-foreground hover:bg-accent/70 hover:text-foreground"
+            }`}
+            title="Toggle artifacts panel"
+            aria-pressed={artifactsOpen}
+          >
+            <PanelRight size={14} />
+          </button>
+          <button
+            type="button"
+            onClick={onToggleTheme}
+            className="rounded-md p-1.5 text-muted-foreground transition-colors hover:bg-accent/70 hover:text-foreground"
+            title="Toggle theme"
+          >
+            {darkMode ? <Sun size={14} /> : <Moon size={14} />}
+          </button>
+        </div>
 
-        <div className="mx-1 h-4 w-px bg-border/30" />
-
-        <button
-          type="button"
-          onClick={() => handleWindow("minimize")}
-          className="rounded-md p-1.5 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
-        >
-          <Minus size={14} />
-        </button>
-        <button
-          type="button"
-          onClick={() => handleWindow("maximize")}
-          className="rounded-md p-1.5 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
-        >
-          <Square size={12} />
-        </button>
-        <button
-          type="button"
-          onClick={() => handleWindow("close")}
-          className="rounded-md p-1.5 text-muted-foreground transition-colors hover:bg-destructive hover:text-destructive-foreground"
-        >
-          <X size={14} />
-        </button>
+        <div className="flex items-center rounded-md border border-border/70 bg-background/55 p-0.5">
+          <button
+            type="button"
+            onClick={() => handleWindow("minimize")}
+            className="rounded-md p-1.5 text-muted-foreground transition-colors hover:bg-accent/70 hover:text-foreground"
+            title="Minimize"
+          >
+            <Minus size={14} />
+          </button>
+          <button
+            type="button"
+            onClick={() => handleWindow("maximize")}
+            className="rounded-md p-1.5 text-muted-foreground transition-colors hover:bg-accent/70 hover:text-foreground"
+            title="Maximize"
+          >
+            <Square size={12} />
+          </button>
+          <button
+            type="button"
+            onClick={() => handleWindow("close")}
+            className="rounded-md p-1.5 text-muted-foreground transition-colors hover:bg-destructive hover:text-destructive-foreground"
+            title="Close"
+          >
+            <X size={14} />
+          </button>
+        </div>
       </div>
     </div>
   );

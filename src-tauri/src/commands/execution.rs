@@ -32,7 +32,9 @@ pub(crate) fn resolve_provider_model_for_prompt(
     let mut requested_model = model;
     let mut agent_preset_meta = None;
 
-    if let Some(preset) = agent_presets::resolve_agent_preset_from_prompt(task_prompt, workspace_root) {
+    if let Some(preset) =
+        agent_presets::resolve_agent_preset_from_prompt(task_prompt, workspace_root)
+    {
         agent_preset_meta = Some(serde_json::json!({
             "id": preset.id,
             "name": preset.name,
@@ -322,11 +324,7 @@ pub async fn submit_plan_feedback(
     )
     .map_err(AppError::Other)?;
 
-    queries::update_task_status(&state.db,
-        &task.id,
-        "planning",
-        &Utc::now().to_rfc3339(),
-    )?;
+    queries::update_task_status(&state.db, &task.id, "planning", &Utc::now().to_rfc3339())?;
     emit_and_record(
         &state.db,
         &state.bus,
@@ -337,8 +335,7 @@ pub async fn submit_plan_feedback(
     )
     .map_err(AppError::Other)?;
 
-    queries::update_run_status(&state.db, &run.id, "planning", None, None
-    )?;
+    queries::update_run_status(&state.db, &run.id, "planning", None, None)?;
 
     let revised_prompt = format!(
         "{}\n\nPlan review feedback to incorporate before implementation:\n- {}\n\nRevise the plan so it addresses the review feedback. Return an updated plan.",

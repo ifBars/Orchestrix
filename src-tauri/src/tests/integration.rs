@@ -34,14 +34,25 @@ The page should have:
 - Some basic styling with a nice background color
 - A button that shows an alert when clicked"#;
 
-        let result = planner.generate_plan_markdown(task_prompt, "", plan_mode_tools()).await;
+        let result = planner
+            .generate_plan_markdown(task_prompt, "", plan_mode_tools())
+            .await;
 
         match result {
             Ok(plan) => {
-                assert!(plan.contains("# Plan") || plan.contains("#Plan"), "Plan should contain markdown heading");
-                assert!(plan.contains("Hello") || plan.contains("World"), 
-                    "Plan should mention Hello or World");
-                println!("[PLAN MODE] Generated plan ({} chars):\n{}", plan.len(), &plan[..plan.len().min(500)]);
+                assert!(
+                    plan.contains("# Plan") || plan.contains("#Plan"),
+                    "Plan should contain markdown heading"
+                );
+                assert!(
+                    plan.contains("Hello") || plan.contains("World"),
+                    "Plan should mention Hello or World"
+                );
+                println!(
+                    "[PLAN MODE] Generated plan ({} chars):\n{}",
+                    plan.len(),
+                    &plan[..plan.len().min(500)]
+                );
             }
             Err(e) => {
                 panic!("[PLAN MODE] Planner failed: {:?}", e);
@@ -64,22 +75,36 @@ Create a simple Hello World web page.
 1. Create index.html with heading"#;
 
         let task_prompt = "Also add a button that shows an alert when clicked";
-        let mut result = planner.generate_plan_markdown(task_prompt, existing_context, plan_mode_tools()).await;
+        let mut result = planner
+            .generate_plan_markdown(task_prompt, existing_context, plan_mode_tools())
+            .await;
         // Retry once on empty markdown (occasional API flakiness)
         if result.as_ref().err().is_some_and(|e| matches!(e, crate::model::ModelError::InvalidResponse(s) if s.contains("empty markdown"))) {
             result = planner.generate_plan_markdown(task_prompt, existing_context, plan_mode_tools()).await;
         }
         match result {
             Ok(plan) => {
-                assert!(plan.contains("# Plan") || plan.contains("#Plan"), "Revised plan should contain markdown heading");
-                assert!(plan.contains("button") || plan.contains("alert") || plan.contains("click"),
-                    "Revised plan should mention button, alert, or click functionality");
-                println!("[PLAN MODE] Revised plan ({} chars):\n{}", plan.len(), &plan[..plan.len().min(500)]);
+                assert!(
+                    plan.contains("# Plan") || plan.contains("#Plan"),
+                    "Revised plan should contain markdown heading"
+                );
+                assert!(
+                    plan.contains("button") || plan.contains("alert") || plan.contains("click"),
+                    "Revised plan should mention button, alert, or click functionality"
+                );
+                println!(
+                    "[PLAN MODE] Revised plan ({} chars):\n{}",
+                    plan.len(),
+                    &plan[..plan.len().min(500)]
+                );
             }
             Err(e) => {
                 // Skip test when API consistently returns empty markdown for revision (known flakiness)
-                if matches!(&e, crate::model::ModelError::InvalidResponse(s) if s.contains("empty markdown")) {
-                    eprintln!("[PLAN MODE] Skipping revision assertion: API returned empty markdown");
+                if matches!(&e, crate::model::ModelError::InvalidResponse(s) if s.contains("empty markdown"))
+                {
+                    eprintln!(
+                        "[PLAN MODE] Skipping revision assertion: API returned empty markdown"
+                    );
                     return;
                 }
                 panic!("[PLAN MODE] Planner revision failed: {:?}", e);
@@ -99,11 +124,16 @@ Create a simple Hello World web page.
 
 Use modern React hooks and functional components."#;
 
-        let result = planner.generate_plan_markdown(task_prompt, "", plan_mode_tools()).await;
+        let result = planner
+            .generate_plan_markdown(task_prompt, "", plan_mode_tools())
+            .await;
 
         match result {
             Ok(plan) => {
-                assert!(plan.contains("# Plan") || plan.contains("#Plan"), "Plan should contain markdown heading");
+                assert!(
+                    plan.contains("# Plan") || plan.contains("#Plan"),
+                    "Plan should contain markdown heading"
+                );
                 assert!(plan.len() > 200, "Complex plan should be substantial");
                 println!("[PLAN MODE] Complex plan generated ({} chars)", plan.len());
             }
@@ -120,7 +150,9 @@ Use modern React hooks and functional components."#;
     async fn test_plan_mode_no_tool_call_markup_in_artifact() {
         let planner = create_planner();
         let task_prompt = "Create a Three.js 3D car racing game with a simple track and one car.";
-        let result = planner.generate_plan_markdown(task_prompt, "", plan_mode_tools()).await;
+        let result = planner
+            .generate_plan_markdown(task_prompt, "", plan_mode_tools())
+            .await;
         let plan = result.expect("plan generation should succeed");
 
         // Forbidden substrings that must not appear in the written plan artifact
@@ -156,7 +188,7 @@ Use modern React hooks and functional components."#;
     async fn test_build_mode_single_tool_decision() {
         let planner = create_planner();
         let registry = ToolRegistry::default();
-        
+
         let tools = registry.list_for_build_mode();
         let tool_descriptions = registry.tool_reference_for_build_mode();
 
@@ -168,6 +200,7 @@ Use modern React hooks and functional components."#;
             tool_descriptions,
             tool_descriptors: tools,
             prior_observations: vec![],
+            max_tokens: None,
         };
 
         let result = planner.decide_worker_action(req).await;
@@ -186,7 +219,11 @@ Use modern React hooks and functional components."#;
                     crate::model::WorkerAction::Complete { summary } => {
                         println!("  → Completed: {}", summary);
                     }
-                    crate::model::WorkerAction::ToolCall { tool_name, tool_args, .. } => {
+                    crate::model::WorkerAction::ToolCall {
+                        tool_name,
+                        tool_args,
+                        ..
+                    } => {
                         println!("  → Single tool: {}: {:?}", tool_name, tool_args);
                     }
                     crate::model::WorkerAction::Delegate { .. } => {
@@ -204,7 +241,7 @@ Use modern React hooks and functional components."#;
     async fn test_build_mode_multiple_tools_decision() {
         let planner = create_planner();
         let registry = ToolRegistry::default();
-        
+
         let tools = registry.list_for_build_mode();
         let tool_descriptions = registry.tool_reference_for_build_mode();
 
@@ -215,13 +252,15 @@ Use modern React hooks and functional components."#;
 3. Create src/components/Button.tsx
 4. Create src/utils/helpers.ts
 
-Use fs.write and cmd.exec as needed."#.to_string(),
+Use fs.write and cmd.exec as needed."#
+                .to_string(),
             goal_summary: "Create React project structure".to_string(),
             context: "Setting up a new React project with directories and files".to_string(),
             available_tools: tools.iter().map(|t| t.name.clone()).collect(),
             tool_descriptions,
             tool_descriptors: tools,
             prior_observations: vec![],
+            max_tokens: None,
         };
 
         let result = planner.decide_worker_action(req).await;
@@ -251,18 +290,16 @@ Use fs.write and cmd.exec as needed."#.to_string(),
     async fn test_build_mode_handles_prior_observations() {
         let planner = create_planner();
         let registry = ToolRegistry::default();
-        
+
         let tools = registry.list_for_build_mode();
         let tool_descriptions = registry.tool_reference_for_build_mode();
 
         // Simulate that we've already created the file
-        let prior_observations = vec![
-            serde_json::json!({
-                "tool_name": "fs.write",
-                "tool_args": {"path": "greeting.txt", "content": "Hello!"},
-                "result": {"ok": true}
-            })
-        ];
+        let prior_observations = vec![serde_json::json!({
+            "tool_name": "fs.write",
+            "tool_args": {"path": "greeting.txt", "content": "Hello!"},
+            "result": {"ok": true}
+        })];
 
         let req = WorkerActionRequest {
             task_prompt: "Write 'Hello!' to greeting.txt, then read it back".to_string(),
@@ -272,6 +309,7 @@ Use fs.write and cmd.exec as needed."#.to_string(),
             tool_descriptions,
             tool_descriptors: tools,
             prior_observations,
+            max_tokens: None,
         };
 
         let result = planner.decide_worker_action(req).await;
@@ -286,7 +324,10 @@ Use fs.write and cmd.exec as needed."#.to_string(),
                         if has_read {
                             println!("  → Correctly proposes to read the file");
                         } else {
-                            println!("  → Proposes other tools: {:?}", calls.iter().map(|c| &c.tool_name).collect::<Vec<_>>());
+                            println!(
+                                "  → Proposes other tools: {:?}",
+                                calls.iter().map(|c| &c.tool_name).collect::<Vec<_>>()
+                            );
                         }
                     }
                     crate::model::WorkerAction::Complete { summary } => {
@@ -308,7 +349,7 @@ Use fs.write and cmd.exec as needed."#.to_string(),
     #[tokio::test]
     async fn test_full_workflow_plan_then_build_decisions() {
         let planner = create_planner();
-        
+
         // Step 1: Generate a plan
         let task_prompt = r#"Create a simple counter app with:
 - index.html with a button and counter display
@@ -317,8 +358,10 @@ Use fs.write and cmd.exec as needed."#.to_string(),
 
         println!("\n=== WORKFLOW TEST ===");
         println!("Step 1: Generating plan...");
-        
-        let plan_result = planner.generate_plan_markdown(task_prompt, "", plan_mode_tools()).await;
+
+        let plan_result = planner
+            .generate_plan_markdown(task_prompt, "", plan_mode_tools())
+            .await;
         let plan = match plan_result {
             Ok(p) => {
                 println!("Plan generated ({} chars)", p.len());
@@ -330,7 +373,7 @@ Use fs.write and cmd.exec as needed."#.to_string(),
 
         // Step 2: Use the plan as context for build mode
         println!("Step 2: Getting build decisions based on plan...");
-        
+
         let registry = ToolRegistry::default();
         let tools = registry.list_for_build_mode();
         let tool_descriptions = registry.tool_reference_for_build_mode();
@@ -343,30 +386,29 @@ Use fs.write and cmd.exec as needed."#.to_string(),
             tool_descriptions,
             tool_descriptors: tools,
             prior_observations: vec![],
+            max_tokens: None,
         };
 
         let result = planner.decide_worker_action(req).await;
 
         match result {
-            Ok(decision) => {
-                match decision.action {
-                    crate::model::WorkerAction::ToolCalls { calls } => {
-                        println!("Build wants to call {} tool(s):", calls.len());
-                        for call in &calls {
-                            println!("  - {}: {:?}", call.tool_name, call.tool_args);
-                        }
+            Ok(decision) => match decision.action {
+                crate::model::WorkerAction::ToolCalls { calls } => {
+                    println!("Build wants to call {} tool(s):", calls.len());
+                    for call in &calls {
+                        println!("  - {}: {:?}", call.tool_name, call.tool_args);
                     }
-                    crate::model::WorkerAction::Complete { summary } => {
-                        println!("Build completed: {}", summary);
-                    }
-                    _ => println!("Build made other decision"),
                 }
-            }
+                crate::model::WorkerAction::Complete { summary } => {
+                    println!("Build completed: {}", summary);
+                }
+                _ => println!("Build made other decision"),
+            },
             Err(e) => {
                 println!("Build decision failed: {:?}", e);
             }
         }
-        
+
         println!("=== WORKFLOW TEST COMPLETE ===\n");
     }
 
@@ -377,12 +419,21 @@ Use fs.write and cmd.exec as needed."#.to_string(),
     #[tokio::test]
     async fn test_api_key_authentication() {
         let planner = create_planner();
-        let result = planner.generate_plan_markdown("Say exactly: 'Authentication successful'", "", plan_mode_tools()).await;
+        let result = planner
+            .generate_plan_markdown(
+                "Say exactly: 'Authentication successful'",
+                "",
+                plan_mode_tools(),
+            )
+            .await;
 
         match result {
             Ok(plan) => {
                 assert!(!plan.is_empty(), "API should return a non-empty response");
-                println!("[API] Authentication test passed! Response length: {} chars", plan.len());
+                println!(
+                    "[API] Authentication test passed! Response length: {} chars",
+                    plan.len()
+                );
             }
             Err(e) => {
                 panic!("[API] Authentication test failed: {:?}", e);
@@ -393,16 +444,24 @@ Use fs.write and cmd.exec as needed."#.to_string(),
     #[tokio::test]
     async fn test_various_prompt_types() {
         let planner = create_planner();
-        
+
         let prompts = vec![
-            ("plan", "Create a Python script that prints the current date"),
-            ("build", "Write a bash command to list all files in a directory"),
+            (
+                "plan",
+                "Create a Python script that prints the current date",
+            ),
+            (
+                "build",
+                "Write a bash command to list all files in a directory",
+            ),
             ("explain", "Explain what React hooks are"),
         ];
 
         for (i, (mode, prompt)) in prompts.iter().enumerate() {
             println!("\n[API] Test {} ({} mode): {}", i + 1, mode, prompt);
-            let result = planner.generate_plan_markdown(prompt, "", plan_mode_tools()).await;
+            let result = planner
+                .generate_plan_markdown(prompt, "", plan_mode_tools())
+                .await;
             match result {
                 Ok(plan) => {
                     println!("  ✓ Generated {} chars", plan.len());

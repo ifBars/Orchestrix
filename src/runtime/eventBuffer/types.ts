@@ -61,9 +61,22 @@ export interface AgentTodoList {
   updatedAt: string;
 }
 
+export interface AgentMessageStream {
+  streamId: string;
+  content: string;
+  startedAt: string;
+  updatedAt: string;
+  seq: number;
+  isStreaming: boolean;
+  subAgentId?: string;
+  stepIdx?: number;
+  turn?: number;
+}
+
 export interface HandlerResult {
   planChanged: boolean;
   timelineChanged: boolean;
+  agentStreamChanged?: boolean;
 }
 
 /** Context passed to each event handler. Handlers mutate state via these references. */
@@ -88,6 +101,25 @@ export interface HandlerContext {
   getLastTransientId: () => string | null;
   toDisplayText: (value: unknown) => string | undefined;
   appendThinkingDelta: (delta: string, thinker?: string) => void;
+  startAgentMessageStream: (params: {
+    streamId: string;
+    createdAt: string;
+    seq: number;
+    subAgentId?: string;
+    stepIdx?: number;
+    turn?: number;
+  }) => void;
+  appendAgentMessageDelta: (params: {
+    streamId?: string;
+    delta: string;
+    createdAt: string;
+    seq: number;
+    subAgentId?: string;
+    stepIdx?: number;
+    turn?: number;
+  }) => void;
+  completeAgentMessageStream: (streamId?: string, completedAt?: string, seq?: number) => void;
+  clearAgentMessageStream: () => void;
 }
 
 export type EventHandler = (ctx: HandlerContext) => HandlerResult;

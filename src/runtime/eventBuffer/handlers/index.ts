@@ -15,7 +15,10 @@ export const eventHandlers: Record<string, EventHandler> = {
 
   "agent.thinking_delta": agent.handleThinkingDelta,
   "agent.message": agent.handleMessage,
+  "agent.message_stream_started": agent.handleMessageStreamStarted,
   "agent.message_delta": agent.handleMessageDelta,
+  "agent.message_stream_completed": agent.handleMessageStreamCompleted,
+  "agent.message_stream_cancelled": agent.handleMessageStreamCancelled,
   "agent.deciding": agent.handleDeciding,
   "agent.tool_calls_preparing": agent.handleToolCallsPreparing,
   "agent.subagents_scheduled": agent.handleSubagentsScheduled,

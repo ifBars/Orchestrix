@@ -4,7 +4,7 @@
 //! parses YAML frontmatter per OpenCode format, and exposes structured
 //! agent preset data for use in the app.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
@@ -97,6 +97,7 @@ fn default_true() -> bool {
 
 impl AgentPreset {
     /// Get the effective tool permission for a given tool name.
+    #[cfg_attr(not(test), allow(dead_code))]
     pub fn tool_allowed(&self, tool_name: &str) -> bool {
         // If there's an explicit tools map, check it first
         if let Some(tools) = &self.tools {
@@ -188,16 +189,16 @@ struct AgentFrontmatter {
 
 /// Directory precedence for agent discovery (highest to lowest).
 /// Workspace-local agents take priority over global ones.
-pub const AGENT_DIR_PRECEDENCE: &[&str] = &[
-    ".agents/agents",   // Custom Orchestrix location
-    ".agent/agents",    // Custom alias
-    ".opencode/agents", // OpenCode standard
+pub const AGENT_DIR_PRECEDENCE: &[(&str, &str)] = &[
+    (".agents/agents", "workspace"),  // Custom Orchestrix location
+    (".agent/agents", "workspace"),   // Custom alias
+    (".opencode/agents", "opencode"), // OpenCode standard
 ];
 
 /// Global config directory precedence.
-pub const GLOBAL_AGENT_DIR_PRECEDENCE: &[&str] = &[
-    "orchestrix/agents", // Orchestrix global
-    "opencode/agents",   // OpenCode standard global
+pub const GLOBAL_AGENT_DIR_PRECEDENCE: &[(&str, &str)] = &[
+    ("orchestrix/agents", "global"), // Orchestrix global
+    ("opencode/agents", "opencode"), // OpenCode standard global
 ];
 
 /// Scan for agent presets in the given workspace root and global directories.
@@ -212,22 +213,22 @@ pub const GLOBAL_AGENT_DIR_PRECEDENCE: &[&str] = &[
 /// First agent by ID wins (workspace takes priority over global).
 pub fn scan_agent_presets(workspace_root: &Path) -> Vec<AgentPreset> {
     let mut presets = Vec::new();
-    let mut seen = std::collections::HashSet::new();
+    let mut seen = HashSet::new();
 
     // 1. Scan workspace directories in precedence order
-    for dir_name in AGENT_DIR_PRECEDENCE {
+    for (dir_name, source) in AGENT_DIR_PRECEDENCE {
         let dir = workspace_root.join(dir_name);
         if dir.is_dir() {
-            collect_agents_from_dir(&dir, "workspace", &mut presets, &mut seen);
+            collect_agents_from_dir(&dir, source, &mut presets, &mut seen);
         }
     }
 
     // 2. Scan global directories
-    if let Some(global_config_dir) = global_config_dir() {
-        for subdir in GLOBAL_AGENT_DIR_PRECEDENCE {
+    for global_config_dir in global_config_dirs() {
+        for (subdir, source) in GLOBAL_AGENT_DIR_PRECEDENCE {
             let dir = global_config_dir.join(subdir);
             if dir.is_dir() {
-                collect_agents_from_dir(&dir, "global", &mut presets, &mut seen);
+                collect_agents_from_dir(&dir, source, &mut presets, &mut seen);
             }
         }
     }
@@ -405,7 +406,7 @@ fn collect_agents_from_dir(
     dir: &Path,
     source: &str,
     out: &mut Vec<AgentPreset>,
-    seen: &mut std::collections::HashSet<String>,
+    seen: &mut HashSet<String>,
 ) {
     let entries = match std::fs::read_dir(dir) {
         Ok(entries) => entries,
@@ -420,8 +421,12 @@ fn collect_agents_from_dir(
             continue;
         }
 
-        let extension = path.extension().and_then(|e| e.to_str());
-        if extension != Some("md") {
+        let is_markdown = path
+            .extension()
+            .and_then(|e| e.to_str())
+            .map(|ext| ext.eq_ignore_ascii_case("md") || ext.eq_ignore_ascii_case("markdown"))
+            .unwrap_or(false);
+        if !is_markdown {
             continue;
         }
 
@@ -677,22 +682,49 @@ fn title_case(s: &str) -> String {
         .join(" ")
 }
 
-fn global_config_dir() -> Option<PathBuf> {
+fn global_config_dirs() -> Vec<PathBuf> {
+    let mut dirs = Vec::new();
+
     #[cfg(target_os = "windows")]
     {
         if let Ok(app_data) = std::env::var("APPDATA") {
-            return Some(PathBuf::from(app_data));
+            let trimmed = app_data.trim();
+            if !trimmed.is_empty() {
+                dirs.push(PathBuf::from(trimmed));
+            }
+        }
+
+        if let Ok(user_profile) = std::env::var("USERPROFILE") {
+            let trimmed = user_profile.trim();
+            if !trimmed.is_empty() {
+                dirs.push(PathBuf::from(trimmed).join(".config"));
+            }
         }
     }
 
     #[cfg(not(target_os = "windows"))]
     {
         if let Ok(home) = std::env::var("HOME") {
-            return Some(PathBuf::from(home).join(".config"));
+            let trimmed = home.trim();
+            if !trimmed.is_empty() {
+                dirs.push(PathBuf::from(trimmed).join(".config"));
+            }
         }
     }
 
-    None
+    #[cfg(target_os = "windows")]
+    {
+        if let Ok(home) = std::env::var("HOME") {
+            let trimmed = home.trim();
+            if !trimmed.is_empty() {
+                dirs.push(PathBuf::from(trimmed).join(".config"));
+            }
+        }
+    }
+
+    let mut unique = HashSet::new();
+    dirs.retain(|path| unique.insert(path.clone()));
+    dirs
 }
 
 // ---------------------------------------------------------------------------
@@ -821,5 +853,31 @@ You are a code reviewer. Focus on quality."#;
         let (provider, model) = parse_model_override("MiniMax-M2.1");
         assert_eq!(provider, None);
         assert_eq!(model, "MiniMax-M2.1");
+    }
+
+    #[test]
+    fn test_scan_agent_presets_workspace_agents_dir() {
+        let root =
+            std::env::temp_dir().join(format!("orchestrix-agent-presets-{}", uuid::Uuid::new_v4()));
+        let agents_dir = root.join(".agents").join("agents");
+        std::fs::create_dir_all(&agents_dir).expect("create agents dir");
+
+        let agent_file = agents_dir.join("code-reviewer.md");
+        std::fs::write(
+            &agent_file,
+            "---\ndescription: Reviews code\nmode: subagent\n---\n\nYou are a code reviewer.",
+        )
+        .expect("write agent file");
+
+        let presets = scan_agent_presets(&root);
+        assert_eq!(presets.len(), 1);
+
+        let preset = &presets[0];
+        assert_eq!(preset.id, "code-reviewer");
+        assert_eq!(preset.description, "Reviews code");
+        assert_eq!(preset.mode, AgentMode::Subagent);
+        assert_eq!(preset.source, "workspace");
+
+        std::fs::remove_dir_all(&root).expect("cleanup temp dir");
     }
 }

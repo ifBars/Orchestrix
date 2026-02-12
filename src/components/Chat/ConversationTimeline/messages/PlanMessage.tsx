@@ -1,8 +1,7 @@
 import { useState } from "react";
 import { Bot, ChevronDown, ChevronRight, ListChecks, Loader2 } from "lucide-react";
-import { Streamdown } from "streamdown";
-import { code } from "@streamdown/code";
 import { runtimeEventBuffer } from "@/runtime/eventBuffer";
+import { SafeStreamdown } from "./SafeStreamdown";
 
 type PlanMessageProps = {
   plan: ReturnType<typeof runtimeEventBuffer.getPlan>;
@@ -21,19 +20,19 @@ export function PlanMessage({
 
   return (
     <div className="flex gap-3">
-      <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-accent text-muted-foreground">
+      <div className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-border/70 bg-accent/50 text-muted-foreground">
         <Bot size={14} />
       </div>
-      <div className="min-w-0 flex-1 pt-1">
+      <div className="min-w-0 flex-1 rounded-xl border border-border/70 bg-card/55 px-3 py-2.5">
         {assistantMessage && (
           <div className="prose prose-sm max-w-none text-sm leading-relaxed text-foreground dark:prose-invert prose-p:my-1 prose-headings:my-2 prose-code:text-xs">
-            <Streamdown plugins={{ code }}>{assistantMessage}</Streamdown>
+            <SafeStreamdown content={assistantMessage} />
           </div>
         )}
 
         {!assistantMessage && planStream && (
           <div className="prose prose-sm max-w-none text-sm leading-relaxed text-foreground dark:prose-invert prose-p:my-1">
-            <Streamdown plugins={{ code }}>{planStream}</Streamdown>
+            <SafeStreamdown content={planStream} />
           </div>
         )}
 
@@ -42,7 +41,7 @@ export function PlanMessage({
             <button
               type="button"
               onClick={() => setExpanded(!expanded)}
-              className="flex items-center gap-2 rounded-lg border border-border bg-muted/30 px-3 py-2 text-xs font-medium text-muted-foreground transition-colors hover:bg-muted/60"
+              className="flex items-center gap-2 rounded-lg border border-border/70 bg-background/70 px-3 py-2 text-xs font-medium text-muted-foreground transition-colors hover:bg-accent/60"
             >
               <ListChecks size={14} />
               <span>{plan.steps.length} steps planned</span>
@@ -54,7 +53,7 @@ export function PlanMessage({
                 {plan.steps.map((step, i) => (
                   <div
                     key={i}
-                    className="flex items-start gap-2 rounded-md border border-border/60 bg-card/50 px-3 py-2"
+                    className="flex items-start gap-2 rounded-md border border-border/65 bg-background/75 px-3 py-2"
                   >
                     <span className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-muted text-[10px] font-semibold text-muted-foreground">
                       {i + 1}

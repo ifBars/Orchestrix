@@ -13,7 +13,8 @@ use crate::core::mcp::{call_mcp_tool_by_server_and_name, load_mcp_tools_cache};
 use crate::core::tool::ToolDescriptor;
 use crate::policy::PolicyEngine;
 use crate::tools::agent::{
-    AgentTodoTool, CreateArtifactTool, RequestBuildModeTool, RequestPlanModeTool, SubAgentSpawnTool,
+    AgentCompleteTool, AgentTodoTool, CreateArtifactTool, RequestBuildModeTool,
+    RequestPlanModeTool, SubAgentSpawnTool,
 };
 use crate::tools::cmd::CommandExecTool;
 use crate::tools::fs::{FsListTool, FsReadTool, FsWriteTool};
@@ -57,6 +58,7 @@ impl ToolRegistry {
 
         // Agent tools
         tools.insert("agent.todo".to_string(), Box::new(AgentTodoTool));
+        tools.insert("agent.complete".to_string(), Box::new(AgentCompleteTool));
         tools.insert("subagent.spawn".to_string(), Box::new(SubAgentSpawnTool));
         tools.insert(
             "agent.request_build_mode".to_string(),

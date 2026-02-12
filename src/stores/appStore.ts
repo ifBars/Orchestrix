@@ -38,9 +38,9 @@ import type {
   EventRow,
   ModelCatalogEntry,
   NewCustomSkill,
-  McpServerConfig,
   McpServerInput,
-  McpToolEntry,
+  McpServerView,
+  McpToolView,
   ProviderConfigView,
   RunRow,
   SkillCatalogItem,
@@ -93,8 +93,8 @@ type AppStoreState = {
   workspaceSkills: WorkspaceSkill[];
   agentPresets: AgentPreset[];
   selectedAgentPresetId: string | null;
-  mcpServers: McpServerConfig[];
-  mcpTools: McpToolEntry[];
+  mcpServers: McpServerView[];
+  mcpTools: McpToolView[];
   artifactsByTask: Record<string, ArtifactRow[]>;
   taskLinksByTask: Record<string, string[]>;
   bootstrapped: boolean;
@@ -153,7 +153,7 @@ function modelForProvider(provider: string, configs: ProviderConfigView[], catal
   const config = configs.find((value) => value.provider === provider);
   if (config?.default_model) return config.default_model;
   const entry = catalog.find((value) => value.provider === provider);
-  return entry?.models[0] ?? "";
+  return entry?.models[0]?.name ?? "";
 }
 
 export const useAppStore = create<AppStoreState>((set, get) => ({
@@ -185,8 +185,8 @@ export const useAppStore = create<AppStoreState>((set, get) => ({
       invoke<SkillCatalogItem[]>("list_available_skills"),
       invoke<WorkspaceSkill[]>("list_workspace_skills"),
       invoke<AgentPreset[]>("list_agent_presets"),
-      invoke<McpServerConfig[]>("list_mcp_server_configs"),
-      invoke<McpToolEntry[]>("list_cached_mcp_tools"),
+      invoke<McpServerView[]>("list_mcp_servers"),
+      invoke<McpToolView[]>("list_mcp_tools"),
     ]);
 
     const linkResults = await Promise.all(
@@ -246,6 +246,7 @@ export const useAppStore = create<AppStoreState>((set, get) => ({
     // Load historical events for all tasks to restore chat history
     const planTaskIds = new Set<string>();
     const timelineTaskIds = new Set<string>();
+    const agentStreamTaskIds = new Set<string>();
     
     await Promise.all(
       tasks.map(async (task) => {
@@ -265,11 +266,12 @@ export const useAppStore = create<AppStoreState>((set, get) => ({
 
             // Replay events into the buffer
             for (const event of busEvents) {
-              const result = runtimeEventBuffer.ingest(event, task.id);
-              if (result.planChanged) planTaskIds.add(task.id);
-              if (result.timelineChanged) timelineTaskIds.add(task.id);
+                const result = runtimeEventBuffer.ingest(event, task.id);
+                if (result.planChanged) planTaskIds.add(task.id);
+                if (result.timelineChanged) timelineTaskIds.add(task.id);
+                if (result.agentStreamChanged) agentStreamTaskIds.add(task.id);
+              }
             }
-          }
         } catch (e) {
           console.error(`Failed to load events for task ${task.id}:`, e);
         }
@@ -277,8 +279,10 @@ export const useAppStore = create<AppStoreState>((set, get) => ({
     );
 
     // Trigger UI updates for tasks that had events
-    if (planTaskIds.size > 0 || timelineTaskIds.size > 0) {
-      useStreamTickStore.getState().bumpBatch(planTaskIds, timelineTaskIds);
+    if (planTaskIds.size > 0 || timelineTaskIds.size > 0 || agentStreamTaskIds.size > 0) {
+      useStreamTickStore
+        .getState()
+        .bumpBatch(planTaskIds, timelineTaskIds, agentStreamTaskIds);
     }
 
     unlistenEvents = await listen<BusEvent[]>("orchestrix://events", (e) => {
@@ -287,6 +291,7 @@ export const useAppStore = create<AppStoreState>((set, get) => ({
 
       const planTaskIds = new Set<string>();
       const timelineTaskIds = new Set<string>();
+      const agentStreamTaskIds = new Set<string>();
       const taskStatusById = new Map<string, TaskStatus>();
       const deletedTaskIds = new Set<string>();
       const linkedTaskIds = new Set<string>();
@@ -298,6 +303,7 @@ export const useAppStore = create<AppStoreState>((set, get) => ({
         const ingest = runtimeEventBuffer.ingest(event, taskId);
         if (ingest.planChanged) planTaskIds.add(taskId);
         if (ingest.timelineChanged) timelineTaskIds.add(taskId);
+        if (ingest.agentStreamChanged) agentStreamTaskIds.add(taskId);
 
         if (event.event_type === "task.status_changed") {
           const status = event.payload?.status;
@@ -417,7 +423,9 @@ export const useAppStore = create<AppStoreState>((set, get) => ({
           });
       }
 
-      useStreamTickStore.getState().bumpBatch(planTaskIds, timelineTaskIds);
+      useStreamTickStore
+        .getState()
+        .bumpBatch(planTaskIds, timelineTaskIds, agentStreamTaskIds);
     });
   },
 
@@ -616,8 +624,7 @@ export const useAppStore = create<AppStoreState>((set, get) => ({
   setWorkspaceRoot: async (workspaceRoot: string) => {
     await invoke("set_workspace_root", { workspaceRoot });
     set({ workspaceRoot });
-    // Re-scan workspace skills for the new workspace
-    await get().refreshWorkspaceSkills();
+    await Promise.all([get().refreshWorkspaceSkills(), get().refreshAgentPresets()]);
   },
 
   refreshWorkspaceRoot: async () => {
@@ -703,7 +710,13 @@ export const useAppStore = create<AppStoreState>((set, get) => ({
 
   refreshAgentPresets: async () => {
     const agentPresets = await invoke<AgentPreset[]>("list_agent_presets");
-    set({ agentPresets });
+    set((state) => {
+      const selectedAgentPresetId =
+        state.selectedAgentPresetId && agentPresets.some((preset) => preset.id === state.selectedAgentPresetId)
+          ? state.selectedAgentPresetId
+          : null;
+      return { agentPresets, selectedAgentPresetId };
+    });
   },
 
   searchAgentPresets: async (query: string) => {
@@ -738,26 +751,27 @@ export const useAppStore = create<AppStoreState>((set, get) => ({
   },
 
   refreshMcpServers: async () => {
-    const mcpServers = await invoke<McpServerConfig[]>("list_mcp_server_configs");
+    const mcpServers = await invoke<McpServerView[]>("list_mcp_servers");
     set({ mcpServers });
   },
 
   upsertMcpServer: async (server: McpServerInput) => {
-    await invoke("upsert_mcp_server_config", { input: server });
+    await invoke("upsert_mcp_server", { input: server });
     await Promise.all([get().refreshMcpServers(), get().refreshMcpTools()]);
   },
 
   removeMcpServer: async (serverId: string) => {
-    await invoke("remove_mcp_server_config", { serverId });
+    await invoke("remove_mcp_server", { serverId });
     await Promise.all([get().refreshMcpServers(), get().refreshMcpTools()]);
   },
 
   refreshMcpTools: async () => {
     try {
-      const mcpTools = await invoke<McpToolEntry[]>("refresh_mcp_tools");
+      await invoke("refresh_mcp_tools_cache");
+      const mcpTools = await invoke<McpToolView[]>("list_mcp_tools");
       set({ mcpTools });
     } catch {
-      const mcpTools = await invoke<McpToolEntry[]>("list_cached_mcp_tools");
+      const mcpTools = await invoke<McpToolView[]>("list_mcp_tools");
       set({ mcpTools });
     }
   },

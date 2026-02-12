@@ -34,11 +34,8 @@ use uuid::Uuid;
 use crate::bus::EventBus;
 use crate::core::plan::{Plan, PlanStep, StepStatus};
 use crate::db::{queries, Database};
-use crate::model::kimi::KimiPlanner;
-use crate::model::minimax::MiniMaxPlanner;
-use crate::model::{PlannerModel, WorkerAction, WorkerActionRequest};
 use crate::policy::PolicyEngine;
-use crate::tools::{infer_tool_call, ToolRegistry};
+use crate::tools::ToolRegistry;
 
 use super::approval::{ApprovalGate, ApprovalRequest};
 use super::planner::emit_and_record;
@@ -80,6 +77,7 @@ struct RuntimeModelConfig {
 }
 
 #[derive(Debug, Clone, Deserialize)]
+#[allow(dead_code)]
 struct SubAgentContract {
     #[serde(default)]
     permissions: SubAgentPermissions,
@@ -97,6 +95,7 @@ impl Default for SubAgentContract {
 }
 
 #[derive(Debug, Clone, Deserialize)]
+#[allow(dead_code)]
 struct SubAgentPermissions {
     #[serde(default)]
     allowed_tools: Vec<String>,
@@ -183,7 +182,10 @@ impl Orchestrator {
     }
 
     pub fn set_workspace_root(&self, workspace_root: PathBuf) {
-        let mut guard = self.workspace_root.lock().expect("orchestrator mutex poisoned");
+        let mut guard = self
+            .workspace_root
+            .lock()
+            .expect("orchestrator mutex poisoned");
         *guard = workspace_root;
     }
 
@@ -191,7 +193,11 @@ impl Orchestrator {
         self.approval_gate.list_pending(task_id)
     }
 
-    pub fn resolve_approval_request(&self, approval_id: &str, approve: bool) -> Result<ApprovalRequest, String> {
+    pub fn resolve_approval_request(
+        &self,
+        approval_id: &str,
+        approve: bool,
+    ) -> Result<ApprovalRequest, String> {
         self.approval_gate.resolve(approval_id, approve)
     }
 

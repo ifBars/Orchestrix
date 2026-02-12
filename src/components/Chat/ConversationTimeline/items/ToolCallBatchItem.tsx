@@ -15,13 +15,13 @@ export function ToolCallBatchItem({ items }: ToolCallBatchItemProps) {
   const successCount = items.filter((item) => item.toolStatus === "success").length;
 
   return (
-    <div className="ml-11 rounded-lg border border-border/60 bg-muted/20">
+    <div className="ml-11 rounded-lg border border-border/70 bg-background/55">
       <button
         type="button"
         aria-expanded={expanded}
         aria-controls={`tool-batch-${items[0]?.id ?? "unknown"}`}
         onClick={() => setExpanded(!expanded)}
-        className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left transition-colors hover:bg-muted/40"
+        className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left transition-colors hover:bg-accent/45"
       >
         <Terminal size={13} className="shrink-0 text-muted-foreground" />
         <span className="min-w-0 flex-1 text-xs font-medium text-foreground">{items.length} tool calls</span>
@@ -44,7 +44,7 @@ export function ToolCallBatchItem({ items }: ToolCallBatchItemProps) {
       {expanded && (
         <div
           id={`tool-batch-${items[0]?.id ?? "unknown"}`}
-          className="space-y-2 border-t border-border/60 px-2 py-2"
+          className="space-y-2 border-t border-border/60 px-2.5 py-2.5"
         >
           {items.map((toolItem) => (
             <ToolCallItem key={toolItem.id} item={toolItem} compact />

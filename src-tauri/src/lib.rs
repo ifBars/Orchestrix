@@ -23,6 +23,7 @@ mod bus;
 mod commands;
 mod core;
 mod db;
+mod mcp;
 mod model;
 mod policy;
 mod runtime;
@@ -81,9 +82,15 @@ pub(crate) struct ProviderConfigView {
 }
 
 #[derive(Debug, Clone, Serialize)]
+pub(crate) struct ModelInfo {
+    pub name: String,
+    pub context_window: usize,
+}
+
+#[derive(Debug, Clone, Serialize)]
 pub(crate) struct ModelCatalogEntry {
     pub provider: String,
-    pub models: Vec<String>,
+    pub models: Vec<ModelInfo>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -108,6 +115,7 @@ pub(crate) struct AppState {
     pub db: Arc<Database>,
     pub bus: Arc<EventBus>,
     pub orchestrator: Arc<Orchestrator>,
+    pub mcp_manager: Arc<mcp::McpClientManager>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -169,7 +177,10 @@ fn env_for_provider(provider: &str) -> (Option<String>, Option<String>, Option<S
     }
 }
 
-pub(crate) fn load_provider_config(db: &Database, provider: &str) -> Result<Option<ProviderConfig>, AppError> {
+pub(crate) fn load_provider_config(
+    db: &Database,
+    provider: &str,
+) -> Result<Option<ProviderConfig>, AppError> {
     let (env_key, env_model, env_base_url) = env_for_provider(provider);
     if let Some(api_key) = env_key {
         if !api_key.trim().is_empty() {
@@ -246,8 +257,12 @@ fn orchestrix_data_dir() -> PathBuf {
 
 fn stable_db_path() -> Result<PathBuf, String> {
     let data_dir = orchestrix_data_dir();
-    std::fs::create_dir_all(&data_dir)
-        .map_err(|e| format!("failed to create app data directory {}: {e}", data_dir.display()))?;
+    std::fs::create_dir_all(&data_dir).map_err(|e| {
+        format!(
+            "failed to create app data directory {}: {e}",
+            data_dir.display()
+        )
+    })?;
 
     let db_path = data_dir.join("orchestrix.db");
     if db_path.exists() {
@@ -266,7 +281,10 @@ fn stable_db_path() -> Result<PathBuf, String> {
         }
         if let Some(parent) = db_path.parent() {
             std::fs::create_dir_all(parent).map_err(|e| {
-                format!("failed to create database parent directory {}: {e}", parent.display())
+                format!(
+                    "failed to create database parent directory {}: {e}",
+                    parent.display()
+                )
             })?;
         }
         std::fs::copy(&candidate, &db_path).map_err(|e| {
@@ -319,14 +337,48 @@ pub fn run() {
     let workspace_root = load_workspace_root(&db);
     let orchestrator = Arc::new(Orchestrator::new(db.clone(), bus.clone(), workspace_root));
 
-    // Best-effort MCP tool discovery cache refresh at startup.
-    let _ = core::mcp::refresh_mcp_tools_cache();
+    // Initialize enhanced MCP client manager
+    let mcp_manager = tauri::async_runtime::block_on(async {
+        // Migrate legacy config if present
+        let _ = mcp::migrate_legacy_config().await;
+        
+        // Create and initialize the manager
+        let mut manager = mcp::McpClientManager::new().await
+            .expect("failed to create MCP manager");
+        
+        // Set up event emitter to forward MCP events to the event bus
+        let bus_for_events = bus.clone();
+        manager.set_event_emitter(move |event| {
+            let payload = event.to_payload();
+            let event_type = event.event_type();
+            let category = event.category().to_string();
+            
+            // Emit to the event bus
+            let _ = bus_for_events.emit(
+                &category,
+                &event_type,
+                None,
+                payload,
+            );
+        });
+        
+        Arc::new(manager)
+    });
 
     let state = AppState {
         db: db.clone(),
         bus: bus.clone(),
         orchestrator: orchestrator.clone(),
+        mcp_manager: mcp_manager.clone(),
     };
+
+    // Initialize MCP in the background so a slow/unhealthy server cannot block app startup.
+    let mcp_manager_for_init = mcp_manager.clone();
+    tauri::async_runtime::spawn(async move {
+        if let Err(e) = mcp_manager_for_init.initialize().await {
+            tracing::warn!("MCP manager initialization partially failed: {}", e);
+        }
+    });
 
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
@@ -362,17 +414,35 @@ pub fn run() {
             commands::approvals::resolve_approval_request,
             // messages
             commands::messages::send_message_to_task,
+            commands::messages::get_compaction_settings,
+            commands::messages::set_compaction_settings,
+            commands::messages::get_conversation_summary,
+            // plan mode settings
+            commands::plan_mode::get_plan_mode_settings,
+            commands::plan_mode::set_plan_mode_settings,
+            commands::plan_mode::get_plan_mode_max_tokens_command,
             // providers
             commands::providers::set_provider_config,
             commands::providers::get_provider_configs,
             commands::providers::get_model_catalog,
+            commands::providers::get_context_window_for_model,
             // mcp
+            commands::mcp::list_mcp_servers,
+            commands::mcp::get_mcp_server,
+            commands::mcp::upsert_mcp_server,
+            commands::mcp::remove_mcp_server,
+            commands::mcp::refresh_mcp_tools_cache,
+            commands::mcp::list_mcp_tools,
+            commands::mcp::call_mcp_tool,
+            commands::mcp::test_mcp_server_connection,
+            commands::mcp::get_mcp_statistics,
+            commands::mcp::migrate_mcp_config,
+            // mcp legacy (backward compatibility)
             commands::mcp::list_mcp_server_configs,
             commands::mcp::upsert_mcp_server_config,
             commands::mcp::remove_mcp_server_config,
             commands::mcp::refresh_mcp_tools,
             commands::mcp::list_cached_mcp_tools,
-            commands::mcp::call_mcp_tool,
             // skills
             commands::skills::list_available_skills,
             commands::skills::search_skills,
