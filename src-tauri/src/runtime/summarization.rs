@@ -7,7 +7,7 @@
 //! - Persistent storage of conversation summaries
 
 use crate::db::{queries, Database};
-use crate::model::{kimi::KimiPlanner, minimax::MiniMaxPlanner};
+use crate::model::{KimiClient, MiniMaxClient, ModelCatalog};
 use chrono::Utc;
 use uuid::Uuid;
 
@@ -57,23 +57,12 @@ impl CompactionSettings {
 
 /// Returns the context window size for a given model.
 pub fn get_model_context_window(model: &str) -> usize {
-    match model {
-        // MiniMax models - all have 204,800 context window
-        "MiniMax-M2.1" => 204_800,
-        "MiniMax-M2.1-lightning" => 204_800,
-        "MiniMax-M2" => 204_800,
-        "MiniMax-M1" => 204_800,
-        "MiniMax-Text-01" => 204_800,
-
-        // Kimi models
-        "kimi-k2.5" => 256_000,
-        "kimi-k2.5-coding" => 256_000,
-        "kimi-k2" => 128_000,
-        "kimi-for-coding" => 128_000,
-
-        // Default for unknown models - conservative 8k
-        _ => 8_192,
-    }
+    ModelCatalog::all_models()
+        .into_iter()
+        .flat_map(|entry| entry.models)
+        .find(|entry| entry.name == model)
+        .map(|entry| entry.context_window as usize)
+        .unwrap_or(8_192)
 }
 
 /// A conversation message with role and content.
@@ -221,7 +210,7 @@ async fn summarize_with_kimi(
     system_prompt: &str,
     conversation: &str,
 ) -> String {
-    let planner = KimiPlanner::new(
+    let planner = KimiClient::new(
         api_key.to_string(),
         model.map(String::from),
         base_url.map(String::from),
@@ -247,7 +236,7 @@ async fn summarize_with_minimax(
     system_prompt: &str,
     conversation: &str,
 ) -> String {
-    let planner = MiniMaxPlanner::new_with_base_url(
+    let planner = MiniMaxClient::new_with_base_url(
         api_key.to_string(),
         model.map(String::from),
         base_url.map(String::from),

@@ -13,10 +13,9 @@
 
 #[cfg(test)]
 pub mod tests {
-    use crate::model::kimi::KimiPlanner;
-    use crate::model::minimax::MiniMaxPlanner;
     use crate::model::{
-        PlannerModel, WorkerAction, WorkerActionRequest, WorkerDecision, WorkerToolCall,
+        AgentModelClient, KimiClient, MiniMaxClient, WorkerAction, WorkerActionRequest,
+        WorkerDecision, WorkerToolCall,
     };
     use crate::tests::load_api_key;
     use crate::tools::ToolRegistry;
@@ -498,7 +497,7 @@ pub mod tests {
     #[tokio::test]
     async fn test_planner_model_trait_implementation() {
         let planner = load_api_key();
-        let minimax = MiniMaxPlanner::new(planner.clone(), None);
+        let minimax = MiniMaxClient::new(planner.clone(), None);
 
         assert_eq!(minimax.model_id(), "MiniMax-M2.1");
     }
@@ -506,7 +505,7 @@ pub mod tests {
     #[tokio::test]
     async fn test_kimi_planner_model_id() {
         let api_key = load_api_key();
-        let kimi = KimiPlanner::new(api_key, None, None);
+        let kimi = KimiClient::new(api_key, None, None);
 
         assert!(!kimi.model_id().is_empty());
     }

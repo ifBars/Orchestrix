@@ -5,7 +5,7 @@
 
 pub use crate::model::StreamDelta;
 use crate::model::{
-    kimi::KimiPlanner, minimax::MiniMaxPlanner, WorkerActionRequest, WorkerDecision,
+    KimiClient, MiniMaxClient, WorkerActionRequest, WorkerDecision,
 };
 
 /// Runtime model configuration for worker execution.
@@ -30,21 +30,21 @@ impl From<&super::super::RuntimeModelConfig> for RuntimeModelConfig {
 
 /// Unified model client for worker execution.
 pub enum WorkerModelClient {
-    MiniMax(MiniMaxPlanner),
-    Kimi(KimiPlanner),
+    MiniMax(MiniMaxClient),
+    Kimi(KimiClient),
 }
 
 impl WorkerModelClient {
     /// Create a new model client from runtime configuration.
     pub fn from_config(config: &RuntimeModelConfig) -> Self {
         if config.provider == "kimi" {
-            Self::Kimi(KimiPlanner::new(
+            Self::Kimi(KimiClient::new(
                 config.api_key.clone(),
                 config.model.clone(),
                 config.base_url.clone(),
             ))
         } else {
-            Self::MiniMax(MiniMaxPlanner::new_with_base_url(
+            Self::MiniMax(MiniMaxClient::new_with_base_url(
                 config.api_key.clone(),
                 config.model.clone(),
                 config.base_url.clone(),
@@ -63,11 +63,11 @@ impl WorkerModelClient {
     {
         match self {
             Self::MiniMax(model) => model
-                .decide_worker_action_streaming(req, |delta| on_delta(delta))
+                .decide_action_streaming(req, |delta| on_delta(delta))
                 .await
                 .map_err(|e| e.to_string()),
             Self::Kimi(model) => model
-                .decide_worker_action_streaming(req, |delta| on_delta(delta))
+                .decide_action_streaming(req, |delta| on_delta(delta))
                 .await
                 .map_err(|e| e.to_string()),
         }

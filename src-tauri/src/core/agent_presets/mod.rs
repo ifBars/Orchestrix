@@ -9,6 +9,8 @@ use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 
+use crate::model::provider::parse_model_override as parse_provider_model_override;
+
 // ---------------------------------------------------------------------------
 // Public types
 // ---------------------------------------------------------------------------
@@ -283,16 +285,9 @@ pub fn resolve_agent_preset_from_prompt(
 /// Parse model override strings in `<provider>/<model>` format.
 /// Returns optional provider override and normalized model value.
 pub fn parse_model_override(value: &str) -> (Option<String>, String) {
-    let trimmed = value.trim();
-    if let Some((provider, model)) = trimmed.split_once('/') {
-        let provider = provider.trim().to_ascii_lowercase();
-        let model = model.trim().to_string();
-        if !model.is_empty() && (provider == "minimax" || provider == "kimi") {
-            return (Some(provider), model);
-        }
-    }
-
-    (None, trimmed.to_string())
+    let (provider, model) = parse_provider_model_override(value);
+    let provider = provider.map(|p| p.as_str().to_string());
+    (provider, model)
 }
 
 /// Read the content of an agent file.

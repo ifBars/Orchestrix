@@ -10,7 +10,7 @@ use crate::core::prompt_references::expand_prompt_references;
 use crate::core::tool::ToolDescriptor;
 use crate::db::{queries, Database};
 use crate::model::{
-    kimi::KimiPlanner, minimax::MiniMaxPlanner, strip_tool_call_markup, PlannerModel, WorkerAction,
+    strip_tool_call_markup, AgentModelClient, KimiClient, MiniMaxClient, WorkerAction,
     WorkerActionRequest, WorkerToolCall,
 };
 use crate::policy::PolicyEngine;
@@ -30,7 +30,7 @@ const MAX_PLANNING_TURNS: usize = 20;
 
 /// Multi-turn planning loop: let the agent use tools autonomously before creating the plan artifact.
 /// When agent.create_artifact is called, extract the content and return it as the plan markdown.
-async fn run_multi_turn_planning<P: PlannerModel>(
+async fn run_multi_turn_planning<P: AgentModelClient>(
     db: &Database,
     bus: &EventBus,
     planner: &P,
@@ -86,7 +86,7 @@ async fn run_multi_turn_planning<P: PlannerModel>(
         let full_context = full_context.trim();
 
         let decision = planner
-            .decide_worker_action(WorkerActionRequest {
+            .decide_action(WorkerActionRequest {
                 task_prompt: prompt.to_string(),
                 goal_summary:
                     "Draft an implementation plan and submit it via agent.create_artifact."
@@ -571,7 +571,7 @@ pub async fn generate_plan_markdown_artifact(
 
     // Multi-turn planning: let the agent use tools before creating the artifact
     let (markdown, source_artifact_path) = if provider == "kimi" {
-        let planner = KimiPlanner::new(api_key, model, base_url);
+        let planner = KimiClient::new(api_key, model, base_url);
         planner_model = planner.model_id().to_string();
         run_multi_turn_planning(
             &db,
@@ -591,7 +591,7 @@ pub async fn generate_plan_markdown_artifact(
         )
         .await?
     } else {
-        let planner = MiniMaxPlanner::new_with_base_url(api_key, model, base_url);
+        let planner = MiniMaxClient::new_with_base_url(api_key, model, base_url);
         planner_model = planner.model_id().to_string();
         run_multi_turn_planning(
             &db,

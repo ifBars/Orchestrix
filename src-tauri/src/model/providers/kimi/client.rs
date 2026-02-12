@@ -1,9 +1,10 @@
 use serde::{Deserialize, Serialize};
 use futures::StreamExt;
 
-use super::shared::{plan_markdown_system_prompt, strip_tool_call_markup, worker_system_prompt};
-use super::{
-    ModelError, PlannerModel, StreamDelta, WorkerAction, WorkerActionRequest, WorkerDecision, WorkerToolCall,
+use crate::model::shared::{plan_markdown_system_prompt, strip_tool_call_markup, worker_system_prompt};
+use crate::model::{
+    AgentModelClient, ModelError, StreamDelta, WorkerAction, WorkerActionRequest,
+    WorkerDecision, WorkerToolCall,
 };
 use crate::core::tool::ToolDescriptor;
 use crate::runtime::plan_mode_settings::{DEFAULT_PLAN_MODE_MAX_TOKENS, WORKER_MAX_TOKENS};
@@ -14,14 +15,14 @@ use crate::runtime::plan_mode_settings::{DEFAULT_PLAN_MODE_MAX_TOKENS, WORKER_MA
 const DEFAULT_KIMI_BASE_URL: &str = "https://api.kimi.com/coding";
 
 #[derive(Debug, Clone)]
-pub struct KimiPlanner {
+pub struct KimiClient {
     api_key: String,
     model: String,
     base_url: String,
     client: reqwest::Client,
 }
 
-impl KimiPlanner {
+impl KimiClient {
     /// Create a new Kimi planner.
     ///
     /// # Arguments
@@ -390,7 +391,7 @@ impl KimiPlanner {
         Ok(markdown)
     }
 
-    pub async fn decide_worker_action_streaming<F>(
+    pub async fn decide_action_streaming<F>(
         &self,
         req: WorkerActionRequest,
         mut on_delta: F,
@@ -613,17 +614,17 @@ fn process_openai_stream_line(
     Ok(false)
 }
 
-impl PlannerModel for KimiPlanner {
+impl AgentModelClient for KimiClient {
     fn model_id(&self) -> &'static str {
         "Kimi"
     }
 
-    async fn decide_worker_action(
+    async fn decide_action(
         &self,
         req: WorkerActionRequest,
     ) -> Result<WorkerDecision, ModelError> {
         let noop = |_delta: StreamDelta| Ok::<(), String>(());
-        self.decide_worker_action_streaming(req, noop).await
+        self.decide_action_streaming(req, noop).await
     }
 }
 

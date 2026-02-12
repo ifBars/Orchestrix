@@ -2,20 +2,19 @@ import { Check, Server } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { useShallow } from "zustand/shallow";
 import { useAppStore } from "@/stores/appStore";
+import { providerLabel, providerOptionsFromCatalog } from "@/lib/providers";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
 
-const PROVIDERS = ["minimax", "kimi"] as const;
-
-type ProviderId = (typeof PROVIDERS)[number];
-
 export function ProvidersSection() {
-  const [providerConfigs, setProviderConfig] = useAppStore(
-    useShallow((state) => [state.providerConfigs, state.setProviderConfig])
+  const [providerConfigs, modelCatalog, setProviderConfig] = useAppStore(
+    useShallow((state) => [state.providerConfigs, state.modelCatalog, state.setProviderConfig])
   );
 
-  const [provider, setProvider] = useState<ProviderId>("minimax");
+  const providers = providerOptionsFromCatalog(modelCatalog);
+
+  const [provider, setProvider] = useState<string>(providers[0]?.id ?? "");
   const [apiKey, setApiKey] = useState("");
   const [model, setModel] = useState("");
   const [baseUrl, setBaseUrl] = useState("");
@@ -26,6 +25,12 @@ export function ProvidersSection() {
     () => providerConfigs.find((item) => item.provider === provider),
     [provider, providerConfigs]
   );
+
+  useEffect(() => {
+    if (!provider && providers[0]?.id) {
+      setProvider(providers[0].id);
+    }
+  }, [provider, providers]);
 
   useEffect(() => {
     setModel(current?.default_model ?? "");
@@ -67,10 +72,13 @@ export function ProvidersSection() {
             <label className="text-xs font-medium text-muted-foreground">Provider</label>
             <Select
               value={provider}
-              onChange={(event) => setProvider(event.target.value as ProviderId)}
+              onChange={(event) => setProvider(event.target.value)}
             >
-              <option value="minimax">MiniMax</option>
-              <option value="kimi">Kimi</option>
+              {providers.map((providerOption) => (
+                <option key={providerOption.id} value={providerOption.id}>
+                  {providerOption.label}
+                </option>
+              ))}
             </Select>
           </div>
 
@@ -119,15 +127,15 @@ export function ProvidersSection() {
       <section className="rounded-xl border border-border bg-card/60 p-4">
         <h3 className="mb-3 text-sm font-semibold">Provider Status</h3>
         <div className="space-y-2">
-          {PROVIDERS.map((providerId) => {
-            const item = providerConfigs.find((config) => config.provider === providerId);
+          {providers.map((providerOption) => {
+            const item = providerConfigs.find((config) => config.provider === providerOption.id);
             const configured = Boolean(item?.configured);
             return (
-              <article key={providerId} className="rounded-lg border border-border bg-background/60 p-3">
+              <article key={providerOption.id} className="rounded-lg border border-border bg-background/60 p-3">
                 <div className="flex items-center justify-between gap-2">
                   <div className="flex items-center gap-2 text-sm font-medium">
                     <Server size={13} />
-                    <span>{providerId === "minimax" ? "MiniMax" : "Kimi"}</span>
+                    <span>{providerLabel(providerOption.id)}</span>
                   </div>
                   {configured ? (
                     <span className="inline-flex items-center gap-1 rounded-full bg-success/15 px-2 py-0.5 text-[11px] font-medium text-success">

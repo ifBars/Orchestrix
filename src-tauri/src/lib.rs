@@ -155,13 +155,6 @@ pub(crate) fn provider_setting_key(provider: &str) -> String {
     format!("provider_config:{provider}")
 }
 
-pub(crate) fn default_model_for_provider(provider: &str) -> &'static str {
-    match provider {
-        "kimi" => "kimi-for-coding",
-        _ => "MiniMax-M2.1",
-    }
-}
-
 fn env_for_provider(provider: &str) -> (Option<String>, Option<String>, Option<String>) {
     match provider {
         "kimi" => (

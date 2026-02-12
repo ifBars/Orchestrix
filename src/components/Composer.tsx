@@ -4,6 +4,7 @@ import { open as openDialog } from "@tauri-apps/plugin-dialog";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useShallow } from "zustand/shallow";
 import { useAppStore } from "@/stores/appStore";
+import { firstModelForProvider, providerOptionsFromCatalog } from "@/lib/providers";
 import type { WorkspaceReferenceCandidate } from "@/types";
 
 export function Composer() {
@@ -47,6 +48,7 @@ export function Composer() {
   );
 
   const models = modelCatalog.find((item) => item.provider === selectedProvider)?.models ?? [];
+  const providerOptions = providerOptionsFromCatalog(modelCatalog);
 
   // Determine if we can continue chatting with the selected task
   const canContinueChat =
@@ -355,14 +357,16 @@ export function Composer() {
                 value={selectedProvider}
                 onChange={(e) => {
                   const provider = e.target.value;
-                  const fallback =
-                    modelCatalog.find((item) => item.provider === provider)?.models[0]?.name ?? "";
+                  const fallback = firstModelForProvider(modelCatalog, provider);
                   selectProviderModel(provider, fallback);
                 }}
                 className="h-7 rounded-md border border-border/70 bg-background/70 px-2 text-[11px] text-muted-foreground outline-none transition-colors hover:bg-accent/60 focus-visible:border-ring/70"
               >
-                <option value="minimax">MiniMax</option>
-                <option value="kimi">Kimi</option>
+                {providerOptions.map((option) => (
+                  <option key={option.id} value={option.id}>
+                    {option.label}
+                  </option>
+                ))}
               </select>
               <select
                 value={selectedModel}

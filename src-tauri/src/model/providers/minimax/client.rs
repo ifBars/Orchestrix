@@ -1,10 +1,10 @@
 use serde::{Deserialize, Serialize};
 use futures::StreamExt;
 
-use super::shared::{plan_markdown_system_prompt, strip_tool_call_markup};
-use super::{
-    ModelError, PlannerModel, StreamDelta, WorkerAction, WorkerActionRequest, WorkerDecision,
-    WorkerToolCall,
+use crate::model::shared::{plan_markdown_system_prompt, strip_tool_call_markup};
+use crate::model::{
+    AgentModelClient, ModelError, StreamDelta, WorkerAction, WorkerActionRequest,
+    WorkerDecision, WorkerToolCall,
 };
 use crate::core::tool::ToolDescriptor;
 use crate::runtime::plan_mode_settings::{DEFAULT_PLAN_MODE_MAX_TOKENS, WORKER_MAX_TOKENS};
@@ -13,14 +13,14 @@ const DEFAULT_MINIMAX_BASE_URL: &str = "https://api.minimaxi.chat";
 const MINIMAX_CHAT_PATH: &str = "/v1/text/chatcompletion_v2";
 
 #[derive(Debug, Clone)]
-pub struct MiniMaxPlanner {
+pub struct MiniMaxClient {
     api_key: String,
     model: String,
     base_url: String,
     client: reqwest::Client,
 }
 
-impl MiniMaxPlanner {
+impl MiniMaxClient {
     #[allow(dead_code)]
     pub fn new(api_key: String, model: Option<String>) -> Self {
         Self::new_with_base_url(api_key, model, None)
@@ -114,7 +114,7 @@ impl MiniMaxPlanner {
         Ok(markdown)
     }
 
-    pub async fn decide_worker_action_streaming<F>(
+    pub async fn decide_action_streaming<F>(
         &self,
         req: WorkerActionRequest,
         mut on_delta: F,
@@ -247,21 +247,21 @@ impl MiniMaxPlanner {
     }
 }
 
-impl PlannerModel for MiniMaxPlanner {
+impl AgentModelClient for MiniMaxClient {
     fn model_id(&self) -> &'static str {
         "MiniMax-M2.1"
     }
 
-    async fn decide_worker_action(
+    async fn decide_action(
         &self,
         req: WorkerActionRequest,
     ) -> Result<WorkerDecision, ModelError> {
         let noop = |_delta: StreamDelta| Ok::<(), String>(());
-        self.decide_worker_action_streaming(req, noop).await
+        self.decide_action_streaming(req, noop).await
     }
 }
 
-impl MiniMaxPlanner {
+impl MiniMaxClient {
     /// Simple text completion without tools - useful for summarization and other single-turn tasks.
     pub async fn complete(
         &self,

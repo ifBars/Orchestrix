@@ -10,9 +10,7 @@
 
 #[cfg(test)]
 pub mod tests {
-    use crate::model::kimi::KimiPlanner;
-    use crate::model::minimax::MiniMaxPlanner;
-    use crate::model::{PlannerModel, WorkerAction, WorkerActionRequest, WorkerDecision};
+    use crate::model::{AgentModelClient, KimiClient, MiniMaxClient, WorkerAction, WorkerActionRequest, WorkerDecision};
     use crate::tests::load_api_key;
     use serde_json::json;
 
@@ -23,7 +21,7 @@ pub mod tests {
     #[tokio::test]
     async fn test_minimax_planner_initialization() {
         let api_key = load_api_key();
-        let planner = MiniMaxPlanner::new(api_key.clone(), None);
+        let planner = MiniMaxClient::new(api_key.clone(), None);
 
         assert!(!planner.model_id().is_empty());
         assert_eq!(planner.model_id(), "MiniMax-M2.1");
@@ -32,7 +30,7 @@ pub mod tests {
     #[tokio::test]
     async fn test_minimax_planner_with_custom_model() {
         let api_key = load_api_key();
-        let planner = MiniMaxPlanner::new(api_key, Some("MiniMax-M2.1-200k".to_string()));
+        let planner = MiniMaxClient::new(api_key, Some("MiniMax-M2.1-200k".to_string()));
 
         let _model_id = planner.model_id();
         assert!(!_model_id.is_empty());
@@ -41,7 +39,7 @@ pub mod tests {
     #[tokio::test]
     async fn test_kimi_planner_initialization() {
         let api_key = load_api_key();
-        let planner = KimiPlanner::new(api_key, None, None);
+        let planner = KimiClient::new(api_key, None, None);
 
         assert!(!planner.model_id().is_empty());
     }
@@ -49,7 +47,7 @@ pub mod tests {
     #[tokio::test]
     async fn test_kimi_planner_with_custom_model() {
         let api_key = load_api_key();
-        let planner = KimiPlanner::new(api_key, Some("kimi-for-coding".to_string()), None);
+        let planner = KimiClient::new(api_key, Some("kimi-for-coding".to_string()), None);
 
         let _model_id = planner.model_id();
         assert!(!_model_id.is_empty());
@@ -210,7 +208,7 @@ pub mod tests {
         let api_key = load_api_key();
         let custom_url = "https://api.example.com/v1/minimax";
         let planner =
-            MiniMaxPlanner::new_with_base_url(api_key, None, Some(custom_url.to_string()));
+            MiniMaxClient::new_with_base_url(api_key, None, Some(custom_url.to_string()));
 
         assert!(!planner.model_id().is_empty());
     }
@@ -219,7 +217,7 @@ pub mod tests {
     async fn test_kimi_base_url_override() {
         let api_key = load_api_key();
         let custom_url = "https://api.moonshot.cn/v1/kimi";
-        let planner = KimiPlanner::new(api_key, None, Some(custom_url.to_string()));
+        let planner = KimiClient::new(api_key, None, Some(custom_url.to_string()));
 
         assert!(!planner.model_id().is_empty());
     }
@@ -263,7 +261,7 @@ pub mod tests {
     #[tokio::test]
     async fn test_plan_mode_returns_markdown() {
         let planner = load_api_key();
-        let minimax = MiniMaxPlanner::new(planner, None);
+        let minimax = MiniMaxClient::new(planner, None);
 
         let result = minimax
             .generate_plan_markdown("Create a hello world program", "", vec![])
@@ -283,7 +281,7 @@ pub mod tests {
     #[tokio::test]
     async fn test_plan_mode_with_context() {
         let planner = load_api_key();
-        let minimax = MiniMaxPlanner::new(planner, None);
+        let minimax = MiniMaxClient::new(planner, None);
 
         let existing_plan = r#"# Plan
 
@@ -308,7 +306,7 @@ Create main.py
     #[tokio::test]
     async fn test_plan_mode_different_task_types() {
         let planner = load_api_key();
-        let minimax = MiniMaxPlanner::new(planner, None);
+        let minimax = MiniMaxClient::new(planner, None);
 
         let tasks = vec![
             "Create a React component",
@@ -353,7 +351,7 @@ Create main.py
     #[tokio::test]
     async fn test_build_mode_decision_structure() {
         let planner = load_api_key();
-        let minimax = MiniMaxPlanner::new(planner, None);
+        let minimax = MiniMaxClient::new(planner, None);
 
         let req = WorkerActionRequest {
             task_prompt: "Write to a file".to_string(),
@@ -366,7 +364,7 @@ Create main.py
             max_tokens: None,
         };
 
-        let result = minimax.decide_worker_action(req).await;
+        let result = minimax.decide_action(req).await;
 
         match result {
             Ok(decision) => {
@@ -392,7 +390,7 @@ Create main.py
     #[tokio::test]
     async fn test_build_mode_with_prior_observations() {
         let planner = load_api_key();
-        let minimax = MiniMaxPlanner::new(planner, None);
+        let minimax = MiniMaxClient::new(planner, None);
 
         let prior = vec![json!({
             "tool_name": "fs.write",
@@ -411,7 +409,7 @@ Create main.py
             max_tokens: None,
         };
 
-        let result = minimax.decide_worker_action(req).await;
+        let result = minimax.decide_action(req).await;
 
         match result {
             Ok(decision) => {
@@ -440,8 +438,8 @@ Create main.py
     async fn test_both_providers_implement_trait() {
         let api_key = load_api_key();
 
-        let minimax = MiniMaxPlanner::new(api_key.clone(), None);
-        let kimi = KimiPlanner::new(api_key.clone(), None, None);
+        let minimax = MiniMaxClient::new(api_key.clone(), None);
+        let kimi = KimiClient::new(api_key.clone(), None, None);
 
         assert!(!minimax.model_id().is_empty());
         assert!(!kimi.model_id().is_empty());
@@ -452,8 +450,8 @@ Create main.py
     async fn test_model_ids_are_different() {
         let api_key = load_api_key();
 
-        let minimax = MiniMaxPlanner::new(api_key.clone(), None);
-        let kimi = KimiPlanner::new(api_key.clone(), None, None);
+        let minimax = MiniMaxClient::new(api_key.clone(), None);
+        let kimi = KimiClient::new(api_key.clone(), None, None);
 
         assert_ne!(minimax.model_id(), kimi.model_id());
     }
@@ -515,7 +513,7 @@ Create main.py
     #[tokio::test]
     async fn test_conversation_with_tool_feedback() {
         let planner = load_api_key();
-        let minimax = MiniMaxPlanner::new(planner, None);
+        let minimax = MiniMaxClient::new(planner, None);
 
         let observations = vec![
             json!({
@@ -541,7 +539,7 @@ Create main.py
             max_tokens: None,
         };
 
-        let result = minimax.decide_worker_action(req).await;
+        let result = minimax.decide_action(req).await;
 
         match result {
             Ok(decision) => match decision.action {

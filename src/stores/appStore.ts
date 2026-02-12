@@ -156,13 +156,26 @@ function modelForProvider(provider: string, configs: ProviderConfigView[], catal
   return entry?.models[0]?.name ?? "";
 }
 
+function resolveInitialProviderModel(
+  configs: ProviderConfigView[],
+  catalog: ModelCatalogEntry[],
+): { provider: string; model: string } {
+  const configuredProvider = configs.find((config) => config.configured)?.provider;
+  const fallbackProvider = catalog[0]?.provider ?? configs[0]?.provider ?? "";
+  const provider = configuredProvider ?? fallbackProvider;
+  return {
+    provider,
+    model: modelForProvider(provider, configs, catalog),
+  };
+}
+
 export const useAppStore = create<AppStoreState>((set, get) => ({
   tasks: [],
   selectedTaskId: null,
   providerConfigs: [],
   modelCatalog: [],
-  selectedProvider: "minimax",
-  selectedModel: "MiniMax-M2.1",
+  selectedProvider: "",
+  selectedModel: "",
   workspaceRoot: "",
   skills: [],
   workspaceSkills: [],
@@ -223,15 +236,14 @@ export const useAppStore = create<AppStoreState>((set, get) => ({
       return task;
     });
 
-    const selectedProvider = "minimax";
-    const selectedModel = modelForProvider(selectedProvider, providerConfigs, modelCatalog);
+    const initialSelection = resolveInitialProviderModel(providerConfigs, modelCatalog);
 
     set({
       tasks: normalizedTasks,
       providerConfigs,
       modelCatalog,
-      selectedProvider,
-      selectedModel,
+      selectedProvider: initialSelection.provider,
+      selectedModel: initialSelection.model,
       workspaceRoot: workspaceRoot.workspace_root,
       skills,
       workspaceSkills,

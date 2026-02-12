@@ -67,7 +67,7 @@ export function GeneralSection() {
           icon={<Server size={13} />}
           label="Configured Providers"
           value={String(configuredProviders)}
-          helper="MiniMax and Kimi"
+          helper="Configured model providers"
         />
         <SummaryCard
           icon={<Bot size={13} />}

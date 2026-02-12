@@ -15,7 +15,7 @@ export const SETTINGS_SECTIONS: readonly SettingsSectionItem[] = [
   {
     id: "providers",
     label: "Providers",
-    description: "MiniMax and Kimi API configuration",
+    description: "Model provider API configuration",
   },
   {
     id: "agents",

@@ -6,14 +6,13 @@
 
 #[cfg(test)]
 pub mod tests {
-    use crate::model::minimax::MiniMaxPlanner;
-    use crate::model::{PlannerModel, WorkerActionRequest};
+    use crate::model::{AgentModelClient, MiniMaxClient, WorkerActionRequest};
     use crate::tests::load_api_key;
     use crate::tools::ToolRegistry;
 
-    fn create_planner() -> MiniMaxPlanner {
+    fn create_planner() -> MiniMaxClient {
         let api_key = load_api_key();
-        MiniMaxPlanner::new(api_key, None)
+        MiniMaxClient::new(api_key, None)
     }
 
     fn plan_mode_tools() -> Vec<crate::core::tool::ToolDescriptor> {
@@ -203,7 +202,7 @@ Use modern React hooks and functional components."#;
             max_tokens: None,
         };
 
-        let result = planner.decide_worker_action(req).await;
+        let result = planner.decide_action(req).await;
 
         match result {
             Ok(decision) => {
@@ -263,7 +262,7 @@ Use fs.write and cmd.exec as needed."#
             max_tokens: None,
         };
 
-        let result = planner.decide_worker_action(req).await;
+        let result = planner.decide_action(req).await;
 
         match result {
             Ok(decision) => {
@@ -312,7 +311,7 @@ Use fs.write and cmd.exec as needed."#
             max_tokens: None,
         };
 
-        let result = planner.decide_worker_action(req).await;
+        let result = planner.decide_action(req).await;
 
         match result {
             Ok(decision) => {
@@ -389,7 +388,7 @@ Use fs.write and cmd.exec as needed."#
             max_tokens: None,
         };
 
-        let result = planner.decide_worker_action(req).await;
+        let result = planner.decide_action(req).await;
 
         match result {
             Ok(decision) => match decision.action {

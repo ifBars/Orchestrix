@@ -356,8 +356,8 @@ export function CompactionSection() {
         <h4 className="mb-2 text-sm font-medium">How it works</h4>
         <ul className="list-inside list-disc space-y-1 text-sm text-muted-foreground">
           <li>
-            Each model has a different context window size (MiniMax: 204k,
-            Kimi: 128k-256k tokens)
+            Each model has a different context window size depending on provider
+            and model variant
           </li>
           <li>
             Compaction triggers when conversation reaches the configured
