@@ -62,28 +62,43 @@ impl ModelCatalog {
                 models: vec![
                     ModelInfo {
                         name: "glm-5".to_string(),
-                        context_window: 1_000_000,
+                        context_window: 204_800,
                         description: "GLM-5 latest flagship model".to_string(),
                     },
                     ModelInfo {
                         name: "glm-4.7".to_string(),
-                        context_window: 1_000_000,
+                        context_window: 204_800,
                         description: "GLM-4.7 advanced model".to_string(),
                     },
                     ModelInfo {
+                        name: "glm-4.7-flash".to_string(),
+                        context_window: 200_000,
+                        description: "GLM-4.7 Flash fast model".to_string(),
+                    },
+                    ModelInfo {
                         name: "glm-4.6".to_string(),
-                        context_window: 1_000_000,
+                        context_window: 204_800,
                         description: "GLM-4.6 model".to_string(),
                     },
                     ModelInfo {
+                        name: "glm-4.6v".to_string(),
+                        context_window: 128_000,
+                        description: "GLM-4.6V vision model".to_string(),
+                    },
+                    ModelInfo {
                         name: "glm-4.5".to_string(),
-                        context_window: 1_000_000,
+                        context_window: 131_072,
                         description: "GLM-4.5 model".to_string(),
                     },
                     ModelInfo {
                         name: "glm-4.5-air".to_string(),
-                        context_window: 1_000_000,
+                        context_window: 131_072,
                         description: "GLM-4.5 Air lightweight model".to_string(),
+                    },
+                    ModelInfo {
+                        name: "glm-4.5-flash".to_string(),
+                        context_window: 131_072,
+                        description: "GLM-4.5 Flash fast model".to_string(),
                     },
                 ],
             },
