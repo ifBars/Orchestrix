@@ -33,6 +33,7 @@ You need an API key from at least one of these providers:
 
 - **MiniMax**: [platform.minimaxi.com](https://platform.minimaxi.com/)
 - **Kimi**: [platform.moonshot.cn](https://platform.moonshot.cn/)
+- **GLM (Z.AI / Zhipu)**: [z.ai](https://z.ai/)
 
 ## Installation
 
@@ -99,7 +100,13 @@ export MINIMAX_BASE_URL="https://api.minimaxi.chat"  # optional
 export KIMI_API_KEY="your-kimi-api-key"
 export KIMI_MODEL="kimi-for-coding"  # optional
 export KIMI_BASE_URL="https://api.moonshot.cn"  # optional
+
+# For GLM (Z.AI / Zhipu)
+# Configure via Settings -> Providers using provider "zhipu"
+# Default model is glm-5
 ```
+
+Note: environment-variable bootstrapping is currently documented for MiniMax and Kimi. GLM/Zhipu is supported via the Providers settings UI.
 
 #### Method 2: Application Settings
 
@@ -310,10 +317,10 @@ bun tauri dev
 Check environment variables are loaded:
 ```bash
 # Linux/macOS
-echo $MINIMAX_API_KEY
+echo $MINIMAX_API_KEY   # or $KIMI_API_KEY
 
 # Windows PowerShell
-$env:MINIMAX_API_KEY
+$env:MINIMAX_API_KEY    # or $env:KIMI_API_KEY
 ```
 
 For more issues, see [TROUBLESHOOTING.md](./TROUBLESHOOTING.md).

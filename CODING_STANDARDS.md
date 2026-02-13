@@ -833,7 +833,7 @@ orchestrix/
 │       ├── bus/                  # Event bus and batching
 │       ├── core/                 # Plan and tool descriptors
 │       ├── db/                   # SQLite database layer
-│       ├── model/                # LLM model clients (MiniMax, Kimi)
+│       ├── model/                # LLM model clients (MiniMax, Kimi, GLM/Zhipu)
 │       ├── policy/               # Permission and sandboxing engine
 │       ├── runtime/              # Orchestrator, planner, recovery, worktree
 │       ├── tools/                # Tool registry and built-in tools
@@ -942,7 +942,7 @@ mod testing;
 **Integration tests** (require API keys, marked with `#[ignore]`):
 - Prefixed with `test_` followed by the scenario
 - Run with `cargo test -- --ignored`
-- Examples: `test_plan_generation_minimax`, `test_full_pipeline`
+- Examples: `test_plan_generation_minimax`, `test_plan_generation_glm`, `test_full_pipeline`
 
 ### Test Pattern
 
@@ -1070,7 +1070,7 @@ Use `///` for public doc comments, `//` for inline comments, and section divider
 Module-level documentation uses `//!`:
 
 ```rust
-//! Shared helpers used by both MiniMax and Kimi model implementations.
+//! Shared helpers used by MiniMax, Kimi, and GLM model implementations.
 ```
 
 ### JSDoc for Public APIs

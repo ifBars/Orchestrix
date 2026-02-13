@@ -14,7 +14,7 @@ The app is **agent-management–only** (no human code editing) and is optimized 
 - **Transparency-first UX**: Users can inspect decisions, tool activity, and artifacts throughout a run.
 - **Condensed, non-cluttered visualization**: Show high-signal summaries by default with expandable detail.
 - **Minimal surface area**: No embedded editor, no live code manipulation by humans.
-- **Model-agnostic by design**: MiniMax and Kimi are both supported through the same planner/worker interfaces.
+- **Model-agnostic by design**: MiniMax, Kimi, and GLM (Z.AI/Zhipu) are supported through the same planner/worker interfaces.
 
 ---
 
@@ -33,7 +33,7 @@ Agents do **not** directly manipulate UI or global state.
 ## Agent Roles (Current)
 
 ### 1. Plan-Mode Agent (Planning)
-**Model**: Same provider as worker (MiniMax or Kimi).
+**Model**: Same provider as worker (MiniMax, Kimi, or GLM/Zhipu).
 
 **Responsibilities**
 - Run in a **multi-turn loop** (like the worker): decide → tool calls → execute tools → decide again.
@@ -45,7 +45,7 @@ Agents do **not** directly manipulate UI or global state.
 - No write/exec tools in plan mode; plan output is only via `agent.create_artifact`.
 
 ### 2. Worker Agent (Build Mode)
-**Model**: Provider-configurable (`MiniMax-M2.1` or `kimi-k2.5` by default)
+**Model**: Provider-configurable (for example `MiniMax-M2.5`, `kimi-k2.5`, or `glm-5`)
 
 **Responsibilities**
 - Execute user intent directly through a conversational tool-use loop
@@ -263,7 +263,7 @@ Agents are **tools**, not replacements for intent.
 
 This document applies to:
 - Agent System
-- Multi-provider execution (MiniMax + Kimi)
+- Multi-provider execution (MiniMax + Kimi + GLM/Zhipu)
 - No external MCP servers yet
 
 Future revisions must preserve backward compatibility where possible.

@@ -36,7 +36,7 @@ Orchestrix follows a **backend-authoritative, event-driven** architecture where 
 │  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐              │
 │  │   Commands   │  │ Orchestrator │  │   Planner    │              │
 │  │  (Tauri)     │  │              │  │  (MiniMax/   │              │
-│  │              │  │ - Task Mgmt  │  │   Kimi)      │              │
+│  │              │  │ - Task Mgmt  │  │   Kimi/GLM)  │              │
 │  │ - create_    │  │ - Run Coord  │  │              │              │
 │  │   task       │  │ - Sub-agent  │  │ - Multi-turn │              │
 │  │ - run_plan_  │  │   delegation │  │   plan loop  │              │

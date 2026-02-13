@@ -185,6 +185,8 @@ echo 'export MINIMAX_API_KEY="sk-..."' >> ~/.bashrc
 # Restart the application after setting
 ```
 
+For GLM (Z.AI/Zhipu), configure credentials in **Settings -> Providers**.
+
 ### Plan Generation Fails
 
 **Symptom**: "Planning failed" error or timeout
@@ -204,6 +206,8 @@ echo 'export MINIMAX_API_KEY="sk-..."' >> ~/.bashrc
    # Try a different model
    export MINIMAX_MODEL="MiniMax-M1"
    ```
+
+   For GLM, switch provider to `zhipu` in Settings and try `glm-5`.
 
 ### Task Execution Hangs
 
@@ -235,9 +239,9 @@ RUST_LOG=orchestrix=trace bun tauri dev
    export KIMI_API_KEY="your-key"
    ```
 
-2. Or configure via UI:
+2. Or configure via UI (recommended for GLM/Z.AI/Zhipu):
    - Open Settings → Providers
-   - Enter API key for your preferred provider
+   - Enter API key for your preferred provider (`minimax`, `kimi`, or `zhipu`)
 
 ## Database Issues
 

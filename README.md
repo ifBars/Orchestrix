@@ -7,7 +7,7 @@ A lightweight, desktop AI agent management application built with Tauri, Rust, a
 Orchestrix is a **backend-authoritative, event-driven** desktop application designed for managing AI agents. It provides:
 
 - **Conversation-first execution**: Natural chat interface for task management
-- **Multi-provider support**: Works with MiniMax, Kimi, and other models
+- **Multi-provider support**: Works with MiniMax, Kimi, and GLM (Z.AI/Zhipu) models
 - **Full execution visibility**: Users can inspect decisions, tool calls, and artifacts in real time
 - **Condensed timeline UX**: High-signal summaries with on-demand detail expansion
 - **Performance-first event pipeline**: Batched event streaming built for long-running tasks
@@ -28,8 +28,8 @@ Orchestrix is a **backend-authoritative, event-driven** desktop application desi
 ### Model Support
 - **MiniMax**: MiniMax-M2.5 and other models
 - **Kimi**: kimi-k2.5 and other models
-- **Z.AI**: glm-5 and other models
-- Easy provider configuration via UI or environment variables
+- **GLM (Z.AI / Zhipu)**: glm-5 and glm-4.x series
+- Easy provider configuration via UI (with environment-variable bootstrap for MiniMax/Kimi)
 
 ### Tool System
 - File system operations (read, write, search)
@@ -55,7 +55,7 @@ Orchestrix is a **backend-authoritative, event-driven** desktop application desi
 
 - [Rust](https://rustup.rs/) 1.75+
 - [Bun](https://bun.sh/) (required - do not use npm/pnpm)
-- API key from [MiniMax](https://www.minimaxi.com/) or [Kimi](https://platform.moonshot.cn/) coding plans
+- API key from [MiniMax](https://www.minimaxi.com/), [Kimi](https://platform.moonshot.cn/), or GLM via [Z.AI](https://z.ai/)
 
 ### Installation
 
@@ -157,7 +157,7 @@ orchestrix/
 - Rust + Tauri v2
 - SQLite with rusqlite
 - tokio for async runtime
-- MiniMax/Kimi API clients
+- MiniMax/Kimi/GLM API clients
 
 ## Contributing
 
