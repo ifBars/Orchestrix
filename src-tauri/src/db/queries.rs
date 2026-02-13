@@ -482,8 +482,6 @@ pub fn get_latest_run_for_task(db: &Database, task_id: &str) -> Result<Option<Ru
     }
 }
 
-#[cfg(test)]
-#[allow(dead_code)]
 pub fn list_runs_for_task(db: &Database, task_id: &str) -> Result<Vec<RunRow>, DbError> {
     let conn = db.conn();
     let mut stmt = conn.prepare(

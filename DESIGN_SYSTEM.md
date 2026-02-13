@@ -362,7 +362,21 @@ Do not combine more than two animated ambient layers in the same viewport.
 
 ---
 
-## 14. Validation Loop (Required for Significant UI Changes)
+## 15. References
+
+### Documentation
+- [AGENTS.md](./AGENTS.md) - Agent architecture and execution model
+- [ARCHITECTURE.md](./ARCHITECTURE.md) - System architecture and data flow
+- [UX_PRINCIPLES.md](./UX_PRINCIPLES.md) - UX, transparency, and performance guardrails
+- [SETUP.md](./SETUP.md) - Development environment setup
+- [CODING_STANDARDS.md](./CODING_STANDARDS.md) - Code conventions and standards
+
+### Skills
+- **orchestrix-app-development** - Use when implementing Orchestrix UI features (see `.agents/skills/orchestrix-app-development/SKILL.md`)
+
+---
+
+## 16. Validation Loop (Required for Significant UI Changes)
 
 For major navigation, review, or conversion-critical flows, validate with a task-based loop:
 

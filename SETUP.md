@@ -322,6 +322,20 @@ For more issues, see [TROUBLESHOOTING.md](./TROUBLESHOOTING.md).
 
 1. Read [ARCHITECTURE.md](./ARCHITECTURE.md) to understand the system
 2. Review [UX_PRINCIPLES.md](./UX_PRINCIPLES.md) for UX, transparency, and performance guardrails
-3. Review [CODING_STANDARDS.md](./CODING_STANDARDS.md) for code conventions
-4. Check out the [examples/](./examples/) directory for sample code
-5. Start developing! Create a new task and explore the codebase.
+3. Review [DESIGN_SYSTEM.md](./DESIGN_SYSTEM.md) for visual design tokens and UI standards
+4. Review [AGENTS.md](./AGENTS.md) for agent architecture and execution model
+5. Review [CODING_STANDARDS.md](./CODING_STANDARDS.md) for code conventions
+6. Check out the [examples/](./examples/) directory for sample code
+7. Start developing! Create a new task and explore the codebase.
+
+## References
+
+### Documentation
+- [AGENTS.md](./AGENTS.md) - Agent architecture and execution model
+- [ARCHITECTURE.md](./ARCHITECTURE.md) - System architecture and data flow
+- [DESIGN_SYSTEM.md](./DESIGN_SYSTEM.md) - Visual design tokens and UI standards
+- [UX_PRINCIPLES.md](./UX_PRINCIPLES.md) - UX, transparency, and performance guardrails
+- [CODING_STANDARDS.md](./CODING_STANDARDS.md) - Code conventions and standards
+
+### Skills
+- **orchestrix-app-development** - Use when implementing Orchestrix features (see `.agents/skills/orchestrix-app-development/SKILL.md`)

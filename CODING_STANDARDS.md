@@ -1142,4 +1142,18 @@ npm install package-name
 
 ---
 
+## References
+
+### Documentation
+- [AGENTS.md](./AGENTS.md) - Agent architecture and execution model
+- [ARCHITECTURE.md](./ARCHITECTURE.md) - System architecture and data flow
+- [DESIGN_SYSTEM.md](./DESIGN_SYSTEM.md) - Visual design tokens and UI standards
+- [UX_PRINCIPLES.md](./UX_PRINCIPLES.md) - UX, transparency, and performance guardrails
+- [SETUP.md](./SETUP.md) - Development environment setup
+
+### Skills
+- **orchestrix-app-development** - Use when implementing Orchestrix features (see `.agents/skills/orchestrix-app-development/SKILL.md`)
+
+---
+
 Following these standards ensures a consistent, maintainable, and high-quality codebase. When in doubt, look at existing code in the project for reference, favoring the patterns documented here when they differ from the current proof-of-concept state.

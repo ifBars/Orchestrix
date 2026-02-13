@@ -20,10 +20,49 @@ pub mod transport;
 pub mod connection;
 pub mod filtering;
 pub mod events;
+pub mod types;
+pub mod jsonrpc;
+pub mod client;
+
+#[cfg(test)]
+pub mod connection_test;
+
+// Re-export main MCP protocol types
+pub use types::{
+    // JSON-RPC types
+    JsonRpcRequest, JsonRpcResponse, JsonRpcNotification, JsonRpcError, RequestId,
+    // Initialize types
+    InitializeRequest, InitializeResponse, ClientCapabilities, ServerCapabilities,
+    Implementation, RootsCapability, PromptsCapability, ResourcesCapability, ToolsCapability,
+    // Tool types
+    Tool, ToolAnnotations, ListToolsRequest, ListToolsResult, CallToolRequest, CallToolResult,
+    // Resource types
+    Resource, ResourceTemplate, ListResourcesRequest, ListResourcesResult,
+    ReadResourceRequest, ReadResourceResult, ResourceContent,
+    // Prompt types
+    Prompt, PromptArgument, ListPromptsRequest, ListPromptsResult,
+    GetPromptRequest, GetPromptResult, PromptMessage, Role,
+    // Content types
+    Content, TextContent, ImageContent, EmbeddedResource,
+    // Notification types
+    ProgressNotification, LoggingMessageNotification, LoggingLevel,
+    ResourceUpdatedNotification, ResourceListChangedNotification,
+    ToolListChangedNotification, PromptListChangedNotification,
+    // Other types
+    SubscribeRequest, UnsubscribeRequest, EmptyResult, SetLevelRequest,
+    // Error codes
+    error_codes, JSON_RPC_VERSION,
+};
 
 use transport::{McpTransport, TransportConfig};
 use connection::ConnectionManager;
 pub use filtering::{FilterMode, GlobalApprovalPolicy, ToolApprovalPolicy, ToolFilter};
+
+// Re-export JSON-RPC client types
+pub use jsonrpc::{JsonRpcClient, RequestIdGenerator, RpcClientError, JsonRpcResult as RpcClientResult, JsonRpcClientBuilder, DEFAULT_REQUEST_TIMEOUT};
+
+// Re-export high-level client types
+pub use client::{McpClient, ClientState, ClientError};
 
 /// Type of MCP server transport.
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
@@ -467,7 +506,11 @@ impl McpClientManager {
             server_name: server.name.clone(),
         });
         
-        let transport = self.create_transport(server).await?;
+        let mut transport = self.create_transport(server).await?;
+        
+        // Initialize the transport before making requests
+        transport.initialize().await.map_err(|e| format!("Failed to initialize transport: {}", e))?;
+        
         let response = transport.request("tools/list", serde_json::json!({})).await?;
         
         let tools_array = response
@@ -550,6 +593,8 @@ impl McpClientManager {
         let config = TransportConfig {
             timeout: Duration::from_secs(server.timeout_secs),
             auth: server.auth.clone(),
+            retry_count: 3,
+            pool_size: server.pool_size,
         };
         
         match server.transport {
@@ -614,7 +659,11 @@ impl McpClientManager {
         
         let start = Instant::now();
         
-        let transport = self.create_transport(&server).await?;
+        let mut transport = self.create_transport(&server).await?;
+        
+        // Initialize the transport before making requests
+        transport.initialize().await.map_err(|e| format!("Failed to initialize transport: {}", e))?;
+        
         let response = transport.request(
             "tools/call",
             serde_json::json!({
@@ -644,13 +693,14 @@ impl McpClientManager {
                     duration_ms: duration,
                     success: false,
                 });
+                let error_str = e.to_string();
                 self.emit_event(events::McpEvent::ToolCallFailed {
                     server_id: server_id.to_string(),
                     server_name: server.name.clone(),
                     tool_name: tool_name.to_string(),
-                    error: e.clone(),
+                    error: error_str.clone(),
                 });
-                Err(e)
+                Err(error_str)
             }
         }
     }
@@ -692,6 +742,395 @@ impl McpClientManager {
         self.refresh_tools_cache().await?;
         
         Ok(())
+    }
+    
+    // ============================================================================
+    // Resource Operations
+    // ============================================================================
+    
+    /// List available resources from a server.
+    pub async fn list_resources(&self, server_id: &str, cursor: Option<&str>) 
+        -> Result<ListResourcesResult, String> 
+    {
+        let server = self.get_server(server_id).await
+            .ok_or_else(|| format!("Server not found: {}", server_id))?;
+        
+        if !server.enabled {
+            return Err(format!("Server is disabled: {}", server_id));
+        }
+        
+        self.emit_event(events::McpEvent::ResourceListStarted {
+            server_id: server_id.to_string(),
+            server_name: server.name.clone(),
+        });
+        
+        let start = Instant::now();
+        
+        let transport = self.create_transport(&server).await?;
+        let mut client = McpClient::new(transport);
+        
+        // Initialize and get capabilities
+        let capabilities = match client.initialize().await {
+            Ok(caps) => caps,
+            Err(e) => {
+                let err = format!("Failed to initialize client: {}", e);
+                self.emit_event(events::McpEvent::ResourceListFailed {
+                    server_id: server_id.to_string(),
+                    server_name: server.name.clone(),
+                    error: err.clone(),
+                });
+                return Err(err);
+            }
+        };
+        
+        // Check if server supports resources
+        if capabilities.resources.is_none() {
+            let err = format!("Server does not support resources: {}", server_id);
+            self.emit_event(events::McpEvent::ResourceListFailed {
+                server_id: server_id.to_string(),
+                server_name: server.name.clone(),
+                error: err.clone(),
+            });
+            return Err(err);
+        }
+        
+        match client.list_resources(cursor.map(|s| s.to_string())).await {
+            Ok(result) => {
+                let duration = start.elapsed().as_millis() as u64;
+                self.emit_event(events::McpEvent::ResourceListCompleted {
+                    server_id: server_id.to_string(),
+                    server_name: server.name.clone(),
+                    resource_count: result.resources.len(),
+                    duration_ms: duration,
+                });
+                Ok(result)
+            }
+            Err(e) => {
+                let err = format!("Failed to list resources: {}", e);
+                self.emit_event(events::McpEvent::ResourceListFailed {
+                    server_id: server_id.to_string(),
+                    server_name: server.name.clone(),
+                    error: err.clone(),
+                });
+                Err(err)
+            }
+        }
+    }
+    
+    /// Read a resource from a server.
+    pub async fn read_resource(&self, server_id: &str, uri: &str) 
+        -> Result<ReadResourceResult, String> 
+    {
+        let server = self.get_server(server_id).await
+            .ok_or_else(|| format!("Server not found: {}", server_id))?;
+        
+        if !server.enabled {
+            return Err(format!("Server is disabled: {}", server_id));
+        }
+        
+        self.emit_event(events::McpEvent::ResourceReadStarted {
+            server_id: server_id.to_string(),
+            server_name: server.name.clone(),
+            uri: uri.to_string(),
+        });
+        
+        let start = Instant::now();
+        
+        let transport = self.create_transport(&server).await?;
+        let mut client = McpClient::new(transport);
+        
+        // Initialize and get capabilities
+        let capabilities = match client.initialize().await {
+            Ok(caps) => caps,
+            Err(e) => {
+                let err = format!("Failed to initialize client: {}", e);
+                self.emit_event(events::McpEvent::ResourceReadFailed {
+                    server_id: server_id.to_string(),
+                    server_name: server.name.clone(),
+                    uri: uri.to_string(),
+                    error: err.clone(),
+                });
+                return Err(err);
+            }
+        };
+        
+        // Check if server supports resources
+        if capabilities.resources.is_none() {
+            let err = format!("Server does not support resources: {}", server_id);
+            self.emit_event(events::McpEvent::ResourceReadFailed {
+                server_id: server_id.to_string(),
+                server_name: server.name.clone(),
+                uri: uri.to_string(),
+                error: err.clone(),
+            });
+            return Err(err);
+        }
+        
+        match client.read_resource(uri).await {
+            Ok(result) => {
+                let duration = start.elapsed().as_millis() as u64;
+                self.emit_event(events::McpEvent::ResourceReadCompleted {
+                    server_id: server_id.to_string(),
+                    server_name: server.name.clone(),
+                    uri: uri.to_string(),
+                    duration_ms: duration,
+                });
+                Ok(result)
+            }
+            Err(e) => {
+                let err = format!("Failed to read resource: {}", e);
+                self.emit_event(events::McpEvent::ResourceReadFailed {
+                    server_id: server_id.to_string(),
+                    server_name: server.name.clone(),
+                    uri: uri.to_string(),
+                    error: err.clone(),
+                });
+                Err(err)
+            }
+        }
+    }
+    
+    /// Subscribe to resource updates from a server.
+    pub async fn subscribe_resource(&self, server_id: &str, uri: &str) 
+        -> Result<(), String> 
+    {
+        let server = self.get_server(server_id).await
+            .ok_or_else(|| format!("Server not found: {}", server_id))?;
+        
+        if !server.enabled {
+            return Err(format!("Server is disabled: {}", server_id));
+        }
+        
+        let transport = self.create_transport(&server).await?;
+        let mut client = McpClient::new(transport);
+        
+        // Initialize and get capabilities
+        let capabilities = match client.initialize().await {
+            Ok(caps) => caps,
+            Err(e) => return Err(format!("Failed to initialize client: {}", e)),
+        };
+        
+        // Check if server supports resource subscriptions
+        if let Some(ref resources) = capabilities.resources {
+            if resources.subscribe != Some(true) {
+                return Err(format!("Server does not support resource subscriptions: {}", server_id));
+            }
+        } else {
+            return Err(format!("Server does not support resources: {}", server_id));
+        }
+        
+        match client.subscribe_resource(uri).await {
+            Ok(_) => {
+                self.emit_event(events::McpEvent::ResourceSubscribed {
+                    server_id: server_id.to_string(),
+                    server_name: server.name.clone(),
+                    uri: uri.to_string(),
+                });
+                Ok(())
+            }
+            Err(e) => Err(format!("Failed to subscribe to resource: {}", e)),
+        }
+    }
+    
+    /// Unsubscribe from resource updates from a server.
+    pub async fn unsubscribe_resource(&self, server_id: &str, uri: &str) 
+        -> Result<(), String> 
+    {
+        let server = self.get_server(server_id).await
+            .ok_or_else(|| format!("Server not found: {}", server_id))?;
+        
+        if !server.enabled {
+            return Err(format!("Server is disabled: {}", server_id));
+        }
+        
+        let transport = self.create_transport(&server).await?;
+        let mut client = McpClient::new(transport);
+        
+        // Initialize and get capabilities
+        let capabilities = match client.initialize().await {
+            Ok(caps) => caps,
+            Err(e) => return Err(format!("Failed to initialize client: {}", e)),
+        };
+        
+        // Check if server supports resource subscriptions
+        if let Some(ref resources) = capabilities.resources {
+            if resources.subscribe != Some(true) {
+                return Err(format!("Server does not support resource subscriptions: {}", server_id));
+            }
+        } else {
+            return Err(format!("Server does not support resources: {}", server_id));
+        }
+        
+        match client.unsubscribe_resource(uri).await {
+            Ok(_) => {
+                self.emit_event(events::McpEvent::ResourceUnsubscribed {
+                    server_id: server_id.to_string(),
+                    server_name: server.name.clone(),
+                    uri: uri.to_string(),
+                });
+                Ok(())
+            }
+            Err(e) => Err(format!("Failed to unsubscribe from resource: {}", e)),
+        }
+    }
+    
+    // ============================================================================
+    // Prompt Operations
+    // ============================================================================
+    
+    /// List available prompts from a server.
+    pub async fn list_prompts(&self, server_id: &str, cursor: Option<&str>) 
+        -> Result<ListPromptsResult, String> 
+    {
+        let server = self.get_server(server_id).await
+            .ok_or_else(|| format!("Server not found: {}", server_id))?;
+        
+        if !server.enabled {
+            return Err(format!("Server is disabled: {}", server_id));
+        }
+        
+        self.emit_event(events::McpEvent::PromptListStarted {
+            server_id: server_id.to_string(),
+            server_name: server.name.clone(),
+        });
+        
+        let start = Instant::now();
+        
+        let transport = self.create_transport(&server).await?;
+        let mut client = McpClient::new(transport);
+        
+        // Initialize and get capabilities
+        let capabilities = match client.initialize().await {
+            Ok(caps) => caps,
+            Err(e) => {
+                let err = format!("Failed to initialize client: {}", e);
+                self.emit_event(events::McpEvent::PromptListFailed {
+                    server_id: server_id.to_string(),
+                    server_name: server.name.clone(),
+                    error: err.clone(),
+                });
+                return Err(err);
+            }
+        };
+        
+        // Check if server supports prompts
+        if capabilities.prompts.is_none() {
+            let err = format!("Server does not support prompts: {}", server_id);
+            self.emit_event(events::McpEvent::PromptListFailed {
+                server_id: server_id.to_string(),
+                server_name: server.name.clone(),
+                error: err.clone(),
+            });
+            return Err(err);
+        }
+        
+        match client.list_prompts(cursor.map(|s| s.to_string())).await {
+            Ok(result) => {
+                let duration = start.elapsed().as_millis() as u64;
+                self.emit_event(events::McpEvent::PromptListCompleted {
+                    server_id: server_id.to_string(),
+                    server_name: server.name.clone(),
+                    prompt_count: result.prompts.len(),
+                    duration_ms: duration,
+                });
+                Ok(result)
+            }
+            Err(e) => {
+                let err = format!("Failed to list prompts: {}", e);
+                self.emit_event(events::McpEvent::PromptListFailed {
+                    server_id: server_id.to_string(),
+                    server_name: server.name.clone(),
+                    error: err.clone(),
+                });
+                Err(err)
+            }
+        }
+    }
+    
+    /// Get a prompt from a server.
+    pub async fn get_prompt(&self, server_id: &str, name: &str, arguments: Option<serde_json::Value>) 
+        -> Result<GetPromptResult, String> 
+    {
+        let server = self.get_server(server_id).await
+            .ok_or_else(|| format!("Server not found: {}", server_id))?;
+        
+        if !server.enabled {
+            return Err(format!("Server is disabled: {}", server_id));
+        }
+        
+        self.emit_event(events::McpEvent::PromptGetStarted {
+            server_id: server_id.to_string(),
+            server_name: server.name.clone(),
+            prompt_name: name.to_string(),
+        });
+        
+        let start = Instant::now();
+        
+        let transport = self.create_transport(&server).await?;
+        let mut client = McpClient::new(transport);
+        
+        // Initialize and get capabilities
+        let capabilities = match client.initialize().await {
+            Ok(caps) => caps,
+            Err(e) => {
+                let err = format!("Failed to initialize client: {}", e);
+                self.emit_event(events::McpEvent::PromptGetFailed {
+                    server_id: server_id.to_string(),
+                    server_name: server.name.clone(),
+                    prompt_name: name.to_string(),
+                    error: err.clone(),
+                });
+                return Err(err);
+            }
+        };
+        
+        // Check if server supports prompts
+        if capabilities.prompts.is_none() {
+            let err = format!("Server does not support prompts: {}", server_id);
+            self.emit_event(events::McpEvent::PromptGetFailed {
+                server_id: server_id.to_string(),
+                server_name: server.name.clone(),
+                prompt_name: name.to_string(),
+                error: err.clone(),
+            });
+            return Err(err);
+        }
+        
+        // Convert arguments from JSON Value to HashMap<String, String>
+        let args = arguments.map(|v| {
+            if let serde_json::Value::Object(map) = v {
+                let mut hash_map = std::collections::HashMap::new();
+                for (key, value) in map {
+                    hash_map.insert(key, value.to_string());
+                }
+                hash_map
+            } else {
+                std::collections::HashMap::new()
+            }
+        });
+        
+        match client.get_prompt(name, args).await {
+            Ok(result) => {
+                let duration = start.elapsed().as_millis() as u64;
+                self.emit_event(events::McpEvent::PromptGetCompleted {
+                    server_id: server_id.to_string(),
+                    server_name: server.name.clone(),
+                    prompt_name: name.to_string(),
+                    duration_ms: duration,
+                });
+                Ok(result)
+            }
+            Err(e) => {
+                let err = format!("Failed to get prompt: {}", e);
+                self.emit_event(events::McpEvent::PromptGetFailed {
+                    server_id: server_id.to_string(),
+                    server_name: server.name.clone(),
+                    prompt_name: name.to_string(),
+                    error: err.clone(),
+                });
+                Err(err)
+            }
+        }
     }
 }
 

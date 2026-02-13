@@ -270,6 +270,20 @@ Future revisions must preserve backward compatibility where possible.
 
 ---
 
+## References
+
+### Documentation
+- [ARCHITECTURE.md](./ARCHITECTURE.md) - System architecture and component overview
+- [DESIGN_SYSTEM.md](./DESIGN_SYSTEM.md) - Visual design tokens and UI standards
+- [UX_PRINCIPLES.md](./UX_PRINCIPLES.md) - UX, transparency, and performance guardrails
+- [SETUP.md](./SETUP.md) - Development environment setup
+- [CODING_STANDARDS.md](./CODING_STANDARDS.md) - Code conventions and standards
+
+### Skills
+- **orchestrix-app-development** - Use when implementing Orchestrix features (see `.agents/skills/orchestrix-app-development/SKILL.md`)
+
+---
+
 ## IMPORTANT NOTES
 
 ALWAYS USE BUN. DO NOT EVER USE NPM, PNPM, OR ANY OTHER PACKAGE MANAGER BESIDES BUN.

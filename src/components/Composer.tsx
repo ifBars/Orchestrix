@@ -198,14 +198,6 @@ export function Composer() {
         </div>
       )}
 
-      {/* Continue chat indicator */}
-      {canContinueChat && (
-        <div className="mb-2 flex items-center gap-2 rounded-md border border-border/70 bg-background/65 px-2.5 py-1 text-xs text-muted-foreground">
-          <MessageCircle size={12} />
-          <span>Continuing conversation with previous task</span>
-        </div>
-      )}
-
       {/* Selected agent preset */}
       {!canContinueChat && selectedAgentPresetId && (
         <div className="mb-2 flex items-center gap-2 rounded-md border border-border/70 bg-background/65 px-2.5 py-1 text-xs text-muted-foreground">
@@ -363,7 +355,7 @@ export function Composer() {
                 className="h-7 rounded-md border border-border/70 bg-background/70 px-2 text-[11px] text-muted-foreground outline-none transition-colors hover:bg-accent/60 focus-visible:border-ring/70"
               >
                 {providerOptions.map((option) => (
-                  <option key={option.id} value={option.id}>
+                  <option key={option.id} value={option.id} className="bg-card text-foreground">
                     {option.label}
                   </option>
                 ))}
@@ -374,7 +366,7 @@ export function Composer() {
                 className="h-7 rounded-md border border-border/70 bg-background/70 px-2 text-[11px] text-muted-foreground outline-none transition-colors hover:bg-accent/60 focus-visible:border-ring/70"
               >
                 {models.map((model) => (
-                  <option key={model.name} value={model.name}>
+                  <option key={model.name} value={model.name} className="bg-card text-foreground">
                     {model.name}
                   </option>
                 ))}

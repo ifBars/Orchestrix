@@ -518,4 +518,18 @@ Skills are MCP-compatible:
 
 ---
 
+## References
+
+### Documentation
+- [AGENTS.md](./AGENTS.md) - Agent architecture and execution model
+- [DESIGN_SYSTEM.md](./DESIGN_SYSTEM.md) - Visual design tokens and UI standards
+- [UX_PRINCIPLES.md](./UX_PRINCIPLES.md) - UX, transparency, and performance guardrails
+- [SETUP.md](./SETUP.md) - Development environment setup
+- [CODING_STANDARDS.md](./CODING_STANDARDS.md) - Code conventions and standards
+
+### Skills
+- **orchestrix-app-development** - Use when implementing Orchestrix features (see `.agents/skills/orchestrix-app-development/SKILL.md`)
+
+---
+
 For implementation details, see [CODING_STANDARDS.md](./CODING_STANDARDS.md) and [UX_PRINCIPLES.md](./UX_PRINCIPLES.md).

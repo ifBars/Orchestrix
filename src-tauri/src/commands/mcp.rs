@@ -150,6 +150,76 @@ pub struct McpToolCallResult {
 }
 
 // ---------------------------------------------------------------------------
+// Resource View Types
+// ---------------------------------------------------------------------------
+
+/// Resources list result view.
+#[derive(Debug, Clone, Serialize)]
+pub struct McpResourcesResult {
+    pub resources: Vec<McpResourceView>,
+    pub next_cursor: Option<String>,
+}
+
+/// Resource view.
+#[derive(Debug, Clone, Serialize)]
+pub struct McpResourceView {
+    pub uri: String,
+    pub name: String,
+    pub description: Option<String>,
+    pub mime_type: Option<String>,
+}
+
+/// Resource content view.
+#[derive(Debug, Clone, Serialize)]
+pub struct McpResourceContent {
+    pub uri: String,
+    pub mime_type: Option<String>,
+    pub text: Option<String>,
+    pub blob: Option<String>, // base64
+}
+
+// ---------------------------------------------------------------------------
+// Prompt View Types
+// ---------------------------------------------------------------------------
+
+/// Prompts list result view.
+#[derive(Debug, Clone, Serialize)]
+pub struct McpPromptsResult {
+    pub prompts: Vec<McpPromptView>,
+    pub next_cursor: Option<String>,
+}
+
+/// Prompt view.
+#[derive(Debug, Clone, Serialize)]
+pub struct McpPromptView {
+    pub name: String,
+    pub description: Option<String>,
+    pub arguments: Vec<McpPromptArgumentView>,
+}
+
+/// Prompt argument view.
+#[derive(Debug, Clone, Serialize)]
+pub struct McpPromptArgumentView {
+    pub name: String,
+    pub description: Option<String>,
+    pub required: bool,
+}
+
+/// Prompt result view.
+#[derive(Debug, Clone, Serialize)]
+pub struct McpPromptResult {
+    pub description: Option<String>,
+    pub messages: Vec<McpPromptMessageView>,
+}
+
+/// Prompt message view.
+#[derive(Debug, Clone, Serialize)]
+pub struct McpPromptMessageView {
+    pub role: String,
+    pub content: String,
+}
+
+// ---------------------------------------------------------------------------
 // Commands
 // ---------------------------------------------------------------------------
 
@@ -618,6 +688,164 @@ pub fn refresh_mcp_tools() -> Result<Vec<crate::core::mcp::McpToolEntry>, AppErr
 #[tauri::command]
 pub fn list_cached_mcp_tools() -> Vec<crate::core::mcp::McpToolEntry> {
     crate::core::mcp::load_mcp_tools_cache()
+}
+
+// ---------------------------------------------------------------------------
+// Resource Commands
+// ---------------------------------------------------------------------------
+
+/// List resources from an MCP server.
+#[tauri::command]
+pub async fn list_mcp_resources(
+    state: tauri::State<'_, crate::AppState>,
+    server_id: String,
+    cursor: Option<String>,
+) -> Result<McpResourcesResult, AppError> {
+    let manager = &state.mcp_manager;
+    
+    let result = manager.list_resources(&server_id, cursor.as_deref()).await
+        .map_err(|e| AppError::Other(format!("Failed to list resources: {}", e)))?;
+    
+    let resources = result.resources.into_iter().map(|r| McpResourceView {
+        uri: r.uri,
+        name: r.name,
+        description: r.description,
+        mime_type: r.mime_type,
+    }).collect();
+    
+    Ok(McpResourcesResult {
+        resources,
+        next_cursor: result.next_cursor,
+    })
+}
+
+/// Read a resource from an MCP server.
+#[tauri::command]
+pub async fn read_mcp_resource(
+    state: tauri::State<'_, crate::AppState>,
+    server_id: String,
+    uri: String,
+) -> Result<Vec<McpResourceContent>, AppError> {
+    let manager = &state.mcp_manager;
+    
+    let result = manager.read_resource(&server_id, &uri).await
+        .map_err(|e| AppError::Other(format!("Failed to read resource: {}", e)))?;
+    
+    let contents = result.contents.into_iter().map(|c| McpResourceContent {
+        uri: c.uri,
+        mime_type: c.mime_type,
+        text: c.text,
+        blob: c.blob,
+    }).collect();
+    
+    Ok(contents)
+}
+
+/// Subscribe to resource updates from an MCP server.
+#[tauri::command]
+pub async fn subscribe_mcp_resource(
+    state: tauri::State<'_, crate::AppState>,
+    server_id: String,
+    uri: String,
+) -> Result<(), AppError> {
+    let manager = &state.mcp_manager;
+    
+    manager.subscribe_resource(&server_id, &uri).await
+        .map_err(|e| AppError::Other(format!("Failed to subscribe to resource: {}", e)))
+}
+
+/// Unsubscribe from resource updates from an MCP server.
+#[tauri::command]
+pub async fn unsubscribe_mcp_resource(
+    state: tauri::State<'_, crate::AppState>,
+    server_id: String,
+    uri: String,
+) -> Result<(), AppError> {
+    let manager = &state.mcp_manager;
+    
+    manager.unsubscribe_resource(&server_id, &uri).await
+        .map_err(|e| AppError::Other(format!("Failed to unsubscribe from resource: {}", e)))
+}
+
+// ---------------------------------------------------------------------------
+// Prompt Commands
+// ---------------------------------------------------------------------------
+
+/// List prompts from an MCP server.
+#[tauri::command]
+pub async fn list_mcp_prompts(
+    state: tauri::State<'_, crate::AppState>,
+    server_id: String,
+    cursor: Option<String>,
+) -> Result<McpPromptsResult, AppError> {
+    let manager = &state.mcp_manager;
+    
+    let result = manager.list_prompts(&server_id, cursor.as_deref()).await
+        .map_err(|e| AppError::Other(format!("Failed to list prompts: {}", e)))?;
+    
+    let prompts = result.prompts.into_iter().map(|p| {
+        let arguments = p.arguments.map(|args| {
+            args.into_iter().map(|a| McpPromptArgumentView {
+                name: a.name,
+                description: a.description,
+                required: a.required.unwrap_or(false),
+            }).collect()
+        }).unwrap_or_default();
+        
+        McpPromptView {
+            name: p.name,
+            description: p.description,
+            arguments,
+        }
+    }).collect();
+    
+    Ok(McpPromptsResult {
+        prompts,
+        next_cursor: result.next_cursor,
+    })
+}
+
+/// Get a prompt from an MCP server.
+#[tauri::command]
+pub async fn get_mcp_prompt(
+    state: tauri::State<'_, crate::AppState>,
+    server_id: String,
+    name: String,
+    arguments: Option<serde_json::Value>,
+) -> Result<McpPromptResult, AppError> {
+    let manager = &state.mcp_manager;
+    
+    let result = manager.get_prompt(&server_id, &name, arguments).await
+        .map_err(|e| AppError::Other(format!("Failed to get prompt: {}", e)))?;
+    
+    let messages = result.messages.into_iter().map(|m| {
+        // Extract text content from the message
+        let content = match m.content {
+            crate::mcp::Content::Text(text_content) => text_content.text,
+            crate::mcp::Content::Image(image_content) => {
+                format!("[Image: {}]", image_content.mime_type)
+            }
+            crate::mcp::Content::Resource(resource_content) => {
+                if let Some(text) = resource_content.resource.text {
+                    text
+                } else if let Some(blob) = resource_content.resource.blob {
+                    format!("[Binary content: {} bytes]", blob.len())
+                } else {
+                    "[Resource]".to_string()
+                }
+            }
+        };
+        
+        McpPromptMessageView {
+            role: format!("{:?}", m.role).to_lowercase(),
+            content,
+        }
+    }).collect();
+    
+    Ok(McpPromptResult {
+        description: result.description,
+        messages,
+    })
 }
 
 // ---------------------------------------------------------------------------

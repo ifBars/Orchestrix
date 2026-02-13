@@ -13,8 +13,8 @@ mod tests {
 
         let all = skills::list_all_skills();
         assert!(
-            all.len() >= 3,
-            "should have at least 3 builtin skills, got {}",
+            all.len() >= 2,
+            "should have at least 2 builtin skills, got {}",
             all.len()
         );
 
@@ -24,13 +24,12 @@ mod tests {
             "missing vercel-react-best-practices"
         );
         assert!(ids.contains(&"find-skills"), "missing find-skills");
-        assert!(ids.contains(&"context7-docs"), "missing context7-docs");
 
         // All builtins should not be marked custom
         for skill in &all {
             if !skill.is_custom {
                 assert!(
-                    ["builtin", "vercel", "context7"].contains(&skill.source.as_str()),
+                    ["builtin", "vercel"].contains(&skill.source.as_str()),
                     "builtin skill {} has unexpected source: {}",
                     skill.id,
                     skill.source
@@ -266,11 +265,10 @@ mod tests {
     fn test_skills_search_tokenized_match() {
         let (skills_path, _guard) = isolated_skills_path();
 
-        // "context docs" should match "context7-docs" via tokenized matching
-        let results = skills::search_skills("context docs", None, 25);
+        let results = skills::search_skills("find skills", None, 25);
         assert!(
             !results.is_empty(),
-            "tokenized search for 'context docs' should return results"
+            "tokenized search for 'find skills' should return results"
         );
 
         cleanup_skills_env(&skills_path);
@@ -303,15 +301,15 @@ mod tests {
         let (skills_path, _guard) = isolated_skills_path();
 
         let results = skills::search_skills("xyznonexistentthing123", None, 25);
-        // Should return fallback entries (find-skills, context7-docs) not an empty vec
+        // Should return fallback entry (find-skills) not an empty vec
         assert!(
             !results.is_empty(),
             "search with no match should return fallback entries"
         );
         let ids: Vec<&str> = results.iter().map(|s| s.id.as_str()).collect();
         assert!(
-            ids.contains(&"find-skills") || ids.contains(&"context7-docs"),
-            "fallback should include find-skills or context7-docs, got: {:?}",
+            ids.contains(&"find-skills"),
+            "fallback should include find-skills, got: {:?}",
             ids
         );
 
@@ -476,7 +474,7 @@ mod tests {
             .get("skills")
             .and_then(|v| v.as_array())
             .expect("should have skills array");
-        assert!(skills.len() >= 3, "should have at least 3 skills");
+        assert!(skills.len() >= 2, "should have at least 2 skills");
 
         cleanup_skills_env(&skills_path);
         let _ = std::fs::remove_dir_all(&cwd);

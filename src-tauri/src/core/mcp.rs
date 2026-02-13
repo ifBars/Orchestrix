@@ -1,9 +1,12 @@
 use std::collections::HashMap;
+use std::future::Future;
 use std::io::{BufRead, BufReader, Read, Write};
 use std::path::PathBuf;
 use std::process::{Command, Stdio};
 
 use serde::{Deserialize, Serialize};
+use tokio::runtime::Handle;
+use tokio::task;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct McpServerConfig {
@@ -120,11 +123,21 @@ pub fn call_mcp_tool_by_server_and_name(
     tool_name: &str,
     arguments: serde_json::Value,
 ) -> Result<serde_json::Value, String> {
-    let server = list_mcp_servers()
-        .into_iter()
-        .find(|s| s.id == server_id && s.enabled)
-        .ok_or_else(|| format!("mcp server not found or disabled: {server_id}"))?;
-    call_server_tool(&server, tool_name, arguments)
+    block_on_mcp_async(async move {
+        let manager = crate::mcp::McpClientManager::new().await?;
+        manager.call_tool(server_id, tool_name, arguments).await
+    })
+}
+
+fn block_on_mcp_async<F>(fut: F) -> Result<serde_json::Value, String>
+where
+    F: Future<Output = Result<serde_json::Value, String>>,
+{
+    if Handle::try_current().is_ok() {
+        task::block_in_place(|| tauri::async_runtime::block_on(fut))
+    } else {
+        tauri::async_runtime::block_on(fut)
+    }
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -151,23 +164,6 @@ fn list_server_tools(server: &McpServerConfig) -> Result<Vec<McpToolDescriptor>,
         }
     }
     Ok(out)
-}
-
-fn call_server_tool(
-    server: &McpServerConfig,
-    tool_name: &str,
-    arguments: serde_json::Value,
-) -> Result<serde_json::Value, String> {
-    let mut session = McpSession::start(server)?;
-    session.initialize()?;
-    let resp = session.request(
-        "tools/call",
-        serde_json::json!({
-            "name": tool_name,
-            "arguments": arguments,
-        }),
-    )?;
-    Ok(resp)
 }
 
 struct McpSession {
@@ -327,11 +323,11 @@ impl Drop for McpSession {
 }
 
 fn mcp_servers_path() -> PathBuf {
-    data_dir().join("mcp-servers-v1.json")
+    data_dir().join("mcp-servers-v2.json")
 }
 
 fn mcp_tools_cache_path() -> PathBuf {
-    data_dir().join("mcp-tools-cache-v1.json")
+    data_dir().join("mcp-tools-cache-v2.json")
 }
 
 fn data_dir() -> PathBuf {

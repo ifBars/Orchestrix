@@ -87,7 +87,7 @@ pub fn search_skills(query: &str, source: Option<&str>, limit: usize) -> Vec<Ski
         if items.is_empty() {
             let fallback = list_all_skills()
                 .into_iter()
-                .filter(|item| item.id == "find-skills" || item.id == "context7-docs")
+                .filter(|item| item.id == "find-skills")
                 .collect::<Vec<_>>();
             if !fallback.is_empty() {
                 items = fallback;
@@ -203,7 +203,7 @@ pub fn import_context7_skill(
             .to_string(),
         description: format!("Query Context7 docs for `{normalized}`."),
         install_command: format!(
-            "Use context7_resolve-library-id/context7_query-docs with libraryId='{normalized}'"
+            "Use MCP Context7 tools resolve-library-id then query-docs (for example mcp.context7.resolve-library-id and mcp.context7.query-docs) with libraryId='{normalized}'"
         ),
         url: format!("https://context7.com{normalized}"),
         source: "context7".to_string(),
@@ -290,16 +290,6 @@ fn built_in_skills() -> Vec<SkillCatalogItem> {
             url: "https://skills.sh/".to_string(),
             source: "builtin".to_string(),
             tags: vec!["catalog".to_string(), "search".to_string()],
-            is_custom: false,
-        },
-        SkillCatalogItem {
-            id: "context7-docs".to_string(),
-            title: "Context7 Docs Lookup".to_string(),
-            description: "Resolve and query up-to-date library docs from Context7 MCP.".to_string(),
-            install_command: "Use context7_resolve-library-id then context7_query-docs".to_string(),
-            url: "https://context7.com/".to_string(),
-            source: "context7".to_string(),
-            tags: vec!["docs".to_string(), "mcp".to_string()],
             is_custom: false,
         },
     ]

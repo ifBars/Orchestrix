@@ -202,7 +202,7 @@ impl ConnectionManager {
         
         let conn = pool.acquire().await?;
         
-        conn.transport.request(method, params).await
+        conn.transport.request(method, params).await.map_err(|e| e.to_string())
     }
     
     /// Close all connections for a server.
@@ -273,6 +273,8 @@ async fn create_transport(
     let transport_config = TransportConfig {
         timeout: Duration::from_secs(config.timeout_secs),
         auth: config.auth.clone(),
+        retry_count: 3,
+        pool_size: config.pool_size,
     };
     
     match config.transport {

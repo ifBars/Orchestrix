@@ -2,23 +2,36 @@ import { ArrowRight } from "lucide-react";
 import type { TaskRow } from "@/types";
 
 type UserMessageProps = {
-  prompt: string;
+  prompt: string | null;
   relatedTasks: TaskRow[];
   onSelectTask: (id: string) => void;
 };
 
 export function UserMessage({ prompt, relatedTasks, onSelectTask }: UserMessageProps) {
+  const hasPrompt = Boolean(prompt && prompt.trim().length > 0);
+
   return (
     <div className="flex gap-3">
-      <div className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-primary/25 bg-primary/12 text-primary">
-        <span className="text-xs font-semibold">You</span>
-      </div>
-      <div className="min-w-0 flex-1">
-        <div className="rounded-xl border border-border/70 bg-background/55 px-3 py-2.5">
-          <p className="text-sm leading-relaxed text-foreground">{prompt}</p>
+      {hasPrompt ? (
+        <div className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-primary/25 bg-primary/12 text-primary">
+          <span className="text-xs font-semibold">You</span>
         </div>
+      ) : (
+        <div className="w-8 shrink-0" />
+      )}
+      <div className="min-w-0 flex-1">
+        {hasPrompt && (
+          <div className="rounded-xl border border-border/70 bg-background/55 px-3 py-2.5">
+            <p className="text-sm leading-relaxed text-foreground">{prompt}</p>
+          </div>
+        )}
         {relatedTasks.length > 0 && (
-          <div className="mt-2 flex flex-wrap gap-1.5">
+          <div className={`${hasPrompt ? "mt-2" : ""} flex flex-wrap gap-1.5`}>
+            {!hasPrompt && (
+              <span className="mr-1 inline-flex items-center text-[11px] text-muted-foreground">
+                Forked context from
+              </span>
+            )}
             {relatedTasks.map((related) => (
               <button
                 key={related.id}

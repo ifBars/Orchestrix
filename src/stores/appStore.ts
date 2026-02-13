@@ -148,6 +148,8 @@ type AppStoreState = {
 };
 
 let unlistenEvents: UnlistenFn | null = null;
+let refreshMcpServersInFlight: Promise<void> | null = null;
+let refreshMcpToolsInFlight: Promise<void> | null = null;
 
 function modelForProvider(provider: string, configs: ProviderConfigView[], catalog: ModelCatalogEntry[]): string {
   const config = configs.find((value) => value.provider === provider);
@@ -499,10 +501,54 @@ export const useAppStore = create<AppStoreState>((set, get) => ({
   },
 
   branchTask: async (taskId: string) => {
-    const source = get().tasks.find((task) => task.id === taskId);
-    if (!source) return;
-    const branchPrompt = `Branch from: ${source.prompt}`;
-    await get().createTask(branchPrompt, { parentTaskId: taskId, referenceTaskIds: [taskId] });
+    const created = await invoke<TaskRow>("fork_task", { taskId });
+    const [links, eventRows] = await Promise.all([
+      invoke<TaskLinkRow[]>("list_task_links", { taskId: created.id }),
+      invoke<EventRow[]>("get_task_events", { taskId: created.id }),
+    ]);
+    const latestRun = await invoke<RunRow | null>("get_latest_run", { taskId: created.id });
+    const artifacts = latestRun?.id
+      ? await invoke<ArtifactRow[]>("list_run_artifacts", { runId: latestRun.id })
+      : [];
+
+    const planTaskIds = new Set<string>();
+    const timelineTaskIds = new Set<string>();
+    const agentStreamTaskIds = new Set<string>();
+
+    for (const row of eventRows) {
+      try {
+        const event: BusEvent = {
+          id: row.id,
+          run_id: row.run_id,
+          seq: row.seq,
+          category: row.category,
+          event_type: row.event_type,
+          payload: JSON.parse(row.payload_json),
+          created_at: row.created_at,
+        };
+        const result = runtimeEventBuffer.ingest(event, created.id);
+        if (result.planChanged) planTaskIds.add(created.id);
+        if (result.timelineChanged) timelineTaskIds.add(created.id);
+        if (result.agentStreamChanged) agentStreamTaskIds.add(created.id);
+      } catch (error) {
+        console.error("Failed to ingest forked event", error);
+      }
+    }
+
+    set((prev) => ({
+      tasks: [created, ...prev.tasks],
+      selectedTaskId: created.id,
+      artifactsByTask: {
+        ...prev.artifactsByTask,
+        [created.id]: artifacts,
+      },
+      taskLinksByTask: {
+        ...prev.taskLinksByTask,
+        [created.id]: linkRowsToIds(created.id, links),
+      },
+    }));
+
+    useStreamTickStore.getState().bumpBatch(planTaskIds, timelineTaskIds, agentStreamTaskIds);
   },
 
   deleteTask: async (taskId: string) => {
@@ -763,8 +809,18 @@ export const useAppStore = create<AppStoreState>((set, get) => ({
   },
 
   refreshMcpServers: async () => {
-    const mcpServers = await invoke<McpServerView[]>("list_mcp_servers");
-    set({ mcpServers });
+    if (refreshMcpServersInFlight) {
+      return refreshMcpServersInFlight;
+    }
+
+    refreshMcpServersInFlight = (async () => {
+      const mcpServers = await invoke<McpServerView[]>("list_mcp_servers");
+      set({ mcpServers });
+    })().finally(() => {
+      refreshMcpServersInFlight = null;
+    });
+
+    return refreshMcpServersInFlight;
   },
 
   upsertMcpServer: async (server: McpServerInput) => {
@@ -778,13 +834,23 @@ export const useAppStore = create<AppStoreState>((set, get) => ({
   },
 
   refreshMcpTools: async () => {
-    try {
-      await invoke("refresh_mcp_tools_cache");
-      const mcpTools = await invoke<McpToolView[]>("list_mcp_tools");
-      set({ mcpTools });
-    } catch {
-      const mcpTools = await invoke<McpToolView[]>("list_mcp_tools");
-      set({ mcpTools });
+    if (refreshMcpToolsInFlight) {
+      return refreshMcpToolsInFlight;
     }
+
+    refreshMcpToolsInFlight = (async () => {
+      try {
+        await invoke("refresh_mcp_tools_cache");
+        const mcpTools = await invoke<McpToolView[]>("list_mcp_tools");
+        set({ mcpTools });
+      } catch {
+        const mcpTools = await invoke<McpToolView[]>("list_mcp_tools");
+        set({ mcpTools });
+      }
+    })().finally(() => {
+      refreshMcpToolsInFlight = null;
+    });
+
+    return refreshMcpToolsInFlight;
   },
 }));

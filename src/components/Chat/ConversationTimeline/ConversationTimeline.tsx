@@ -122,6 +122,12 @@ export function ConversationTimeline(props: ConversationTimelineProps) {
     () => groupConversationItems(mainTimelineItems),
     [mainTimelineItems]
   );
+  const hasUserMessagesInTimeline = useMemo(
+    () => mainTimelineItems.some((item) => item.type === "userMessage"),
+    [mainTimelineItems]
+  );
+  const isBranchPrompt = props.task.prompt.startsWith("Branch:");
+  const introPrompt = hasUserMessagesInTimeline || isBranchPrompt ? null : props.task.prompt;
   const phase = phaseVisual[props.task.status] ?? phaseVisual.pending;
   const isRunning = props.task.status === "planning" || props.task.status === "executing";
   const hasExecutionProgress =
@@ -202,11 +208,13 @@ export function ConversationTimeline(props: ConversationTimelineProps) {
         </div>
       </div>
 
-      <UserMessage
-        prompt={props.task.prompt}
-        relatedTasks={props.relatedTasks}
-        onSelectTask={props.onSelectTask}
-      />
+      {(introPrompt || props.relatedTasks.length > 0) && (
+        <UserMessage
+          prompt={introPrompt}
+          relatedTasks={props.relatedTasks}
+          onSelectTask={props.onSelectTask}
+        />
+      )}
 
       {(props.plan || props.planStream || props.assistantMessage) && (
         <PlanMessage

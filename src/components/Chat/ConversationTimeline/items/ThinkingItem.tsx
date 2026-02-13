@@ -1,22 +1,34 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { Brain, ChevronDown, ChevronRight } from "lucide-react";
 import type { ConversationItem } from "@/runtime/eventBuffer";
 import { SafeStreamdown } from "../messages/SafeStreamdown";
+
+const collapsedStates = new Map<string, boolean>();
 
 type ThinkingItemProps = {
   item: ConversationItem;
 };
 
 export function ThinkingItem({ item }: ThinkingItemProps) {
-  const [collapsed, setCollapsed] = useState(true);
   const text = item.content ?? "";
-  if (!text) return null;
+
+  const collapsedRef = useRef(collapsedStates.get(item.id) ?? true);
+  const [, forceUpdate] = useState({});
+
+  const toggleCollapsed = () => {
+    const newState = !collapsedRef.current;
+    collapsedRef.current = newState;
+    collapsedStates.set(item.id, newState);
+    forceUpdate({});
+  };
+
+  const collapsed = collapsedRef.current;
 
   return (
     <div className="ml-11">
       <button
         type="button"
-        onClick={() => setCollapsed(!collapsed)}
+        onClick={toggleCollapsed}
         className="flex items-center gap-2 rounded-md border border-border/60 bg-background/45 px-2.5 py-1 text-xs text-muted-foreground/80 transition-colors hover:text-muted-foreground"
       >
         <Brain size={12} />

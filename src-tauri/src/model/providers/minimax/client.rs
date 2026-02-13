@@ -248,8 +248,8 @@ impl MiniMaxClient {
 }
 
 impl AgentModelClient for MiniMaxClient {
-    fn model_id(&self) -> &'static str {
-        "MiniMax-M2.1"
+    fn model_id(&self) -> String {
+        self.model.clone()
     }
 
     async fn decide_action(

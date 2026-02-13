@@ -86,4 +86,18 @@ Any documentation update should preserve these truths:
 - Condensed but explorable UX patterns
 - Scalability and performance constraints
 
+## References
+
+### Documentation
+- [AGENTS.md](./AGENTS.md) - Agent architecture and execution model
+- [ARCHITECTURE.md](./ARCHITECTURE.md) - System architecture and data flow
+- [DESIGN_SYSTEM.md](./DESIGN_SYSTEM.md) - Visual design tokens and UI standards
+- [SETUP.md](./SETUP.md) - Development environment setup
+- [CODING_STANDARDS.md](./CODING_STANDARDS.md) - Code conventions and standards
+
+### Skills
+- **orchestrix-app-development** - Use when implementing Orchestrix features (see `.agents/skills/orchestrix-app-development/SKILL.md`)
+
+---
+
 See also: `README.md`, `ARCHITECTURE.md`, `AGENTS.md`, `CODING_STANDARDS.md`.

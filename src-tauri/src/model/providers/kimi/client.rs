@@ -615,8 +615,8 @@ fn process_openai_stream_line(
 }
 
 impl AgentModelClient for KimiClient {
-    fn model_id(&self) -> &'static str {
-        "Kimi"
+    fn model_id(&self) -> String {
+        self.model.clone()
     }
 
     async fn decide_action(

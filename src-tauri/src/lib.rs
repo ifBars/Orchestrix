@@ -23,7 +23,7 @@ mod bus;
 mod commands;
 mod core;
 mod db;
-mod mcp;
+pub mod mcp;
 mod model;
 mod policy;
 mod runtime;
@@ -380,6 +380,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             // tasks
             commands::tasks::create_task,
+            commands::tasks::fork_task,
             commands::tasks::list_tasks,
             commands::tasks::list_task_links,
             commands::tasks::link_tasks,
@@ -430,6 +431,14 @@ pub fn run() {
             commands::mcp::test_mcp_server_connection,
             commands::mcp::get_mcp_statistics,
             commands::mcp::migrate_mcp_config,
+            // mcp resources
+            commands::mcp::list_mcp_resources,
+            commands::mcp::read_mcp_resource,
+            commands::mcp::subscribe_mcp_resource,
+            commands::mcp::unsubscribe_mcp_resource,
+            // mcp prompts
+            commands::mcp::list_mcp_prompts,
+            commands::mcp::get_mcp_prompt,
             // mcp legacy (backward compatibility)
             commands::mcp::list_mcp_server_configs,
             commands::mcp::upsert_mcp_server_config,

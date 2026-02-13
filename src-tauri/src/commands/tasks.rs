@@ -1,4 +1,5 @@
 use chrono::Utc;
+use serde_json::Value;
 use uuid::Uuid;
 
 use crate::db::queries;
@@ -60,7 +61,7 @@ pub fn create_task(
         serde_json::json!({
             "task_id": &row.id,
             "prompt": &row.prompt,
-            "parent_task_id": row.parent_task_id,
+            "parent_task_id": row.parent_task_id.clone(),
         }),
     )
     .map_err(AppError::Other)?;
@@ -75,6 +76,157 @@ pub fn create_task(
         serde_json::json!({
             "task_id": &row.id,
             "content": &row.prompt,
+        }),
+    )
+    .map_err(AppError::Other)?;
+
+    Ok(row)
+}
+
+fn remap_payload_ids(
+    value: &mut Value,
+    source_task_id: &str,
+    target_task_id: &str,
+    source_run_id: &str,
+    target_run_id: &str,
+    artifact_id_map: &std::collections::HashMap<String, String>,
+) {
+    match value {
+        Value::Object(map) => {
+            for (key, nested) in map.iter_mut() {
+                if let Value::String(s) = nested {
+                    if (key == "task_id" || key == "taskId") && s == source_task_id {
+                        *s = target_task_id.to_string();
+                    } else if (key == "run_id" || key == "runId") && s == source_run_id {
+                        *s = target_run_id.to_string();
+                    } else if key == "artifact_id" || key == "artifactId" {
+                        if let Some(mapped) = artifact_id_map.get(s) {
+                            *s = mapped.clone();
+                        }
+                    }
+                } else {
+                    remap_payload_ids(
+                        nested,
+                        source_task_id,
+                        target_task_id,
+                        source_run_id,
+                        target_run_id,
+                        artifact_id_map,
+                    );
+                }
+            }
+        }
+        Value::Array(items) => {
+            for nested in items.iter_mut() {
+                remap_payload_ids(
+                    nested,
+                    source_task_id,
+                    target_task_id,
+                    source_run_id,
+                    target_run_id,
+                    artifact_id_map,
+                );
+            }
+        }
+        _ => {}
+    }
+}
+
+#[tauri::command]
+pub fn fork_task(
+    state: tauri::State<'_, AppState>,
+    task_id: String,
+) -> Result<queries::TaskRow, AppError> {
+    let source = queries::get_task(&state.db, &task_id)?
+        .ok_or_else(|| AppError::Other(format!("task not found: {task_id}")))?;
+
+    let now = Utc::now().to_rfc3339();
+    let row = queries::TaskRow {
+        id: Uuid::new_v4().to_string(),
+        prompt: format!("Branch: {}", source.prompt),
+        parent_task_id: Some(source.id.clone()),
+        status: "completed".to_string(),
+        created_at: now.clone(),
+        updated_at: now,
+    };
+
+    queries::insert_task(&state.db, &row)?;
+    queries::upsert_task_link(&state.db, &row.id, &source.id, &row.created_at)?;
+
+    let source_runs = queries::list_runs_for_task(&state.db, &source.id)?;
+
+    for source_run in source_runs {
+        let target_run_id = Uuid::new_v4().to_string();
+        queries::insert_run(
+            &state.db,
+            &queries::RunRow {
+                id: target_run_id.clone(),
+                task_id: row.id.clone(),
+                status: source_run.status.clone(),
+                plan_json: source_run.plan_json.clone(),
+                started_at: source_run.started_at.clone(),
+                finished_at: source_run.finished_at.clone(),
+                failure_reason: source_run.failure_reason.clone(),
+            },
+        )?;
+
+        let source_artifacts = queries::list_artifacts_for_run(&state.db, &source_run.id)?;
+        let mut artifact_id_map = std::collections::HashMap::new();
+        for artifact in source_artifacts {
+            let target_artifact_id = Uuid::new_v4().to_string();
+            artifact_id_map.insert(artifact.id.clone(), target_artifact_id.clone());
+            queries::insert_artifact(
+                &state.db,
+                &queries::ArtifactRow {
+                    id: target_artifact_id,
+                    run_id: target_run_id.clone(),
+                    kind: artifact.kind,
+                    uri_or_content: artifact.uri_or_content,
+                    metadata_json: artifact.metadata_json,
+                    created_at: artifact.created_at,
+                },
+            )?;
+        }
+
+        let source_events = queries::list_events_for_run(&state.db, &source_run.id)?;
+        for event in source_events {
+            let mut payload = serde_json::from_str::<Value>(&event.payload_json)
+                .unwrap_or_else(|_| Value::Object(Default::default()));
+            remap_payload_ids(
+                &mut payload,
+                &source.id,
+                &row.id,
+                &source_run.id,
+                &target_run_id,
+                &artifact_id_map,
+            );
+
+            queries::insert_event(
+                &state.db,
+                &queries::EventRow {
+                    id: Uuid::new_v4().to_string(),
+                    run_id: Some(target_run_id.clone()),
+                    seq: event.seq,
+                    category: event.category,
+                    event_type: event.event_type,
+                    payload_json: serde_json::to_string(&payload)
+                        .unwrap_or_else(|_| "{}".to_string()),
+                    created_at: event.created_at,
+                },
+            )?;
+        }
+    }
+
+    emit_and_record(
+        &state.db,
+        &state.bus,
+        "task",
+        "task.created",
+        None,
+        serde_json::json!({
+            "task_id": &row.id,
+            "prompt": &row.prompt,
+            "parent_task_id": row.parent_task_id,
         }),
     )
     .map_err(AppError::Other)?;

@@ -33,14 +33,19 @@ impl ModelCatalog {
                 provider: ProviderId::MiniMax.as_str().to_string(),
                 models: vec![
                     ModelInfo {
+                        name: "MiniMax-M2.5".to_string(),
+                        context_window: 204_800,
+                        description: "MiniMax M2.5 reasoning model (latest)".to_string(),
+                    },
+                    ModelInfo {
                         name: "MiniMax-M2.1".to_string(),
                         context_window: 204_800,
                         description: "MiniMax general purpose model".to_string(),
                     },
                     ModelInfo {
-                        name: "MiniMax-M2.1-200k".to_string(),
-                        context_window: 204_800,
-                        description: "MiniMax with extended context".to_string(),
+                        name: "MiniMax-M2".to_string(),
+                        context_window: 196_608,
+                        description: "MiniMax M2 reasoning model".to_string(),
                     },
                 ],
             },
@@ -52,11 +57,6 @@ impl ModelCatalog {
                         context_window: 256_000,
                         description: "Kimi general purpose model".to_string(),
                     },
-                    ModelInfo {
-                        name: "kimi-for-coding".to_string(),
-                        context_window: 128_000,
-                        description: "Kimi optimized for coding tasks".to_string(),
-                    },
                 ],
             },
         ]
@@ -65,7 +65,7 @@ impl ModelCatalog {
     /// Get the default model for a provider.
     pub fn default_model_for_provider(provider: ProviderId) -> String {
         match provider {
-            ProviderId::MiniMax => "MiniMax-M2.1".to_string(),
+            ProviderId::MiniMax => "MiniMax-M2.5".to_string(),
             ProviderId::Kimi => "kimi-k2.5".to_string(),
         }
     }

@@ -118,6 +118,110 @@ pub enum McpEvent {
         tool_name: String,
         reason: String,
     },
+
+    // Resource events
+    /// Resource list retrieval started.
+    ResourceListStarted {
+        server_id: String,
+        server_name: String,
+    },
+
+    /// Resource list retrieval completed.
+    ResourceListCompleted {
+        server_id: String,
+        server_name: String,
+        resource_count: usize,
+        duration_ms: u64,
+    },
+
+    /// Resource list retrieval failed.
+    ResourceListFailed {
+        server_id: String,
+        server_name: String,
+        error: String,
+    },
+
+    /// Resource read started.
+    ResourceReadStarted {
+        server_id: String,
+        server_name: String,
+        uri: String,
+    },
+
+    /// Resource read completed.
+    ResourceReadCompleted {
+        server_id: String,
+        server_name: String,
+        uri: String,
+        duration_ms: u64,
+    },
+
+    /// Resource read failed.
+    ResourceReadFailed {
+        server_id: String,
+        server_name: String,
+        uri: String,
+        error: String,
+    },
+
+    /// Resource subscription started.
+    ResourceSubscribed {
+        server_id: String,
+        server_name: String,
+        uri: String,
+    },
+
+    /// Resource unsubscription completed.
+    ResourceUnsubscribed {
+        server_id: String,
+        server_name: String,
+        uri: String,
+    },
+
+    // Prompt events
+    /// Prompt list retrieval started.
+    PromptListStarted {
+        server_id: String,
+        server_name: String,
+    },
+
+    /// Prompt list retrieval completed.
+    PromptListCompleted {
+        server_id: String,
+        server_name: String,
+        prompt_count: usize,
+        duration_ms: u64,
+    },
+
+    /// Prompt list retrieval failed.
+    PromptListFailed {
+        server_id: String,
+        server_name: String,
+        error: String,
+    },
+
+    /// Prompt get started.
+    PromptGetStarted {
+        server_id: String,
+        server_name: String,
+        prompt_name: String,
+    },
+
+    /// Prompt get completed.
+    PromptGetCompleted {
+        server_id: String,
+        server_name: String,
+        prompt_name: String,
+        duration_ms: u64,
+    },
+
+    /// Prompt get failed.
+    PromptGetFailed {
+        server_id: String,
+        server_name: String,
+        prompt_name: String,
+        error: String,
+    },
 }
 
 impl McpEvent {
@@ -141,6 +245,22 @@ impl McpEvent {
             | McpEvent::ToolApprovalRequired { .. }
             | McpEvent::ToolApprovalGranted { .. }
             | McpEvent::ToolApprovalDenied { .. } => "mcp.tool",
+
+            McpEvent::ResourceListStarted { .. }
+            | McpEvent::ResourceListCompleted { .. }
+            | McpEvent::ResourceListFailed { .. }
+            | McpEvent::ResourceReadStarted { .. }
+            | McpEvent::ResourceReadCompleted { .. }
+            | McpEvent::ResourceReadFailed { .. }
+            | McpEvent::ResourceSubscribed { .. }
+            | McpEvent::ResourceUnsubscribed { .. } => "mcp.resource",
+
+            McpEvent::PromptListStarted { .. }
+            | McpEvent::PromptListCompleted { .. }
+            | McpEvent::PromptListFailed { .. }
+            | McpEvent::PromptGetStarted { .. }
+            | McpEvent::PromptGetCompleted { .. }
+            | McpEvent::PromptGetFailed { .. } => "mcp.prompt",
         }
     }
 
@@ -162,6 +282,24 @@ impl McpEvent {
             McpEvent::ToolApprovalRequired { .. } => "tool_approval_required",
             McpEvent::ToolApprovalGranted { .. } => "tool_approval_granted",
             McpEvent::ToolApprovalDenied { .. } => "tool_approval_denied",
+
+            // Resource events
+            McpEvent::ResourceListStarted { .. } => "resource_list_started",
+            McpEvent::ResourceListCompleted { .. } => "resource_list_completed",
+            McpEvent::ResourceListFailed { .. } => "resource_list_failed",
+            McpEvent::ResourceReadStarted { .. } => "resource_read_started",
+            McpEvent::ResourceReadCompleted { .. } => "resource_read_completed",
+            McpEvent::ResourceReadFailed { .. } => "resource_read_failed",
+            McpEvent::ResourceSubscribed { .. } => "resource_subscribed",
+            McpEvent::ResourceUnsubscribed { .. } => "resource_unsubscribed",
+
+            // Prompt events
+            McpEvent::PromptListStarted { .. } => "prompt_list_started",
+            McpEvent::PromptListCompleted { .. } => "prompt_list_completed",
+            McpEvent::PromptListFailed { .. } => "prompt_list_failed",
+            McpEvent::PromptGetStarted { .. } => "prompt_get_started",
+            McpEvent::PromptGetCompleted { .. } => "prompt_get_completed",
+            McpEvent::PromptGetFailed { .. } => "prompt_get_failed",
         }
         .to_string()
     }
