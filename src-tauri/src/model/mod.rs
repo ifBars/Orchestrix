@@ -17,24 +17,25 @@
 // Core types and traits
 mod shared;
 
-pub mod types;
-pub mod traits;
-pub mod provider;
 pub mod catalog;
+pub mod provider;
+pub mod traits;
+pub mod types;
 
 // Provider implementations
 pub mod providers;
 
 // Re-export commonly used types
+pub use catalog::ModelCatalog;
+pub use provider::ProviderId;
+pub use shared::strip_tool_call_markup;
+pub use traits::AgentModelClient;
 pub use types::{
     ModelError, StreamDelta, WorkerAction, WorkerActionRequest, WorkerDecision, WorkerToolCall,
 };
-pub use traits::AgentModelClient;
-pub use provider::ProviderId;
-pub use catalog::ModelCatalog;
-pub use shared::strip_tool_call_markup;
 
 // Re-export provider clients for convenience
-pub use providers::minimax::MiniMaxClient;
-pub use providers::kimi::KimiClient;
 pub use providers::glm::GlmClient;
+pub use providers::kimi::KimiClient;
+pub use providers::minimax::MiniMaxClient;
+pub use providers::modal::ModalClient;

@@ -1,12 +1,14 @@
-use serde::{Deserialize, Serialize};
 use futures::StreamExt;
+use serde::{Deserialize, Serialize};
 
-use crate::model::shared::{plan_markdown_system_prompt, strip_tool_call_markup, worker_system_prompt};
-use crate::model::{
-    AgentModelClient, ModelError, StreamDelta, WorkerAction, WorkerActionRequest,
-    WorkerDecision, WorkerToolCall,
-};
 use crate::core::tool::ToolDescriptor;
+use crate::model::shared::{
+    plan_markdown_system_prompt, strip_tool_call_markup, worker_system_prompt,
+};
+use crate::model::{
+    AgentModelClient, ModelError, StreamDelta, WorkerAction, WorkerActionRequest, WorkerDecision,
+    WorkerToolCall,
+};
 use crate::runtime::plan_mode_settings::{DEFAULT_PLAN_MODE_MAX_TOKENS, WORKER_MAX_TOKENS};
 
 // Kimi Code API endpoint
@@ -151,7 +153,9 @@ impl KimiClient {
             .next()
             .map(|choice| choice.message)
             .ok_or_else(|| {
-                ModelError::InvalidResponse("missing choices[0].message from Kimi response".to_string())
+                ModelError::InvalidResponse(
+                    "missing choices[0].message from Kimi response".to_string(),
+                )
             })
     }
 
@@ -353,7 +357,12 @@ impl KimiClient {
             Some(_tool_descriptors)
         };
         let response = self
-            .run_chat(&plan_markdown_system_prompt(), &user, DEFAULT_PLAN_MODE_MAX_TOKENS, tools_arg)
+            .run_chat(
+                &plan_markdown_system_prompt(),
+                &user,
+                DEFAULT_PLAN_MODE_MAX_TOKENS,
+                tools_arg,
+            )
             .await?;
 
         let markdown = if let Some(ref tool_calls) = response.tool_calls {
@@ -363,8 +372,8 @@ impl KimiClient {
                     continue;
                 }
                 if call.function.name == "agent.create_artifact" {
-                    let args: serde_json::Value =
-                        serde_json::from_str(&call.function.arguments).unwrap_or(serde_json::json!({}));
+                    let args: serde_json::Value = serde_json::from_str(&call.function.arguments)
+                        .unwrap_or(serde_json::json!({}));
                     if let Some(c) = args.get("content").and_then(|v| v.as_str()) {
                         content_from_tool = Some(c.to_string());
                         break;
@@ -447,8 +456,9 @@ impl KimiClient {
                     if call.tool_type != "function" {
                         continue;
                     }
-                    let args_json = serde_json::from_str::<serde_json::Value>(&call.function.arguments)
-                        .unwrap_or_else(|_| serde_json::json!({}));
+                    let args_json =
+                        serde_json::from_str::<serde_json::Value>(&call.function.arguments)
+                            .unwrap_or_else(|_| serde_json::json!({}));
                     calls.push(WorkerToolCall {
                         tool_name: call.function.name.clone(),
                         tool_args: args_json,
@@ -540,8 +550,7 @@ fn process_openai_stream_line(
                 if !delta_content.is_empty() {
                     *saw_content_delta = true;
                     content.push_str(&delta_content);
-                    on_delta(StreamDelta::Content(delta_content))
-                        .map_err(ModelError::Request)?;
+                    on_delta(StreamDelta::Content(delta_content)).map_err(ModelError::Request)?;
                 }
             }
 
@@ -557,7 +566,8 @@ fn process_openai_stream_line(
                 for call in tool_calls {
                     let idx = call.index.unwrap_or(0);
                     if tool_call_accumulators.len() <= idx {
-                        tool_call_accumulators.resize_with(idx + 1, OpenAiToolCallAccumulator::default);
+                        tool_call_accumulators
+                            .resize_with(idx + 1, OpenAiToolCallAccumulator::default);
                     }
 
                     let entry = &mut tool_call_accumulators[idx];
@@ -619,10 +629,7 @@ impl AgentModelClient for KimiClient {
         self.model.clone()
     }
 
-    async fn decide_action(
-        &self,
-        req: WorkerActionRequest,
-    ) -> Result<WorkerDecision, ModelError> {
+    async fn decide_action(&self, req: WorkerActionRequest) -> Result<WorkerDecision, ModelError> {
         let noop = |_delta: StreamDelta| Ok::<(), String>(());
         self.decide_action_streaming(req, noop).await
     }

@@ -7,8 +7,8 @@
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, Ordering};
 
-use orchestrix_lib::mcp::types::*;
 use orchestrix_lib::mcp::types::error_codes::*;
+use orchestrix_lib::mcp::types::*;
 
 /// A mock MCP server for testing.
 pub struct MockMcpServer {
@@ -113,24 +113,20 @@ impl MockMcpServer {
             Prompt {
                 name: "greeting".to_string(),
                 description: Some("A greeting prompt".to_string()),
-                arguments: Some(vec![
-                    PromptArgument {
-                        name: "name".to_string(),
-                        description: Some("Name to greet".to_string()),
-                        required: Some(true),
-                    },
-                ]),
+                arguments: Some(vec![PromptArgument {
+                    name: "name".to_string(),
+                    description: Some("Name to greet".to_string()),
+                    required: Some(true),
+                }]),
             },
             Prompt {
                 name: "code_review".to_string(),
                 description: Some("Code review prompt".to_string()),
-                arguments: Some(vec![
-                    PromptArgument {
-                        name: "language".to_string(),
-                        description: Some("Programming language".to_string()),
-                        required: Some(false),
-                    },
-                ]),
+                arguments: Some(vec![PromptArgument {
+                    name: "language".to_string(),
+                    description: Some("Programming language".to_string()),
+                    required: Some(false),
+                }]),
             },
         ];
         *server.prompts.lock().unwrap() = prompts;
@@ -209,12 +205,14 @@ impl MockMcpServer {
             "resources/unsubscribe" => self.handle_resources_unsubscribe(request.params),
             "prompts/list" => self.handle_prompts_list(request.params),
             "prompts/get" => self.handle_prompts_get(request.params),
-            "notifications/initialized" => return JsonRpcResponse {
-                jsonrpc: "2.0".to_string(),
-                id: request.id.clone().unwrap_or(RequestId::Number(0)),
-                result: Some(serde_json::json!({})),
-                error: None,
-            },
+            "notifications/initialized" => {
+                return JsonRpcResponse {
+                    jsonrpc: "2.0".to_string(),
+                    id: request.id.clone().unwrap_or(RequestId::Number(0)),
+                    result: Some(serde_json::json!({})),
+                    error: None,
+                }
+            }
             _ => Err(JsonRpcError {
                 code: METHOD_NOT_FOUND,
                 message: format!("Method not found: {}", request.method),
@@ -238,14 +236,17 @@ impl MockMcpServer {
         }
     }
 
-    fn handle_initialize(&self, _params: Option<serde_json::Value>) -> Result<serde_json::Value, JsonRpcError> {
+    fn handle_initialize(
+        &self,
+        _params: Option<serde_json::Value>,
+    ) -> Result<serde_json::Value, JsonRpcError> {
         Ok(serde_json::json!({
             "protocolVersion": "2024-11-05",
             "capabilities": ServerCapabilities {
                 experimental: None,
                 logging: None,
                 prompts: Some(PromptsCapability { list_changed: Some(true) }),
-                resources: Some(ResourcesCapability { 
+                resources: Some(ResourcesCapability {
                     subscribe: Some(true),
                     list_changed: Some(true),
                 }),
@@ -258,11 +259,15 @@ impl MockMcpServer {
         }))
     }
 
-    fn handle_tools_list(&self, params: Option<serde_json::Value>) -> Result<serde_json::Value, JsonRpcError> {
+    fn handle_tools_list(
+        &self,
+        params: Option<serde_json::Value>,
+    ) -> Result<serde_json::Value, JsonRpcError> {
         let tools = self.tools.lock().unwrap().clone();
-        
+
         // Handle cursor/pagination if provided
-        let _cursor = params.as_ref()
+        let _cursor = params
+            .as_ref()
             .and_then(|p| p.get("cursor"))
             .and_then(|c| c.as_str());
 
@@ -272,14 +277,18 @@ impl MockMcpServer {
         }))
     }
 
-    fn handle_tools_call(&self, params: Option<serde_json::Value>) -> Result<serde_json::Value, JsonRpcError> {
+    fn handle_tools_call(
+        &self,
+        params: Option<serde_json::Value>,
+    ) -> Result<serde_json::Value, JsonRpcError> {
         let params = params.ok_or_else(|| JsonRpcError {
             code: INVALID_PARAMS,
             message: "Missing params".to_string(),
             data: None,
         })?;
 
-        let name = params.get("name")
+        let name = params
+            .get("name")
             .and_then(|n| n.as_str())
             .ok_or_else(|| JsonRpcError {
                 code: INVALID_PARAMS,
@@ -311,23 +320,30 @@ impl MockMcpServer {
         }))
     }
 
-    fn handle_resources_list(&self, _params: Option<serde_json::Value>) -> Result<serde_json::Value, JsonRpcError> {
+    fn handle_resources_list(
+        &self,
+        _params: Option<serde_json::Value>,
+    ) -> Result<serde_json::Value, JsonRpcError> {
         let resources = self.resources.lock().unwrap().clone();
-        
+
         Ok(serde_json::json!(ListResourcesResult {
             resources,
             next_cursor: None,
         }))
     }
 
-    fn handle_resources_read(&self, params: Option<serde_json::Value>) -> Result<serde_json::Value, JsonRpcError> {
+    fn handle_resources_read(
+        &self,
+        params: Option<serde_json::Value>,
+    ) -> Result<serde_json::Value, JsonRpcError> {
         let params = params.ok_or_else(|| JsonRpcError {
             code: INVALID_PARAMS,
             message: "Missing params".to_string(),
             data: None,
         })?;
 
-        let uri = params.get("uri")
+        let uri = params
+            .get("uri")
             .and_then(|u| u.as_str())
             .ok_or_else(|| JsonRpcError {
                 code: INVALID_PARAMS,
@@ -337,7 +353,8 @@ impl MockMcpServer {
 
         // Check if resource exists
         let resources = self.resources.lock().unwrap();
-        let resource = resources.iter()
+        let resource = resources
+            .iter()
             .find(|r| r.uri == uri)
             .ok_or_else(|| JsonRpcError {
                 code: INVALID_PARAMS,
@@ -357,14 +374,18 @@ impl MockMcpServer {
         }))
     }
 
-    fn handle_resources_subscribe(&self, params: Option<serde_json::Value>) -> Result<serde_json::Value, JsonRpcError> {
+    fn handle_resources_subscribe(
+        &self,
+        params: Option<serde_json::Value>,
+    ) -> Result<serde_json::Value, JsonRpcError> {
         let params = params.ok_or_else(|| JsonRpcError {
             code: INVALID_PARAMS,
             message: "Missing params".to_string(),
             data: None,
         })?;
 
-        let uri = params.get("uri")
+        let uri = params
+            .get("uri")
             .and_then(|u| u.as_str())
             .ok_or_else(|| JsonRpcError {
                 code: INVALID_PARAMS,
@@ -376,14 +397,18 @@ impl MockMcpServer {
         Ok(serde_json::json!(EmptyResult {}))
     }
 
-    fn handle_resources_unsubscribe(&self, params: Option<serde_json::Value>) -> Result<serde_json::Value, JsonRpcError> {
+    fn handle_resources_unsubscribe(
+        &self,
+        params: Option<serde_json::Value>,
+    ) -> Result<serde_json::Value, JsonRpcError> {
         let params = params.ok_or_else(|| JsonRpcError {
             code: INVALID_PARAMS,
             message: "Missing params".to_string(),
             data: None,
         })?;
 
-        let uri = params.get("uri")
+        let uri = params
+            .get("uri")
             .and_then(|u| u.as_str())
             .ok_or_else(|| JsonRpcError {
                 code: INVALID_PARAMS,
@@ -395,23 +420,30 @@ impl MockMcpServer {
         Ok(serde_json::json!(EmptyResult {}))
     }
 
-    fn handle_prompts_list(&self, _params: Option<serde_json::Value>) -> Result<serde_json::Value, JsonRpcError> {
+    fn handle_prompts_list(
+        &self,
+        _params: Option<serde_json::Value>,
+    ) -> Result<serde_json::Value, JsonRpcError> {
         let prompts = self.prompts.lock().unwrap().clone();
-        
+
         Ok(serde_json::json!(ListPromptsResult {
             prompts,
             next_cursor: None,
         }))
     }
 
-    fn handle_prompts_get(&self, params: Option<serde_json::Value>) -> Result<serde_json::Value, JsonRpcError> {
+    fn handle_prompts_get(
+        &self,
+        params: Option<serde_json::Value>,
+    ) -> Result<serde_json::Value, JsonRpcError> {
         let params = params.ok_or_else(|| JsonRpcError {
             code: INVALID_PARAMS,
             message: "Missing params".to_string(),
             data: None,
         })?;
 
-        let name = params.get("name")
+        let name = params
+            .get("name")
             .and_then(|n| n.as_str())
             .ok_or_else(|| JsonRpcError {
                 code: INVALID_PARAMS,
@@ -421,7 +453,8 @@ impl MockMcpServer {
 
         // Check if prompt exists
         let prompts = self.prompts.lock().unwrap();
-        let prompt = prompts.iter()
+        let prompt = prompts
+            .iter()
             .find(|p| p.name == name)
             .ok_or_else(|| JsonRpcError {
                 code: INVALID_PARAMS,

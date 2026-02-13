@@ -35,10 +35,7 @@ impl MockTransport {
     }
 
     /// Set whether the transport should fail connections.
-    pub async fn set_should_fail_connection(&self, 
-        should_fail: bool, 
-        message: impl Into<String>
-    ) {
+    pub async fn set_should_fail_connection(&self, should_fail: bool, message: impl Into<String>) {
         *self.should_fail_connection.lock().await = should_fail;
         *self.connection_error_message.lock().await = message.into();
     }
@@ -51,19 +48,22 @@ impl MockTransport {
 
 #[async_trait]
 impl McpTransport for MockTransport {
-    async fn initialize(
-        &mut self
-    ) -> Result<ServerCapabilities, TransportError> {
+    async fn initialize(&mut self) -> Result<ServerCapabilities, TransportError> {
         let mut state = self.state.lock().await;
 
         if *state == TransportState::Initialized {
-            return Ok(self.server_capabilities.lock().await.clone().unwrap_or_default());
+            return Ok(self
+                .server_capabilities
+                .lock()
+                .await
+                .clone()
+                .unwrap_or_default());
         }
 
         if *self.should_fail_connection.lock().await {
             *state = TransportState::Failed;
             return Err(TransportError::Connection(
-                self.connection_error_message.lock().await.clone()
+                self.connection_error_message.lock().await.clone(),
             ));
         }
 
@@ -89,8 +89,12 @@ impl McpTransport for MockTransport {
 
         let result: serde_json::Value = response.result.unwrap_or_else(|| serde_json::json!({}));
         let capabilities: ServerCapabilities = serde_json::from_value(
-            result.get("capabilities").cloned().unwrap_or_else(|| serde_json::json!({}))
-        ).map_err(|e| TransportError::InvalidResponse(e.to_string()))?;
+            result
+                .get("capabilities")
+                .cloned()
+                .unwrap_or_else(|| serde_json::json!({})),
+        )
+        .map_err(|e| TransportError::InvalidResponse(e.to_string()))?;
 
         *self.protocol_version.lock().await = result
             .get("protocolVersion")
@@ -98,10 +102,8 @@ impl McpTransport for MockTransport {
             .map(|s| s.to_string());
         *self.server_capabilities.lock().await = Some(capabilities.clone());
 
-        let notification = JsonRpcRequest::notification(
-            "notifications/initialized",
-            Some(serde_json::json!({})),
-        );
+        let notification =
+            JsonRpcRequest::notification("notifications/initialized", Some(serde_json::json!({})));
         let _ = self.server.handle_request(notification).await;
 
         *state = TransportState::Initialized;
@@ -115,24 +117,32 @@ impl McpTransport for MockTransport {
     ) -> Result<serde_json::Value, TransportError> {
         if *self.should_fail_connection.lock().await {
             return Err(TransportError::Connection(
-                self.connection_error_message.lock().await.clone()
+                self.connection_error_message.lock().await.clone(),
             ));
         }
 
         if method != "initialize" {
             let state = *self.state.lock().await;
             if state == TransportState::Uninitialized {
-                return Err(TransportError::Connection("Transport not initialized".to_string()));
+                return Err(TransportError::Connection(
+                    "Transport not initialized".to_string(),
+                ));
             }
             if state == TransportState::Failed {
-                return Err(TransportError::Connection("Transport is in failed state".to_string()));
+                return Err(TransportError::Connection(
+                    "Transport is in failed state".to_string(),
+                ));
             }
         }
 
         let request = JsonRpcRequest::new(
             RequestId::Number(1),
             method,
-            if params.is_object() { Some(params) } else { None },
+            if params.is_object() {
+                Some(params)
+            } else {
+                None
+            },
         );
 
         let response = self.server.handle_request(request).await;
@@ -146,10 +156,10 @@ impl McpTransport for MockTransport {
 
         if method == "initialize" {
             if let Ok(result) = serde_json::from_value::<serde_json::Value>(
-                response.result.clone().unwrap_or_default()
+                response.result.clone().unwrap_or_default(),
             ) {
                 if let Ok(caps) = serde_json::from_value::<ServerCapabilities>(
-                    result.get("capabilities").cloned().unwrap_or_default()
+                    result.get("capabilities").cloned().unwrap_or_default(),
                 ) {
                     *self.server_capabilities.lock().await = Some(caps);
                 }
@@ -160,35 +170,29 @@ impl McpTransport for MockTransport {
             *self.state.lock().await = TransportState::Initialized;
         }
 
-        Ok(serde_json::to_value(&response
-        ).unwrap_or_else(|_| serde_json::json!({})))
+        Ok(serde_json::to_value(&response).unwrap_or_else(|_| serde_json::json!({})))
     }
 
-    async fn close(&self
-    ) -> Result<(), TransportError> {
+    async fn close(&self) -> Result<(), TransportError> {
         let mut state = self.state.lock().await;
         *state = TransportState::Uninitialized;
         Ok(())
     }
 
-    async fn is_healthy(&self
-    ) -> bool {
+    async fn is_healthy(&self) -> bool {
         let state = *self.state.lock().await;
         state == TransportState::Initialized
     }
 
-    fn state(&self
-    ) -> TransportState {
+    fn state(&self) -> TransportState {
         TransportState::Initialized
     }
 
-    fn protocol_version(&self
-    ) -> Option<&str> {
+    fn protocol_version(&self) -> Option<&str> {
         None
     }
 
-    fn server_capabilities(&self
-    ) -> Option<&ServerCapabilities> {
+    fn server_capabilities(&self) -> Option<&ServerCapabilities> {
         None
     }
 }

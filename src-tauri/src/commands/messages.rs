@@ -45,8 +45,7 @@ pub async fn send_message_to_task(
     )?;
 
     // Load compaction settings
-    let compaction_settings =
-        load_compaction_settings(&state.db).unwrap_or_default();
+    let compaction_settings = load_compaction_settings(&state.db).unwrap_or_default();
 
     // Create a new run for this continuation
     let run_id = Uuid::new_v4().to_string();
@@ -225,7 +224,9 @@ pub async fn send_message_to_task(
 }
 
 #[tauri::command]
-pub fn get_compaction_settings(state: tauri::State<'_, AppState>) -> Result<serde_json::Value, AppError> {
+pub fn get_compaction_settings(
+    state: tauri::State<'_, AppState>,
+) -> Result<serde_json::Value, AppError> {
     let settings =
         load_compaction_settings(&state.db).map_err(|e| AppError::Other(e.to_string()))?;
     Ok(serde_json::to_value(settings).map_err(|e| AppError::Other(e.to_string()))?)

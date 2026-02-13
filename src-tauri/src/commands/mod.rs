@@ -1,5 +1,6 @@
 pub mod agent_presets;
 pub mod approvals;
+pub mod embeddings;
 pub mod execution;
 pub mod mcp;
 pub mod messages;

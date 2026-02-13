@@ -5,7 +5,7 @@
 
 pub use crate::model::StreamDelta;
 use crate::model::{
-    GlmClient, KimiClient, MiniMaxClient, WorkerActionRequest, WorkerDecision,
+    GlmClient, KimiClient, MiniMaxClient, ModalClient, WorkerActionRequest, WorkerDecision,
 };
 
 /// Runtime model configuration for worker execution.
@@ -33,6 +33,7 @@ pub enum WorkerModelClient {
     MiniMax(MiniMaxClient),
     Kimi(KimiClient),
     Glm(GlmClient),
+    Modal(ModalClient),
 }
 
 impl WorkerModelClient {
@@ -45,6 +46,11 @@ impl WorkerModelClient {
                 config.base_url.clone(),
             )),
             "zhipu" | "glm" => Self::Glm(GlmClient::new(
+                config.api_key.clone(),
+                config.model.clone(),
+                config.base_url.clone(),
+            )),
+            "modal" => Self::Modal(ModalClient::new(
                 config.api_key.clone(),
                 config.model.clone(),
                 config.base_url.clone(),
@@ -76,6 +82,10 @@ impl WorkerModelClient {
                 .await
                 .map_err(|e| e.to_string()),
             Self::Glm(model) => model
+                .decide_action_streaming(req, |delta| on_delta(delta))
+                .await
+                .map_err(|e| e.to_string()),
+            Self::Modal(model) => model
                 .decide_action_streaming(req, |delta| on_delta(delta))
                 .await
                 .map_err(|e| e.to_string()),

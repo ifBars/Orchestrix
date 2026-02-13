@@ -19,7 +19,7 @@
 //! ).map_err(|e| ClientError::Transport(e))?;
 //!
 //! let mut client = McpClient::new(transport);
-//! 
+//!
 //! // Initialize the connection
 //! let capabilities = client.initialize().await?;
 //! println!("Server capabilities: {:?}", capabilities);
@@ -46,11 +46,10 @@ use thiserror::Error;
 use super::jsonrpc::{JsonRpcClient, RpcClientError};
 use super::transport::McpTransport;
 use super::types::{
-    CallToolRequest, CallToolResult, GetPromptRequest, GetPromptResult,
-    Implementation, InitializeRequest, ListPromptsRequest, ListPromptsResult,
-    ListResourcesRequest, ListResourcesResult, ListToolsRequest, ListToolsResult,
-    ReadResourceRequest, ReadResourceResult, ServerCapabilities, SubscribeRequest,
-    UnsubscribeRequest,
+    CallToolRequest, CallToolResult, GetPromptRequest, GetPromptResult, Implementation,
+    InitializeRequest, ListPromptsRequest, ListPromptsResult, ListResourcesRequest,
+    ListResourcesResult, ListToolsRequest, ListToolsResult, ReadResourceRequest,
+    ReadResourceResult, ServerCapabilities, SubscribeRequest, UnsubscribeRequest,
 };
 
 /// Current state of the MCP client connection.
@@ -83,35 +82,35 @@ pub enum ClientError {
     /// Client is not initialized.
     #[error("Client not initialized")]
     NotInitialized,
-    
+
     /// Client is currently initializing.
     #[error("Client is currently initializing")]
     Initializing,
-    
+
     /// Client initialization failed.
     #[error("Initialization failed: {0}")]
     InitializationFailed(String),
-    
+
     /// RPC error from the JSON-RPC layer.
     #[error("RPC error: {0}")]
     Rpc(#[from] RpcClientError),
-    
+
     /// Transport error.
     #[error("Transport error: {0}")]
     Transport(String),
-    
+
     /// Server capability not available.
     #[error("Server capability not available: {0}")]
     CapabilityNotAvailable(String),
-    
+
     /// Invalid response from server.
     #[error("Invalid response: {0}")]
     InvalidResponse(String),
-    
+
     /// Server does not support the requested operation.
     #[error("Operation not supported: {0}")]
     NotSupported(String),
-    
+
     /// Client is closed.
     #[error("Client is closed")]
     Closed,
@@ -260,13 +259,17 @@ impl McpClient {
         let init_request = InitializeRequest::new(super::types::JSON_RPC_VERSION, client_info);
 
         // Send initialize request
-        let response: super::types::InitializeResponse = self
-            .rpc
-            .call("initialize", init_request)
-            .await?;
+        let response: super::types::InitializeResponse =
+            self.rpc.call("initialize", init_request).await?;
 
         // Send initialized notification (fire-and-forget)
-        let _ = self.rpc.notify("notifications/initialized", Value::Object(Default::default())).await;
+        let _ = self
+            .rpc
+            .notify(
+                "notifications/initialized",
+                Value::Object(Default::default()),
+            )
+            .await;
 
         // Cache server information
         self.protocol_version = Some(response.protocol_version);
@@ -358,7 +361,9 @@ impl McpClient {
             ClientState::Initialized => Ok(()),
             ClientState::Uninitialized => Err(ClientError::NotInitialized),
             ClientState::Initializing => Err(ClientError::Initializing),
-            ClientState::Failed(ref reason) => Err(ClientError::InitializationFailed(reason.clone())),
+            ClientState::Failed(ref reason) => {
+                Err(ClientError::InitializationFailed(reason.clone()))
+            }
         }
     }
 
@@ -487,7 +492,10 @@ impl McpClient {
     ///     println!("Resource: {} ({})", resource.name, resource.uri);
     /// }
     /// ```
-    pub async fn list_resources(&self, cursor: Option<String>) -> Result<ListResourcesResult, ClientError> {
+    pub async fn list_resources(
+        &self,
+        cursor: Option<String>,
+    ) -> Result<ListResourcesResult, ClientError> {
         self.ensure_initialized()?;
 
         // Check if server supports resources
@@ -652,7 +660,10 @@ impl McpClient {
     ///     println!("Prompt: {} - {}", prompt.name, prompt.description.as_deref().unwrap_or(""));
     /// }
     /// ```
-    pub async fn list_prompts(&self, cursor: Option<String>) -> Result<ListPromptsResult, ClientError> {
+    pub async fn list_prompts(
+        &self,
+        cursor: Option<String>,
+    ) -> Result<ListPromptsResult, ClientError> {
         self.ensure_initialized()?;
 
         // Check if server supports prompts
@@ -788,7 +799,8 @@ mod tests {
     fn test_client_debug_format() {
         // Since we can't create a real transport in tests, we test the debug format
         // by checking the string representation would contain expected fields
-        let debug_str = "McpClient { state: Uninitialized, protocol_version: None, has_capabilities: false }";
+        let debug_str =
+            "McpClient { state: Uninitialized, protocol_version: None, has_capabilities: false }";
         assert!(debug_str.contains("state:"));
         assert!(debug_str.contains("protocol_version:"));
         assert!(debug_str.contains("has_capabilities:"));
@@ -798,13 +810,14 @@ mod tests {
     fn test_ensure_initialized_logic() {
         // Test that ensure_initialized returns correct results for different states
         // This is tested indirectly through the public API
-        
+
         // Uninitialized state should return NotInitialized
         let uninitialized_result: Result<(), ClientError> = Err(ClientError::NotInitialized);
         assert!(uninitialized_result.is_err());
-        
+
         // Failed state should return InitializationFailed
-        let failed_result: Result<(), ClientError> = Err(ClientError::InitializationFailed("test".to_string()));
+        let failed_result: Result<(), ClientError> =
+            Err(ClientError::InitializationFailed("test".to_string()));
         assert!(failed_result.is_err());
         if let Err(ClientError::InitializationFailed(msg)) = failed_result {
             assert_eq!(msg, "test");
@@ -816,7 +829,7 @@ mod tests {
         // Test that InitializeRequest can be created and serialized
         let client_info = Implementation::new("test-client", "1.0.0");
         let init_request = InitializeRequest::new("2024-11-05", client_info);
-        
+
         let json = serde_json::to_string(&init_request).unwrap();
         assert!(json.contains("protocolVersion"));
         assert!(json.contains("test-client"));
@@ -830,8 +843,10 @@ mod tests {
         let json = serde_json::to_string(&request).unwrap();
         // Cursor field is skipped when None due to #[serde(skip_serializing_if = "Option::is_none")]
         assert_eq!(json, "{}");
-        
-        let request = ListToolsRequest { cursor: Some("next".to_string()) };
+
+        let request = ListToolsRequest {
+            cursor: Some("next".to_string()),
+        };
         let json = serde_json::to_string(&request).unwrap();
         assert!(json.contains("cursor"));
         assert!(json.contains("next"));
@@ -841,12 +856,12 @@ mod tests {
     fn test_call_tool_request_serialization() {
         let mut args = serde_json::Map::new();
         args.insert("key".to_string(), serde_json::json!("value"));
-        
+
         let request = CallToolRequest {
             name: "test_tool".to_string(),
             arguments: Some(args),
         };
-        
+
         let json = serde_json::to_string(&request).unwrap();
         assert!(json.contains("test_tool"));
         assert!(json.contains("key"));
@@ -855,7 +870,9 @@ mod tests {
 
     #[test]
     fn test_list_resources_request_serialization() {
-        let request = ListResourcesRequest { cursor: Some("page2".to_string()) };
+        let request = ListResourcesRequest {
+            cursor: Some("page2".to_string()),
+        };
         let json = serde_json::to_string(&request).unwrap();
         assert!(json.contains("page2"));
     }
@@ -894,8 +911,10 @@ mod tests {
         let json = serde_json::to_string(&request).unwrap();
         // Cursor field is skipped when None due to #[serde(skip_serializing_if = "Option::is_none")]
         assert_eq!(json, "{}");
-        
-        let request = ListPromptsRequest { cursor: Some("page2".to_string()) };
+
+        let request = ListPromptsRequest {
+            cursor: Some("page2".to_string()),
+        };
         let json = serde_json::to_string(&request).unwrap();
         assert!(json.contains("cursor"));
         assert!(json.contains("page2"));
@@ -905,12 +924,12 @@ mod tests {
     fn test_get_prompt_request_serialization() {
         let mut args = HashMap::new();
         args.insert("arg1".to_string(), "value1".to_string());
-        
+
         let request = GetPromptRequest {
             name: "test_prompt".to_string(),
             arguments: Some(args),
         };
-        
+
         let json = serde_json::to_string(&request).unwrap();
         assert!(json.contains("test_prompt"));
         assert!(json.contains("arg1"));

@@ -19,10 +19,12 @@
 //! - `policy`: Permission and sandboxing engine
 //! - `core`: Shared types and utilities
 
+pub mod bench;
 mod bus;
 mod commands;
 mod core;
 mod db;
+pub mod embeddings;
 pub mod mcp;
 mod model;
 mod policy;
@@ -116,6 +118,8 @@ pub(crate) struct AppState {
     pub bus: Arc<EventBus>,
     pub orchestrator: Arc<Orchestrator>,
     pub mcp_manager: Arc<mcp::McpClientManager>,
+    pub embedding_manager: Arc<embeddings::EmbeddingManager>,
+    pub embedding_index_service: Arc<embeddings::SemanticIndexService>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -329,32 +333,32 @@ pub fn run() {
     let bus = Arc::new(EventBus::new());
     let workspace_root = load_workspace_root(&db);
     let orchestrator = Arc::new(Orchestrator::new(db.clone(), bus.clone(), workspace_root));
+    let embedding_manager = Arc::new(embeddings::EmbeddingManager::new(db.clone()));
+    let embedding_index_service =
+        embeddings::SemanticIndexService::new(db.clone(), bus.clone(), embedding_manager.clone());
+    tools::set_semantic_index_service(embedding_index_service.clone());
 
     // Initialize enhanced MCP client manager
     let mcp_manager = tauri::async_runtime::block_on(async {
         // Migrate legacy config if present
         let _ = mcp::migrate_legacy_config().await;
-        
+
         // Create and initialize the manager
-        let mut manager = mcp::McpClientManager::new().await
+        let mut manager = mcp::McpClientManager::new()
+            .await
             .expect("failed to create MCP manager");
-        
+
         // Set up event emitter to forward MCP events to the event bus
         let bus_for_events = bus.clone();
         manager.set_event_emitter(move |event| {
             let payload = event.to_payload();
             let event_type = event.event_type();
             let category = event.category().to_string();
-            
+
             // Emit to the event bus
-            let _ = bus_for_events.emit(
-                &category,
-                &event_type,
-                None,
-                payload,
-            );
+            let _ = bus_for_events.emit(&category, &event_type, None, payload);
         });
-        
+
         Arc::new(manager)
     });
 
@@ -363,7 +367,11 @@ pub fn run() {
         bus: bus.clone(),
         orchestrator: orchestrator.clone(),
         mcp_manager: mcp_manager.clone(),
+        embedding_manager,
+        embedding_index_service: embedding_index_service.clone(),
     };
+
+    embedding_index_service.ensure_workspace_index_started(load_workspace_root(&db));
 
     // Initialize MCP in the background so a slow/unhealthy server cannot block app startup.
     let mcp_manager_for_init = mcp_manager.clone();
@@ -420,6 +428,12 @@ pub fn run() {
             commands::providers::get_provider_configs,
             commands::providers::get_model_catalog,
             commands::providers::get_context_window_for_model,
+            // embeddings
+            commands::embeddings::get_embedding_config,
+            commands::embeddings::set_embedding_config,
+            commands::embeddings::get_embedding_provider_info,
+            commands::embeddings::embedding_dims,
+            commands::embeddings::embed_texts,
             // mcp
             commands::mcp::list_mcp_servers,
             commands::mcp::get_mcp_server,

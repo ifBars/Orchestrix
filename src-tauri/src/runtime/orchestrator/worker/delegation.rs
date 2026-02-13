@@ -117,12 +117,17 @@ pub async fn spawn_and_execute_delegated_sub_agent(
     let preset_id = selected_agent_preset.as_ref().map(|p| p.id.clone());
     let preset_name = selected_agent_preset.as_ref().map(|p| p.name.clone());
 
-    // Create restricted tool list for child (no subagent.spawn)
+    // Create restricted tool list for child (no subagent.spawn, but include agent.complete)
     let mut delegated_allowed_tools: Vec<String> = available_tools
         .iter()
         .filter(|name| name.as_str() != "subagent.spawn")
         .cloned()
         .collect();
+
+    // agent.complete is exclusive to subagents - add it to their tool list
+    if !delegated_allowed_tools.contains(&"agent.complete".to_string()) {
+        delegated_allowed_tools.push("agent.complete".to_string());
+    }
 
     if let Some(preset) = selected_agent_preset.as_ref() {
         apply_agent_preset_tool_constraints(&mut delegated_allowed_tools, preset);

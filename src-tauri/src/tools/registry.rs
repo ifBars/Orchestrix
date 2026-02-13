@@ -17,11 +17,18 @@ use crate::tools::agent::{
     RequestPlanModeTool, SubAgentSpawnTool,
 };
 use crate::tools::cmd::CommandExecTool;
+use crate::tools::dev_server::{
+    DevServerLogsTool, DevServerStartTool, DevServerStatusTool, DevServerStopTool,
+};
+use crate::tools::file_search::SearchFilesTool;
 use crate::tools::fs::{FsListTool, FsReadTool, FsWriteTool};
 use crate::tools::git::{GitApplyPatchTool, GitCommitTool, GitDiffTool, GitLogTool, GitStatusTool};
+use crate::tools::patch::FsPatchTool;
 use crate::tools::search::SearchRgTool;
+use crate::tools::semantic_search::SearchEmbeddingsTool;
 use crate::tools::skills::{SkillsListTool, SkillsLoadTool, SkillsRemoveTool};
 use crate::tools::types::{Tool, ToolCallInput, ToolCallOutput, ToolError};
+use crate::tools::web_snapshot::WebSnapshotTool;
 
 /// Registry of all available tools.
 pub struct ToolRegistry {
@@ -37,9 +44,15 @@ impl ToolRegistry {
         tools.insert("fs.read".to_string(), Box::new(FsReadTool));
         tools.insert("fs.write".to_string(), Box::new(FsWriteTool));
         tools.insert("fs.list".to_string(), Box::new(FsListTool));
+        tools.insert("fs.patch".to_string(), Box::new(FsPatchTool));
 
         // Search tools
         tools.insert("search.rg".to_string(), Box::new(SearchRgTool));
+        tools.insert("search.files".to_string(), Box::new(SearchFilesTool));
+        tools.insert(
+            "search.embeddings".to_string(),
+            Box::new(SearchEmbeddingsTool),
+        );
 
         // Command execution
         tools.insert("cmd.exec".to_string(), Box::new(CommandExecTool));
@@ -73,6 +86,18 @@ impl ToolRegistry {
             Box::new(CreateArtifactTool),
         );
 
+        // Dev server tools
+        tools.insert("dev_server.start".to_string(), Box::new(DevServerStartTool));
+        tools.insert("dev_server.stop".to_string(), Box::new(DevServerStopTool));
+        tools.insert(
+            "dev_server.status".to_string(),
+            Box::new(DevServerStatusTool),
+        );
+        tools.insert("dev_server.logs".to_string(), Box::new(DevServerLogsTool));
+
+        // Web snapshot tool
+        tools.insert("web.snapshot".to_string(), Box::new(WebSnapshotTool));
+
         Self { tools }
     }
 
@@ -86,6 +111,8 @@ impl ToolRegistry {
             "fs.read",
             "fs.list",
             "search.rg",
+            "search.files",
+            "search.embeddings",
             "git.status",
             "git.diff",
             "git.log",
@@ -107,11 +134,16 @@ impl ToolRegistry {
 
     /// Get tools available for BUILD mode.
     ///
-    /// Includes all tools except request_build_mode and create_artifact.
+    /// Includes all tools except request_build_mode, create_artifact, and agent.complete.
+    /// Note: agent.complete is exclusive to subagents spawned via subagent.spawn.
     pub fn list_for_build_mode(&self) -> Vec<ToolDescriptor> {
         self.list()
             .into_iter()
-            .filter(|t| t.name != "agent.request_build_mode" && t.name != "agent.create_artifact")
+            .filter(|t| {
+                t.name != "agent.request_build_mode"
+                    && t.name != "agent.create_artifact"
+                    && t.name != "agent.complete"
+            })
             .collect()
     }
 

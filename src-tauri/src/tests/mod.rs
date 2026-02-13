@@ -21,6 +21,9 @@ mod tools;
 #[cfg(test)]
 mod providers;
 
+#[cfg(test)]
+mod glm_integration_tests;
+
 /// Mutex to ensure skills tests run serially and don't interfere with each other
 /// via the ORCHESTRIX_SKILLS_PATH environment variable.
 pub static SKILLS_TEST_MUTEX: Mutex<()> = Mutex::new(());

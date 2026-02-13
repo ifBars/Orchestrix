@@ -67,6 +67,74 @@ export interface ModelCatalogEntry {
   models: ModelInfo[];
 }
 
+export type EmbeddingProviderKind = "remote" | "local";
+
+export type EmbeddingTaskType =
+  | "RETRIEVAL_QUERY"
+  | "RETRIEVAL_DOCUMENT"
+  | "SEMANTIC_SIMILARITY"
+  | "CLASSIFICATION";
+
+export interface GeminiEmbeddingConfigView {
+  api_key_configured: boolean;
+  model: string;
+  timeout_ms: number;
+  base_url: string | null;
+}
+
+export interface OllamaEmbeddingConfig {
+  base_url: string;
+  model: string;
+  timeout_ms: number;
+}
+
+export interface TransformersJsEmbeddingConfig {
+  model: string;
+  device: string;
+  backend: string | null;
+  cache_dir: string | null;
+  timeout_ms: number;
+  bridge_command: string;
+  bridge_script: string | null;
+}
+
+export interface RustHfEmbeddingConfig {
+  model_id: string;
+  model_path: string | null;
+  cache_dir: string | null;
+  runtime: "onnx" | "candle";
+  threads: number | null;
+  timeout_ms: number;
+}
+
+export interface EmbeddingConfigView {
+  provider: "gemini" | "ollama" | "transformersjs" | "rust-hf";
+  normalize_l2: boolean;
+  gemini: GeminiEmbeddingConfigView;
+  ollama: OllamaEmbeddingConfig;
+  transformersjs: TransformersJsEmbeddingConfig;
+  rust_hf: RustHfEmbeddingConfig;
+}
+
+export interface EmbeddingConfig {
+  provider: "gemini" | "ollama" | "transformersjs" | "rust-hf";
+  normalize_l2: boolean;
+  gemini: {
+    api_key?: string | null;
+    model: string;
+    timeout_ms: number;
+    base_url: string | null;
+  };
+  ollama: OllamaEmbeddingConfig;
+  transformersjs: TransformersJsEmbeddingConfig;
+  rust_hf: RustHfEmbeddingConfig;
+}
+
+export interface EmbeddingProviderInfo {
+  id: string;
+  kind: EmbeddingProviderKind;
+}
+
 export interface WorkspaceRootView {
   workspace_root: string;
 }

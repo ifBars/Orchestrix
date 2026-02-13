@@ -2,10 +2,12 @@ use futures::StreamExt;
 use serde::{Deserialize, Serialize};
 
 use crate::core::tool::ToolDescriptor;
-use crate::model::shared::{plan_markdown_system_prompt, strip_tool_call_markup, worker_system_prompt};
+use crate::model::shared::{
+    plan_markdown_system_prompt, strip_tool_call_markup, worker_system_prompt,
+};
 use crate::model::{
-    AgentModelClient, ModelError, StreamDelta, WorkerAction, WorkerActionRequest,
-    WorkerDecision, WorkerToolCall,
+    AgentModelClient, ModelError, StreamDelta, WorkerAction, WorkerActionRequest, WorkerDecision,
+    WorkerToolCall,
 };
 use crate::runtime::plan_mode_settings::{DEFAULT_PLAN_MODE_MAX_TOKENS, WORKER_MAX_TOKENS};
 
@@ -65,27 +67,41 @@ impl OpenAiCompatClient {
             if t.is_empty() {
                 return None;
             }
-            Some(t.iter().map(|d| OpenAiTool {
-                type_: "function".to_string(),
-                function: OpenAiFunction {
-                    name: d.name.clone(),
-                    description: d.description.clone(),
-                    parameters: d.input_schema.clone(),
-                },
-            }).collect())
+            Some(
+                t.iter()
+                    .map(|d| OpenAiTool {
+                        type_: "function".to_string(),
+                        function: OpenAiFunction {
+                            name: d.name.clone(),
+                            description: d.description.clone(),
+                            parameters: d.input_schema.clone(),
+                        },
+                    })
+                    .collect(),
+            )
         });
         let has_tools = openai_tools.is_some();
         let body = OpenAiChatRequest {
             model: self.model.clone(),
             messages: vec![
-                OpenAiRequestMessage { role: "system".to_string(), content: system.to_string() },
-                OpenAiRequestMessage { role: "user".to_string(), content: user.to_string() },
+                OpenAiRequestMessage {
+                    role: "system".to_string(),
+                    content: system.to_string(),
+                },
+                OpenAiRequestMessage {
+                    role: "user".to_string(),
+                    content: user.to_string(),
+                },
             ],
             temperature: 0.1,
             max_tokens,
             stream: false,
             tools: openai_tools,
-            tool_choice: if has_tools { Some("auto".to_string()) } else { None },
+            tool_choice: if has_tools {
+                Some("auto".to_string())
+            } else {
+                None
+            },
             parallel_tool_calls: if has_tools { Some(true) } else { None },
         };
 
@@ -100,7 +116,10 @@ impl OpenAiCompatClient {
             .map_err(|e| ModelError::Request(e.to_string()))?;
 
         let status = response.status();
-        let text = response.text().await.map_err(|e| ModelError::Request(e.to_string()))?;
+        let text = response
+            .text()
+            .await
+            .map_err(|e| ModelError::Request(e.to_string()))?;
 
         tracing::debug!("{} API response: status={}", self.provider_name, status);
 
@@ -111,15 +130,27 @@ impl OpenAiCompatClient {
             )));
         }
         if !status.is_success() {
-            return Err(ModelError::Request(format!("{} error {status}: {text}", self.provider_name)));
+            return Err(ModelError::Request(format!(
+                "{} error {status}: {text}",
+                self.provider_name
+            )));
         }
 
-        let parsed: OpenAiChatResponse = serde_json::from_str(&text)
-            .map_err(|e| ModelError::InvalidResponse(format!("{} parse failed: {e}", self.provider_name)))?;
+        let parsed: OpenAiChatResponse = serde_json::from_str(&text).map_err(|e| {
+            ModelError::InvalidResponse(format!("{} parse failed: {e}", self.provider_name))
+        })?;
 
-        parsed.choices.into_iter().next().map(|c| c.message).ok_or_else(|| {
-            ModelError::InvalidResponse(format!("missing choices[0].message from {} response", self.provider_name))
-        })
+        parsed
+            .choices
+            .into_iter()
+            .next()
+            .map(|c| c.message)
+            .ok_or_else(|| {
+                ModelError::InvalidResponse(format!(
+                    "missing choices[0].message from {} response",
+                    self.provider_name
+                ))
+            })
     }
 
     async fn run_chat_streaming(
@@ -135,27 +166,41 @@ impl OpenAiCompatClient {
             if t.is_empty() {
                 return None;
             }
-            Some(t.iter().map(|d| OpenAiTool {
-                type_: "function".to_string(),
-                function: OpenAiFunction {
-                    name: d.name.clone(),
-                    description: d.description.clone(),
-                    parameters: d.input_schema.clone(),
-                },
-            }).collect())
+            Some(
+                t.iter()
+                    .map(|d| OpenAiTool {
+                        type_: "function".to_string(),
+                        function: OpenAiFunction {
+                            name: d.name.clone(),
+                            description: d.description.clone(),
+                            parameters: d.input_schema.clone(),
+                        },
+                    })
+                    .collect(),
+            )
         });
         let has_tools = openai_tools.is_some();
         let body = OpenAiChatRequest {
             model: self.model.clone(),
             messages: vec![
-                OpenAiRequestMessage { role: "system".to_string(), content: system.to_string() },
-                OpenAiRequestMessage { role: "user".to_string(), content: user.to_string() },
+                OpenAiRequestMessage {
+                    role: "system".to_string(),
+                    content: system.to_string(),
+                },
+                OpenAiRequestMessage {
+                    role: "user".to_string(),
+                    content: user.to_string(),
+                },
             ],
             temperature: 0.1,
             max_tokens,
             stream: true,
             tools: openai_tools,
-            tool_choice: if has_tools { Some("auto".to_string()) } else { None },
+            tool_choice: if has_tools {
+                Some("auto".to_string())
+            } else {
+                None
+            },
             parallel_tool_calls: if has_tools { Some(true) } else { None },
         };
 
@@ -173,11 +218,17 @@ impl OpenAiCompatClient {
 
         if status.as_u16() == 401 || status.as_u16() == 403 {
             let _text = response.text().await.unwrap_or_default();
-            return Err(ModelError::Auth(format!("{} auth failed ({status})", self.provider_name)));
+            return Err(ModelError::Auth(format!(
+                "{} auth failed ({status})",
+                self.provider_name
+            )));
         }
         if !status.is_success() {
             let text = response.text().await.unwrap_or_default();
-            return Err(ModelError::Request(format!("{} error {status}: {text}", self.provider_name)));
+            return Err(ModelError::Request(format!(
+                "{} error {status}: {text}",
+                self.provider_name
+            )));
         }
 
         let mut content = String::new();
@@ -233,15 +284,27 @@ impl OpenAiCompatClient {
         }
 
         let tool_calls = if !tool_call_accumulators.is_empty() {
-            Some(tool_call_accumulators.into_iter().filter_map(|entry| {
-                if entry.function_name.trim().is_empty() {
-                    return None;
-                }
-                Some(OpenAiToolCall {
-                    tool_type: if entry.tool_type.trim().is_empty() { "function".to_string() } else { entry.tool_type },
-                    function: OpenAiFunctionCall { name: entry.function_name, arguments: entry.arguments },
-                })
-            }).collect())
+            Some(
+                tool_call_accumulators
+                    .into_iter()
+                    .filter_map(|entry| {
+                        if entry.function_name.trim().is_empty() {
+                            return None;
+                        }
+                        Some(OpenAiToolCall {
+                            tool_type: if entry.tool_type.trim().is_empty() {
+                                "function".to_string()
+                            } else {
+                                entry.tool_type
+                            },
+                            function: OpenAiFunctionCall {
+                                name: entry.function_name,
+                                arguments: entry.arguments,
+                            },
+                        })
+                    })
+                    .collect(),
+            )
         } else if !full_tool_calls.is_empty() {
             Some(full_tool_calls)
         } else {
@@ -249,8 +312,16 @@ impl OpenAiCompatClient {
         };
 
         Ok(OpenAiResponseMessage {
-            content: if content.is_empty() { None } else { Some(content) },
-            reasoning_content: if reasoning.is_empty() { None } else { Some(reasoning) },
+            content: if content.is_empty() {
+                None
+            } else {
+                Some(content)
+            },
+            reasoning_content: if reasoning.is_empty() {
+                None
+            } else {
+                Some(reasoning)
+            },
             tool_calls,
         })
     }
@@ -273,7 +344,8 @@ impl OpenAiCompatClient {
         let history_text = if req.prior_observations.is_empty() {
             "(none yet)".to_string()
         } else {
-            serde_json::to_string(&req.prior_observations).map_err(|e| ModelError::InvalidResponse(e.to_string()))?
+            serde_json::to_string(&req.prior_observations)
+                .map_err(|e| ModelError::InvalidResponse(e.to_string()))?
         };
 
         let user = format!(
@@ -282,13 +354,21 @@ impl OpenAiCompatClient {
         );
 
         let system = worker_system_prompt();
-        let tools_arg = if req.tool_descriptors.is_empty() { None } else { Some(req.tool_descriptors.clone()) };
+        let tools_arg = if req.tool_descriptors.is_empty() {
+            None
+        } else {
+            Some(req.tool_descriptors.clone())
+        };
         let max_tokens = req.max_tokens.unwrap_or(WORKER_MAX_TOKENS);
-        let response = self.run_chat_streaming(&system, &user, max_tokens, tools_arg, &mut on_delta).await?;
+        let response = self
+            .run_chat_streaming(&system, &user, max_tokens, tools_arg, &mut on_delta)
+            .await?;
 
         tracing::debug!(
             "{} worker response - content: {:?}, tool_calls: {:?}",
-            self.provider_name, response.content, response.tool_calls
+            self.provider_name,
+            response.content,
+            response.tool_calls
         );
 
         if let Some(tool_calls) = response.tool_calls.as_ref() {
@@ -298,8 +378,9 @@ impl OpenAiCompatClient {
                     if call.tool_type != "function" {
                         continue;
                     }
-                    let args_json = serde_json::from_str::<serde_json::Value>(&call.function.arguments)
-                        .unwrap_or_else(|_| serde_json::json!({}));
+                    let args_json =
+                        serde_json::from_str::<serde_json::Value>(&call.function.arguments)
+                            .unwrap_or_else(|_| serde_json::json!({}));
                     calls.push(WorkerToolCall {
                         tool_name: call.function.name.clone(),
                         tool_args: args_json,
@@ -328,7 +409,11 @@ impl OpenAiCompatClient {
 
         Ok(WorkerDecision {
             action: WorkerAction::Complete {
-                summary: if summary.is_empty() { "Task complete.".to_string() } else { summary },
+                summary: if summary.is_empty() {
+                    "Task complete.".to_string()
+                } else {
+                    summary
+                },
             },
             reasoning: None,
             raw_response,
@@ -348,8 +433,19 @@ impl OpenAiCompatClient {
             if prior_markdown_context.trim().is_empty() { "(none)" } else { prior_markdown_context }
         );
 
-        let tools_arg = if tool_descriptors.is_empty() { None } else { Some(tool_descriptors) };
-        let response = self.run_chat(&plan_markdown_system_prompt(), &user, DEFAULT_PLAN_MODE_MAX_TOKENS, tools_arg).await?;
+        let tools_arg = if tool_descriptors.is_empty() {
+            None
+        } else {
+            Some(tool_descriptors)
+        };
+        let response = self
+            .run_chat(
+                &plan_markdown_system_prompt(),
+                &user,
+                DEFAULT_PLAN_MODE_MAX_TOKENS,
+                tools_arg,
+            )
+            .await?;
 
         let markdown = if let Some(ref tool_calls) = response.tool_calls {
             let mut content_from_tool: Option<String> = None;
@@ -358,7 +454,8 @@ impl OpenAiCompatClient {
                     continue;
                 }
                 if call.function.name == "agent.create_artifact" {
-                    let args: serde_json::Value = serde_json::from_str(&call.function.arguments).unwrap_or(serde_json::json!({}));
+                    let args: serde_json::Value = serde_json::from_str(&call.function.arguments)
+                        .unwrap_or(serde_json::json!({}));
                     if let Some(c) = args.get("content").and_then(|v| v.as_str()) {
                         content_from_tool = Some(c.to_string());
                         break;
@@ -368,14 +465,20 @@ impl OpenAiCompatClient {
             if let Some(c) = content_from_tool {
                 strip_tool_call_markup(c.trim()).trim().to_string()
             } else {
-                strip_tool_call_markup(response.content.unwrap_or_default().trim()).trim().to_string()
+                strip_tool_call_markup(response.content.unwrap_or_default().trim())
+                    .trim()
+                    .to_string()
             }
         } else {
-            strip_tool_call_markup(response.content.unwrap_or_default().trim()).trim().to_string()
+            strip_tool_call_markup(response.content.unwrap_or_default().trim())
+                .trim()
+                .to_string()
         };
 
         if markdown.trim().is_empty() {
-            return Err(ModelError::InvalidResponse("planner returned empty markdown".to_string()));
+            return Err(ModelError::InvalidResponse(
+                "planner returned empty markdown".to_string(),
+            ));
         }
 
         Ok(markdown)
@@ -414,7 +517,10 @@ pub fn process_openai_stream_line(
         return Ok(false);
     }
 
-    let payload = trimmed.strip_prefix("data:").map(|s| s.trim()).unwrap_or(trimmed);
+    let payload = trimmed
+        .strip_prefix("data:")
+        .map(|s| s.trim())
+        .unwrap_or(trimmed);
 
     if payload.is_empty() || payload == "[DONE]" {
         return Ok(payload == "[DONE]");
@@ -438,7 +544,8 @@ pub fn process_openai_stream_line(
             if let Some(delta_reasoning) = delta.reasoning_content {
                 if !delta_reasoning.is_empty() {
                     reasoning.push_str(&delta_reasoning);
-                    on_delta(StreamDelta::Reasoning(delta_reasoning)).map_err(ModelError::Request)?;
+                    on_delta(StreamDelta::Reasoning(delta_reasoning))
+                        .map_err(ModelError::Request)?;
                 }
             }
 
@@ -446,7 +553,8 @@ pub fn process_openai_stream_line(
                 for call in tool_calls {
                     let idx = call.index.unwrap_or(0);
                     if tool_call_accumulators.len() <= idx {
-                        tool_call_accumulators.resize_with(idx + 1, OpenAiToolCallAccumulator::default);
+                        tool_call_accumulators
+                            .resize_with(idx + 1, OpenAiToolCallAccumulator::default);
                     }
                     let entry = &mut tool_call_accumulators[idx];
                     if let Some(tool_type) = call.tool_type {
@@ -475,7 +583,8 @@ pub fn process_openai_stream_line(
                 if let Some(message_content) = message.content {
                     if !message_content.is_empty() {
                         content.push_str(&message_content);
-                        on_delta(StreamDelta::Content(message_content)).map_err(ModelError::Request)?;
+                        on_delta(StreamDelta::Content(message_content))
+                            .map_err(ModelError::Request)?;
                     }
                 }
             }
@@ -484,7 +593,8 @@ pub fn process_openai_stream_line(
                 if let Some(message_reasoning) = message.reasoning_content {
                     if !message_reasoning.is_empty() {
                         reasoning.push_str(&message_reasoning);
-                        on_delta(StreamDelta::Reasoning(message_reasoning)).map_err(ModelError::Request)?;
+                        on_delta(StreamDelta::Reasoning(message_reasoning))
+                            .map_err(ModelError::Request)?;
                     }
                 }
             }

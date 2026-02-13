@@ -4,6 +4,7 @@ version = "0.1.0"
 description = "Lightweight AI agent management desktop app"
 authors = ["ghost"]
 edition = "2021"
+default-run = "orchestrix"
 
 [lib]
 name = "orchestrix_lib"
@@ -28,7 +29,16 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls", "stream"] }
 async-trait = "0.1"
 futures = "0.3"
+headless_chrome = { version = "1.0", default-features = false, features = ["fetch"] }
+dashmap = "6"
+fastembed = { version = "5.9.0", default-features = false, features = ["hf-hub-rustls-tls", "ort-download-binaries-rustls-tls"] }
+sysinfo = "0.33"
+similar = "2"
+ignore = "0.4"
+nucleo-matcher = "0.3"
 
 [dev-dependencies]
+tempfile = "3"
 tokio-test = "0.4"
 pretty_assertions = "1.4"
+httpmock = "0.7"

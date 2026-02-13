@@ -35,6 +35,8 @@ import type {
   AgentPreset,
   BusEvent,
   CreateAgentPresetInput,
+  EmbeddingConfig,
+  EmbeddingConfigView,
   EventRow,
   ModelCatalogEntry,
   NewCustomSkill,
@@ -85,6 +87,7 @@ type AppStoreState = {
   tasks: TaskRow[];
   selectedTaskId: string | null;
   providerConfigs: ProviderConfigView[];
+  embeddingConfig: EmbeddingConfigView | null;
   modelCatalog: ModelCatalogEntry[];
   selectedProvider: string;
   selectedModel: string;
@@ -121,6 +124,8 @@ type AppStoreState = {
     baseUrl?: string,
   ) => Promise<void>;
   selectProviderModel: (provider: string, model: string) => void;
+  refreshEmbeddingConfig: () => Promise<void>;
+  setEmbeddingConfig: (config: EmbeddingConfig) => Promise<void>;
 
   setWorkspaceRoot: (workspaceRoot: string) => Promise<void>;
   refreshWorkspaceRoot: () => Promise<void>;
@@ -175,6 +180,7 @@ export const useAppStore = create<AppStoreState>((set, get) => ({
   tasks: [],
   selectedTaskId: null,
   providerConfigs: [],
+  embeddingConfig: null,
   modelCatalog: [],
   selectedProvider: "",
   selectedModel: "",
@@ -192,9 +198,10 @@ export const useAppStore = create<AppStoreState>((set, get) => ({
   bootstrap: async () => {
     if (get().bootstrapped) return;
 
-    const [tasks, providerConfigs, modelCatalog, workspaceRoot, skills, workspaceSkills, agentPresets, mcpServers, mcpTools] = await Promise.all([
+    const [tasks, providerConfigs, embeddingConfig, modelCatalog, workspaceRoot, skills, workspaceSkills, agentPresets, mcpServers, mcpTools] = await Promise.all([
       invoke<TaskRow[]>("list_tasks"),
       invoke<ProviderConfigView[]>("get_provider_configs"),
+      invoke<EmbeddingConfigView>("get_embedding_config"),
       invoke<ModelCatalogEntry[]>("get_model_catalog"),
       invoke<WorkspaceRootView>("get_workspace_root"),
       invoke<SkillCatalogItem[]>("list_available_skills"),
@@ -243,6 +250,7 @@ export const useAppStore = create<AppStoreState>((set, get) => ({
     set({
       tasks: normalizedTasks,
       providerConfigs,
+      embeddingConfig,
       modelCatalog,
       selectedProvider: initialSelection.provider,
       selectedModel: initialSelection.model,
@@ -678,6 +686,16 @@ export const useAppStore = create<AppStoreState>((set, get) => ({
   },
 
   selectProviderModel: (provider, model) => set({ selectedProvider: provider, selectedModel: model }),
+
+  refreshEmbeddingConfig: async () => {
+    const embeddingConfig = await invoke<EmbeddingConfigView>("get_embedding_config");
+    set({ embeddingConfig });
+  },
+
+  setEmbeddingConfig: async (config: EmbeddingConfig) => {
+    const embeddingConfig = await invoke<EmbeddingConfigView>("set_embedding_config", { config });
+    set({ embeddingConfig });
+  },
 
   setWorkspaceRoot: async (workspaceRoot: string) => {
     await invoke("set_workspace_root", { workspaceRoot });

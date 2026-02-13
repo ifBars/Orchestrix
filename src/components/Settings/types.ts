@@ -1,4 +1,4 @@
-export type SettingsSectionId = "general" | "providers" | "agents" | "skills" | "mcp" | "compaction";
+export type SettingsSectionId = "general" | "providers" | "embeddings" | "agents" | "skills" | "mcp" | "compaction";
 
 export type SettingsSectionItem = {
   id: SettingsSectionId;
@@ -16,6 +16,11 @@ export const SETTINGS_SECTIONS: readonly SettingsSectionItem[] = [
     id: "providers",
     label: "Providers",
     description: "Model provider API configuration",
+  },
+  {
+    id: "embeddings",
+    label: "Embeddings",
+    description: "Semantic code search embedding provider configuration",
   },
   {
     id: "agents",

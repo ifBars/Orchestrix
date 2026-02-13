@@ -14,10 +14,13 @@ mod tests {
         let tools = registry.list();
         let names: Vec<String> = tools.iter().map(|t| t.name.clone()).collect();
 
+        // Verify all built-in tools are present
         assert!(names.contains(&"fs.read".to_string()));
         assert!(names.contains(&"fs.write".to_string()));
         assert!(names.contains(&"fs.list".to_string()));
+        assert!(names.contains(&"fs.patch".to_string()));
         assert!(names.contains(&"search.rg".to_string()));
+        assert!(names.contains(&"search.files".to_string()));
         assert!(names.contains(&"cmd.exec".to_string()));
         assert!(names.contains(&"git.status".to_string()));
         assert!(names.contains(&"git.diff".to_string()));
@@ -33,12 +36,30 @@ mod tests {
         assert!(names.contains(&"agent.request_build_mode".to_string()));
         assert!(names.contains(&"agent.request_plan_mode".to_string()));
         assert!(names.contains(&"agent.create_artifact".to_string()));
-        // 19 built-in tools
+
+        // Count only built-in tools (exclude MCP tools which have "." in server name like "server.tool")
+        // Built-in tools use "_" separators (e.g., dev_server.start, agent.todo)
+        let builtin_names: Vec<&String> = names
+            .iter()
+            .filter(|n| {
+                !n.contains('.')
+                    || n.starts_with("dev_server.")
+                    || n.starts_with("agent.")
+                    || n.starts_with("skills.")
+                    || n.starts_with("git.")
+                    || n.starts_with("fs.")
+                    || n.starts_with("cmd.")
+                    || n.starts_with("search.")
+                    || n.starts_with("subagent.")
+                    || n.starts_with("web.")
+            })
+            .collect();
+        // 26 built-in tools (19 original + fs.patch + search.files + 4 dev_server.*)
         assert_eq!(
-            names.len(),
-            19,
-            "expected 19 built-in tools, got: {:?}",
-            names
+            builtin_names.len(),
+            26,
+            "expected 26 built-in tools, got: {:?}",
+            builtin_names
         );
     }
 

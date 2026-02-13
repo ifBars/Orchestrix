@@ -35,6 +35,7 @@ use crate::runtime::planner::emit_and_record;
 use crate::runtime::worktree::WorktreeManager;
 use crate::tools::{infer_tool_call, ToolRegistry};
 
+use crate::tools::dev_server::stop_all_dev_servers_for_run;
 use delegation::spawn_and_execute_delegated_sub_agent;
 use helpers::{open_todos_in_latest_todo_observation, parse_sub_agent_contract};
 use model::{RuntimeModelConfig, StreamDelta, WorkerModelClient};
@@ -104,7 +105,9 @@ impl<'a> MessageStreamEmitter<'a> {
             self.start_thinking_stream()?;
         }
         self.thinking_pending.push_str(delta);
-        if self.thinking_pending.len() >= THINKING_DELTA_FLUSH_CHARS || self.thinking_pending.contains('\n') {
+        if self.thinking_pending.len() >= THINKING_DELTA_FLUSH_CHARS
+            || self.thinking_pending.contains('\n')
+        {
             self.flush_thinking_pending()?;
         }
         Ok(())
@@ -130,7 +133,7 @@ impl<'a> MessageStreamEmitter<'a> {
                 }),
             );
         }
-        
+
         if self.stream_id.is_none() {
             return Ok(());
         }
@@ -174,7 +177,7 @@ impl<'a> MessageStreamEmitter<'a> {
                 }),
             );
         }
-        
+
         if self.stream_id.is_none() {
             return Ok(());
         }
@@ -478,15 +481,8 @@ pub async fn execute_step_with_tools(
 
         // Get decision from model or fallback
         let decision = if let Some(model) = &worker_model {
-            let mut stream_emitter = MessageStreamEmitter::new(
-                db,
-                bus,
-                run_id,
-                task_id,
-                &sub_agent.id,
-                step.idx,
-                turn,
-            );
+            let mut stream_emitter =
+                MessageStreamEmitter::new(db, bus, run_id, task_id, &sub_agent.id, step.idx, turn);
 
             let decision = model
                 .decide_streaming(
@@ -623,7 +619,8 @@ pub async fn execute_step_with_tools(
 
                 // If the model requested multiple sub-agent spawns in one turn,
                 // execute them concurrently for real parallel delegation.
-                let all_subagent_spawns = calls.iter().all(|call| call.tool_name == "subagent.spawn");
+                let all_subagent_spawns =
+                    calls.iter().all(|call| call.tool_name == "subagent.spawn");
                 if all_subagent_spawns && calls.len() > 1 {
                     let spawn_observations = futures::future::join_all(calls.iter().map(|call| {
                         let objective = call
@@ -821,6 +818,33 @@ pub async fn execute_step_with_tools(
                 observations.push(observation);
             }
         }
+    }
+
+    // Cleanup: Stop all dev servers associated with this run
+    // This ensures no orphaned processes when a step completes
+    let cleanup_results = stop_all_dev_servers_for_run(run_id).await;
+    if !cleanup_results.is_empty() {
+        let stopped_count = cleanup_results.len();
+        let _ = emit_and_record(
+            db,
+            bus,
+            "agent",
+            "agent.dev_servers_cleaned",
+            Some(run_id.to_string()),
+            serde_json::json!({
+                "task_id": task_id,
+                "sub_agent_id": sub_agent.id,
+                "step_idx": step.idx,
+                "servers_stopped": stopped_count,
+                "details": cleanup_results.iter().map(|r| {
+                    serde_json::json!({
+                        "server_id": &r.server_id,
+                        "success": r.success,
+                        "runtime_secs": r.runtime_secs,
+                    })
+                }).collect::<Vec<_>>(),
+            }),
+        );
     }
 
     // Generate step report

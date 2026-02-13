@@ -102,6 +102,14 @@ impl ModelCatalog {
                     },
                 ],
             },
+            ProviderEntry {
+                provider: ProviderId::Modal.as_str().to_string(),
+                models: vec![ModelInfo {
+                    name: "zai-org/GLM-5-FP8".to_string(),
+                    context_window: 204_800,
+                    description: "GLM-5 on Modal (FP8 quantized)".to_string(),
+                }],
+            },
         ]
     }
 
@@ -111,6 +119,7 @@ impl ModelCatalog {
             ProviderId::MiniMax => "MiniMax-M2.5".to_string(),
             ProviderId::Kimi => "kimi-k2.5".to_string(),
             ProviderId::Zhipu => "glm-5".to_string(),
+            ProviderId::Modal => "zai-org/GLM-5-FP8".to_string(),
         }
     }
 }

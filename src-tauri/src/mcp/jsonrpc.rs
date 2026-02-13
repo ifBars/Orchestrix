@@ -79,7 +79,7 @@ impl RequestIdGenerator {
     /// Otherwise, returns a numeric ID.
     pub fn next_id(&self) -> RequestId {
         let counter = self.counter.fetch_add(1, Ordering::SeqCst);
-        
+
         match &self.prefix {
             Some(prefix) => RequestId::String(format!("{}-{}", prefix, counter)),
             None => RequestId::Number(counter as i64),
@@ -360,7 +360,9 @@ impl JsonRpcClient {
         // Make the request with timeout
         let result = timeout(self.timeout, self.transport.request(method, params_value))
             .await
-            .map_err(|_| RpcClientError::Timeout { duration: self.timeout })?;
+            .map_err(|_| RpcClientError::Timeout {
+                duration: self.timeout,
+            })?;
 
         // Handle transport result
         let response_value = result.map_err(RpcClientError::transport)?;
@@ -379,9 +381,9 @@ impl JsonRpcClient {
         }
 
         // Extract and deserialize result
-        let result_value = response.result.ok_or_else(|| {
-            RpcClientError::parse("Response missing result field")
-        })?;
+        let result_value = response
+            .result
+            .ok_or_else(|| RpcClientError::parse("Response missing result field"))?;
 
         serde_json::from_value(result_value)
             .map_err(|e| RpcClientError::parse(format!("Failed to deserialize result: {}", e)))
@@ -411,7 +413,9 @@ impl JsonRpcClient {
         // Make the request with timeout
         let result = timeout(self.timeout, self.transport.request(method, params))
             .await
-            .map_err(|_| RpcClientError::Timeout { duration: self.timeout })?;
+            .map_err(|_| RpcClientError::Timeout {
+                duration: self.timeout,
+            })?;
 
         // Handle transport result
         let response_value = result.map_err(RpcClientError::transport)?;
@@ -430,9 +434,9 @@ impl JsonRpcClient {
         }
 
         // Extract and deserialize result
-        let result_value = response.result.ok_or_else(|| {
-            RpcClientError::parse("Response missing result field")
-        })?;
+        let result_value = response
+            .result
+            .ok_or_else(|| RpcClientError::parse("Response missing result field"))?;
 
         serde_json::from_value(result_value)
             .map_err(|e| RpcClientError::parse(format!("Failed to deserialize result: {}", e)))
@@ -476,7 +480,9 @@ impl JsonRpcClient {
         // notifications the same way but without waiting for a response
         timeout(self.timeout, self.transport.request(method, params_value))
             .await
-            .map_err(|_| RpcClientError::Timeout { duration: self.timeout })?
+            .map_err(|_| RpcClientError::Timeout {
+                duration: self.timeout,
+            })?
             .map_err(RpcClientError::transport)?;
 
         Ok(())
@@ -495,7 +501,9 @@ impl JsonRpcClient {
 
         timeout(self.timeout, self.transport.request(method, params))
             .await
-            .map_err(|_| RpcClientError::Timeout { duration: self.timeout })?
+            .map_err(|_| RpcClientError::Timeout {
+                duration: self.timeout,
+            })?
             .map_err(RpcClientError::transport)?;
 
         Ok(())
@@ -592,11 +600,11 @@ mod tests {
     #[test]
     fn test_request_id_generator_numeric() {
         let gen = RequestIdGenerator::new();
-        
+
         let id1 = gen.next_id();
         let id2 = gen.next_id();
         let id3 = gen.next_id();
-        
+
         assert_eq!(id1, RequestId::Number(1));
         assert_eq!(id2, RequestId::Number(2));
         assert_eq!(id3, RequestId::Number(3));
@@ -605,10 +613,10 @@ mod tests {
     #[test]
     fn test_request_id_generator_prefixed() {
         let gen = RequestIdGenerator::with_prefix("req");
-        
+
         let id1 = gen.next_id();
         let id2 = gen.next_id();
-        
+
         assert_eq!(id1, RequestId::String("req-1".to_string()));
         assert_eq!(id2, RequestId::String("req-2".to_string()));
     }
@@ -616,14 +624,14 @@ mod tests {
     #[test]
     fn test_request_id_generator_reset() {
         let gen = RequestIdGenerator::new();
-        
+
         let _ = gen.next_id();
         let _ = gen.next_id();
         assert_eq!(gen.current(), 3);
-        
+
         gen.reset();
         assert_eq!(gen.current(), 1);
-        
+
         let id = gen.next_id();
         assert_eq!(id, RequestId::Number(1));
     }
@@ -631,10 +639,10 @@ mod tests {
     #[test]
     fn test_request_id_generator_thread_safety() {
         use std::thread;
-        
+
         let gen = RequestIdGenerator::new();
         let mut handles = vec![];
-        
+
         for _ in 0..10 {
             let gen_clone = gen.clone();
             let handle = thread::spawn(move || {
@@ -646,15 +654,18 @@ mod tests {
             });
             handles.push(handle);
         }
-        
+
         let all_ids: Vec<_> = handles
             .into_iter()
             .flat_map(|h| h.join().unwrap())
             .collect();
-        
+
         // Check all IDs are unique
         let unique_count = all_ids.len();
-        let set_count = all_ids.into_iter().collect::<std::collections::HashSet<_>>().len();
+        let set_count = all_ids
+            .into_iter()
+            .collect::<std::collections::HashSet<_>>()
+            .len();
         assert_eq!(unique_count, set_count);
     }
 
@@ -662,10 +673,12 @@ mod tests {
     fn test_json_rpc_error_variants() {
         let transport_err = RpcClientError::transport("connection refused");
         assert!(matches!(transport_err, RpcClientError::Transport(_)));
-        
-        let timeout_err = RpcClientError::Timeout { duration: Duration::from_secs(30) };
+
+        let timeout_err = RpcClientError::Timeout {
+            duration: Duration::from_secs(30),
+        };
         assert!(timeout_err.is_timeout());
-        
+
         let server_err = RpcClientError::Server {
             code: -32601,
             message: "Method not found".to_string(),
@@ -682,10 +695,14 @@ mod tests {
             message: "Invalid params".to_string(),
             data: Some(serde_json::json!({"field": "name"})),
         };
-        
+
         let err: RpcClientError = rpc_err.into();
         match err {
-            RpcClientError::Server { code, message, data } => {
+            RpcClientError::Server {
+                code,
+                message,
+                data,
+            } => {
                 assert_eq!(code, -32602);
                 assert_eq!(message, "Invalid params");
                 assert!(data.is_some());
@@ -698,11 +715,13 @@ mod tests {
     fn test_client_builder_exists() {
         // This test verifies the builder type and methods exist
         // We can't actually create a transport without a real process
-        
+
         // Just verify the methods exist by taking their function pointers
         let _: fn(Box<dyn McpTransport>) -> JsonRpcClientBuilder = JsonRpcClientBuilder::new;
-        let _: fn(JsonRpcClientBuilder, Duration) -> JsonRpcClientBuilder = JsonRpcClientBuilder::timeout;
-        let _: fn(JsonRpcClientBuilder, RequestIdGenerator) -> JsonRpcClientBuilder = JsonRpcClientBuilder::id_generator;
+        let _: fn(JsonRpcClientBuilder, Duration) -> JsonRpcClientBuilder =
+            JsonRpcClientBuilder::timeout;
+        let _: fn(JsonRpcClientBuilder, RequestIdGenerator) -> JsonRpcClientBuilder =
+            JsonRpcClientBuilder::id_generator;
         let _: fn(JsonRpcClientBuilder) -> JsonRpcClient = JsonRpcClientBuilder::build;
     }
 }

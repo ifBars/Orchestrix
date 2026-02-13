@@ -11,8 +11,8 @@ use std::collections::HashMap;
 use serde::{Deserialize, Serialize};
 
 use crate::mcp::{
-    FilterMode, GlobalApprovalPolicy, McpAuthConfig, McpServerConfig, McpTransportType,
-    ServerHealth, ToolApprovalPolicy, ToolFilter, migrate_legacy_config,
+    migrate_legacy_config, FilterMode, GlobalApprovalPolicy, McpAuthConfig, McpServerConfig,
+    McpTransportType, ServerHealth, ToolApprovalPolicy, ToolFilter,
 };
 use crate::AppError;
 
@@ -29,7 +29,7 @@ pub struct CreateMcpServerInput {
     pub transport: McpTransportType,
     #[serde(default = "default_true")]
     pub enabled: bool,
-    
+
     // Stdio fields
     pub command: Option<String>,
     #[serde(default)]
@@ -37,7 +37,7 @@ pub struct CreateMcpServerInput {
     #[serde(default)]
     pub env: HashMap<String, String>,
     pub working_dir: Option<String>,
-    
+
     // HTTP/SSE fields
     pub url: Option<String>,
     pub auth: Option<McpAuthInput>,
@@ -45,16 +45,24 @@ pub struct CreateMcpServerInput {
     pub timeout_secs: u64,
     #[serde(default = "default_pool_size")]
     pub pool_size: usize,
-    
+
     // Filtering and approval
     pub tool_filter: Option<ToolFilterInput>,
     pub approval_policy: Option<ToolApprovalPolicyInput>,
 }
 
-fn default_stdio() -> McpTransportType { McpTransportType::Stdio }
-fn default_true() -> bool { true }
-fn default_timeout() -> u64 { 30 }
-fn default_pool_size() -> usize { 5 }
+fn default_stdio() -> McpTransportType {
+    McpTransportType::Stdio
+}
+fn default_true() -> bool {
+    true
+}
+fn default_timeout() -> u64 {
+    30
+}
+fn default_pool_size() -> usize {
+    5
+}
 
 /// Authentication input.
 #[derive(Debug, Clone, Deserialize)]
@@ -231,21 +239,21 @@ pub async fn list_mcp_servers(
     let manager = &state.mcp_manager;
     let servers = manager.list_servers().await;
     let tools = manager.load_tools_cache().await;
-    
+
     let mut views = Vec::new();
     for server in servers {
-        let tool_count = tools.iter()
-            .filter(|t| t.server_id == server.id)
-            .count();
-        
-        let health = manager.get_server_runtime_info(&server.id).await
+        let tool_count = tools.iter().filter(|t| t.server_id == server.id).count();
+
+        let health = manager
+            .get_server_runtime_info(&server.id)
+            .await
             .map(|info| McpServerHealthView {
                 status: format!("{:?}", info.health).to_lowercase(),
                 last_check: info.last_health_check,
                 connected_at: info.connected_at,
                 error_count: info.error_count,
             });
-        
+
         views.push(McpServerView {
             id: server.id,
             name: server.name,
@@ -260,7 +268,7 @@ pub async fn list_mcp_servers(
             health,
         });
     }
-    
+
     Ok(views)
 }
 
@@ -271,25 +279,25 @@ pub async fn get_mcp_server(
     server_id: String,
 ) -> Result<Option<McpServerView>, AppError> {
     let manager = &state.mcp_manager;
-    
+
     let server = match manager.get_server(&server_id).await {
         Some(s) => s,
         None => return Ok(None),
     };
-    
+
     let tools = manager.load_tools_cache().await;
-    let tool_count = tools.iter()
-        .filter(|t| t.server_id == server.id)
-        .count();
-    
-    let health = manager.get_server_runtime_info(&server.id).await
+    let tool_count = tools.iter().filter(|t| t.server_id == server.id).count();
+
+    let health = manager
+        .get_server_runtime_info(&server.id)
+        .await
         .map(|info| McpServerHealthView {
             status: format!("{:?}", info.health).to_lowercase(),
             last_check: info.last_health_check,
             connected_at: info.connected_at,
             error_count: info.error_count,
         });
-    
+
     Ok(Some(McpServerView {
         id: server.id,
         name: server.name,
@@ -312,62 +320,74 @@ pub async fn upsert_mcp_server(
     input: CreateMcpServerInput,
 ) -> Result<McpServerView, AppError> {
     let manager = &state.mcp_manager;
-    
+
     // Validate input
     let name = input.name.trim();
     if name.is_empty() {
         return Err(AppError::Other("name is required".to_string()));
     }
-    
+
     // Generate or use provided ID
-    let id = input.id
+    let id = input
+        .id
         .as_deref()
         .map(sanitize_id)
         .filter(|v| !v.is_empty())
         .unwrap_or_else(|| sanitize_id(name));
-    
+
     if id.is_empty() {
         return Err(AppError::Other("could not derive valid id".to_string()));
     }
-    
+
     // Convert auth input
-    let auth = input.auth.map(|a| McpAuthConfig {
-        oauth_token: a.oauth_token,
-        headers: a.headers,
-        api_key: a.api_key,
-        api_key_header: a.api_key_header,
-    }).unwrap_or_default();
-    
+    let auth = input
+        .auth
+        .map(|a| McpAuthConfig {
+            oauth_token: a.oauth_token,
+            headers: a.headers,
+            api_key: a.api_key,
+            api_key_header: a.api_key_header,
+        })
+        .unwrap_or_default();
+
     // Convert tool filter input
-    let tool_filter = input.tool_filter.map(|f| ToolFilter {
-        mode: match f.mode.as_str() {
-            "include" => FilterMode::Include,
-            "exclude" => FilterMode::Exclude,
-            _ => FilterMode::Include,
-        },
-        tools: f.tools,
-        allow_all_read_only: f.allow_all_read_only,
-        block_all_modifying: f.block_all_modifying,
-    }).unwrap_or_default();
-    
+    let tool_filter = input
+        .tool_filter
+        .map(|f| ToolFilter {
+            mode: match f.mode.as_str() {
+                "include" => FilterMode::Include,
+                "exclude" => FilterMode::Exclude,
+                _ => FilterMode::Include,
+            },
+            tools: f.tools,
+            allow_all_read_only: f.allow_all_read_only,
+            block_all_modifying: f.block_all_modifying,
+        })
+        .unwrap_or_default();
+
     // Convert approval policy input
-    let approval_policy = input.approval_policy.map(|p| ToolApprovalPolicy {
-        global_policy: match p.global_policy.as_str() {
-            "always" => GlobalApprovalPolicy::Always,
-            "never" => GlobalApprovalPolicy::Never,
-            _ => GlobalApprovalPolicy::ByTool,
-        },
-        tool_overrides: p.tool_overrides.into_iter().map(|o| {
-            crate::mcp::filtering::ToolOverride {
-                pattern: o.pattern,
-                requires_approval: o.requires_approval,
-                is_glob: o.is_glob,
-            }
-        }).collect(),
-        read_only_never_requires_approval: p.read_only_never_requires_approval,
-        modifying_always_requires_approval: p.modifying_always_requires_approval,
-    }).unwrap_or_default();
-    
+    let approval_policy = input
+        .approval_policy
+        .map(|p| ToolApprovalPolicy {
+            global_policy: match p.global_policy.as_str() {
+                "always" => GlobalApprovalPolicy::Always,
+                "never" => GlobalApprovalPolicy::Never,
+                _ => GlobalApprovalPolicy::ByTool,
+            },
+            tool_overrides: p
+                .tool_overrides
+                .into_iter()
+                .map(|o| crate::mcp::filtering::ToolOverride {
+                    pattern: o.pattern,
+                    requires_approval: o.requires_approval,
+                    is_glob: o.is_glob,
+                })
+                .collect(),
+            read_only_never_requires_approval: p.read_only_never_requires_approval,
+            modifying_always_requires_approval: p.modifying_always_requires_approval,
+        })
+        .unwrap_or_default();
+
     // Capture values before they are moved
     let transport_type = input.transport.clone();
     let enabled = input.enabled;
@@ -376,7 +396,7 @@ pub async fn upsert_mcp_server(
     let url = input.url.clone();
     let timeout_secs = input.timeout_secs;
     let pool_size = input.pool_size;
-    
+
     let server = McpServerConfig {
         id: id.clone(),
         name: name.to_string(),
@@ -394,25 +414,26 @@ pub async fn upsert_mcp_server(
         tool_filter,
         approval_policy,
     };
-    
-    server.validate()
+
+    server
+        .validate()
         .map_err(|e| AppError::Other(format!("validation failed: {}", e)))?;
-    
-    manager.upsert_server(server).await
+
+    manager
+        .upsert_server(server)
+        .await
         .map_err(|e| AppError::Other(format!("failed to save server: {}", e)))?;
-    
+
     // Refresh tools cache in background
     let manager_clone = manager.clone();
     tokio::spawn(async move {
         let _ = manager_clone.refresh_tools_cache().await;
     });
-    
+
     // Return the created server
     let tools = manager.load_tools_cache().await;
-    let tool_count = tools.iter()
-        .filter(|t| t.server_id == id)
-        .count();
-    
+    let tool_count = tools.iter().filter(|t| t.server_id == id).count();
+
     Ok(McpServerView {
         id,
         name: name.to_string(),
@@ -439,8 +460,10 @@ pub async fn remove_mcp_server(
     server_id: String,
 ) -> Result<bool, AppError> {
     let manager = &state.mcp_manager;
-    
-    manager.remove_server(&server_id).await
+
+    manager
+        .remove_server(&server_id)
+        .await
         .map_err(|e| AppError::Other(format!("failed to remove server: {}", e)))
 }
 
@@ -450,10 +473,12 @@ pub async fn refresh_mcp_tools_cache(
     state: tauri::State<'_, crate::AppState>,
 ) -> Result<McpToolsCacheView, AppError> {
     let manager = &state.mcp_manager;
-    
-    let cache = manager.refresh_tools_cache().await
+
+    let cache = manager
+        .refresh_tools_cache()
+        .await
         .map_err(|e| AppError::Other(format!("failed to refresh tools: {}", e)))?;
-    
+
     Ok(McpToolsCacheView {
         total_tools: cache.tools.len(),
         server_count: cache.server_count,
@@ -476,17 +501,20 @@ pub async fn list_mcp_tools(
 ) -> Result<Vec<McpToolView>, AppError> {
     let manager = &state.mcp_manager;
     let tools = manager.load_tools_cache().await;
-    
-    let views = tools.into_iter().map(|t| McpToolView {
-        server_id: t.server_id,
-        server_name: t.server_name,
-        tool_name: t.tool_name,
-        description: t.description,
-        input_schema: t.input_schema,
-        read_only_hint: t.read_only_hint,
-        requires_approval: t.requires_approval,
-    }).collect();
-    
+
+    let views = tools
+        .into_iter()
+        .map(|t| McpToolView {
+            server_id: t.server_id,
+            server_name: t.server_name,
+            tool_name: t.tool_name,
+            description: t.description,
+            input_schema: t.input_schema,
+            read_only_hint: t.read_only_hint,
+            requires_approval: t.requires_approval,
+        })
+        .collect();
+
     Ok(views)
 }
 
@@ -500,7 +528,7 @@ pub async fn call_mcp_tool(
 ) -> Result<McpToolCallResult, AppError> {
     let manager = &state.mcp_manager;
     let start = std::time::Instant::now();
-    
+
     match manager.call_tool(&server_id, &tool_name, arguments).await {
         Ok(result) => {
             let duration_ms = start.elapsed().as_millis() as u64;
@@ -530,10 +558,12 @@ pub async fn test_mcp_server_connection(
     server_id: String,
 ) -> Result<McpConnectionTestResult, AppError> {
     let manager = &state.mcp_manager;
-    
-    let server = manager.get_server(&server_id).await
+
+    let server = manager
+        .get_server(&server_id)
+        .await
         .ok_or_else(|| AppError::Other(format!("server not found: {}", server_id)))?;
-    
+
     if !server.enabled {
         return Ok(McpConnectionTestResult {
             success: false,
@@ -542,17 +572,19 @@ pub async fn test_mcp_server_connection(
             tool_count: None,
         });
     }
-    
+
     let start = std::time::Instant::now();
-    
+
     // Try to refresh tools which will test the connection
     match manager.refresh_tools_cache().await {
         Ok(cache) => {
             let latency_ms = start.elapsed().as_millis() as u64;
-            let tool_count = cache.tools.iter()
+            let tool_count = cache
+                .tools
+                .iter()
                 .filter(|t| t.server_id == server_id)
                 .count();
-            
+
             Ok(McpConnectionTestResult {
                 success: true,
                 error: None,
@@ -590,11 +622,12 @@ pub async fn get_mcp_statistics(
     let servers = manager.list_servers().await;
     let tools = manager.load_tools_cache().await;
     let runtime_info = manager.get_runtime_info().await;
-    
-    let healthy_count = runtime_info.iter()
+
+    let healthy_count = runtime_info
+        .iter()
         .filter(|info| matches!(info.health, ServerHealth::Healthy))
         .count();
-    
+
     // TODO: Track actual statistics in the manager
     Ok(McpStatisticsView {
         server_count: servers.len(),
@@ -639,7 +672,9 @@ pub fn list_mcp_server_configs() -> Vec<crate::core::mcp::McpServerConfig> {
 }
 
 #[tauri::command]
-pub fn upsert_mcp_server_config(input: LegacyMcpServerInput) -> Result<crate::core::mcp::McpServerConfig, AppError> {
+pub fn upsert_mcp_server_config(
+    input: LegacyMcpServerInput,
+) -> Result<crate::core::mcp::McpServerConfig, AppError> {
     let name = input.name.trim();
     let command = input.command.trim();
     if name.is_empty() {
@@ -702,17 +737,23 @@ pub async fn list_mcp_resources(
     cursor: Option<String>,
 ) -> Result<McpResourcesResult, AppError> {
     let manager = &state.mcp_manager;
-    
-    let result = manager.list_resources(&server_id, cursor.as_deref()).await
+
+    let result = manager
+        .list_resources(&server_id, cursor.as_deref())
+        .await
         .map_err(|e| AppError::Other(format!("Failed to list resources: {}", e)))?;
-    
-    let resources = result.resources.into_iter().map(|r| McpResourceView {
-        uri: r.uri,
-        name: r.name,
-        description: r.description,
-        mime_type: r.mime_type,
-    }).collect();
-    
+
+    let resources = result
+        .resources
+        .into_iter()
+        .map(|r| McpResourceView {
+            uri: r.uri,
+            name: r.name,
+            description: r.description,
+            mime_type: r.mime_type,
+        })
+        .collect();
+
     Ok(McpResourcesResult {
         resources,
         next_cursor: result.next_cursor,
@@ -727,17 +768,23 @@ pub async fn read_mcp_resource(
     uri: String,
 ) -> Result<Vec<McpResourceContent>, AppError> {
     let manager = &state.mcp_manager;
-    
-    let result = manager.read_resource(&server_id, &uri).await
+
+    let result = manager
+        .read_resource(&server_id, &uri)
+        .await
         .map_err(|e| AppError::Other(format!("Failed to read resource: {}", e)))?;
-    
-    let contents = result.contents.into_iter().map(|c| McpResourceContent {
-        uri: c.uri,
-        mime_type: c.mime_type,
-        text: c.text,
-        blob: c.blob,
-    }).collect();
-    
+
+    let contents = result
+        .contents
+        .into_iter()
+        .map(|c| McpResourceContent {
+            uri: c.uri,
+            mime_type: c.mime_type,
+            text: c.text,
+            blob: c.blob,
+        })
+        .collect();
+
     Ok(contents)
 }
 
@@ -749,8 +796,10 @@ pub async fn subscribe_mcp_resource(
     uri: String,
 ) -> Result<(), AppError> {
     let manager = &state.mcp_manager;
-    
-    manager.subscribe_resource(&server_id, &uri).await
+
+    manager
+        .subscribe_resource(&server_id, &uri)
+        .await
         .map_err(|e| AppError::Other(format!("Failed to subscribe to resource: {}", e)))
 }
 
@@ -762,8 +811,10 @@ pub async fn unsubscribe_mcp_resource(
     uri: String,
 ) -> Result<(), AppError> {
     let manager = &state.mcp_manager;
-    
-    manager.unsubscribe_resource(&server_id, &uri).await
+
+    manager
+        .unsubscribe_resource(&server_id, &uri)
+        .await
         .map_err(|e| AppError::Other(format!("Failed to unsubscribe from resource: {}", e)))
 }
 
@@ -779,26 +830,37 @@ pub async fn list_mcp_prompts(
     cursor: Option<String>,
 ) -> Result<McpPromptsResult, AppError> {
     let manager = &state.mcp_manager;
-    
-    let result = manager.list_prompts(&server_id, cursor.as_deref()).await
+
+    let result = manager
+        .list_prompts(&server_id, cursor.as_deref())
+        .await
         .map_err(|e| AppError::Other(format!("Failed to list prompts: {}", e)))?;
-    
-    let prompts = result.prompts.into_iter().map(|p| {
-        let arguments = p.arguments.map(|args| {
-            args.into_iter().map(|a| McpPromptArgumentView {
-                name: a.name,
-                description: a.description,
-                required: a.required.unwrap_or(false),
-            }).collect()
-        }).unwrap_or_default();
-        
-        McpPromptView {
-            name: p.name,
-            description: p.description,
-            arguments,
-        }
-    }).collect();
-    
+
+    let prompts = result
+        .prompts
+        .into_iter()
+        .map(|p| {
+            let arguments = p
+                .arguments
+                .map(|args| {
+                    args.into_iter()
+                        .map(|a| McpPromptArgumentView {
+                            name: a.name,
+                            description: a.description,
+                            required: a.required.unwrap_or(false),
+                        })
+                        .collect()
+                })
+                .unwrap_or_default();
+
+            McpPromptView {
+                name: p.name,
+                description: p.description,
+                arguments,
+            }
+        })
+        .collect();
+
     Ok(McpPromptsResult {
         prompts,
         next_cursor: result.next_cursor,
@@ -814,34 +876,40 @@ pub async fn get_mcp_prompt(
     arguments: Option<serde_json::Value>,
 ) -> Result<McpPromptResult, AppError> {
     let manager = &state.mcp_manager;
-    
-    let result = manager.get_prompt(&server_id, &name, arguments).await
+
+    let result = manager
+        .get_prompt(&server_id, &name, arguments)
+        .await
         .map_err(|e| AppError::Other(format!("Failed to get prompt: {}", e)))?;
-    
-    let messages = result.messages.into_iter().map(|m| {
-        // Extract text content from the message
-        let content = match m.content {
-            crate::mcp::Content::Text(text_content) => text_content.text,
-            crate::mcp::Content::Image(image_content) => {
-                format!("[Image: {}]", image_content.mime_type)
-            }
-            crate::mcp::Content::Resource(resource_content) => {
-                if let Some(text) = resource_content.resource.text {
-                    text
-                } else if let Some(blob) = resource_content.resource.blob {
-                    format!("[Binary content: {} bytes]", blob.len())
-                } else {
-                    "[Resource]".to_string()
+
+    let messages = result
+        .messages
+        .into_iter()
+        .map(|m| {
+            // Extract text content from the message
+            let content = match m.content {
+                crate::mcp::Content::Text(text_content) => text_content.text,
+                crate::mcp::Content::Image(image_content) => {
+                    format!("[Image: {}]", image_content.mime_type)
                 }
+                crate::mcp::Content::Resource(resource_content) => {
+                    if let Some(text) = resource_content.resource.text {
+                        text
+                    } else if let Some(blob) = resource_content.resource.blob {
+                        format!("[Binary content: {} bytes]", blob.len())
+                    } else {
+                        "[Resource]".to_string()
+                    }
+                }
+            };
+
+            McpPromptMessageView {
+                role: format!("{:?}", m.role).to_lowercase(),
+                content,
             }
-        };
-        
-        McpPromptMessageView {
-            role: format!("{:?}", m.role).to_lowercase(),
-            content,
-        }
-    }).collect();
-    
+        })
+        .collect();
+
     Ok(McpPromptResult {
         description: result.description,
         messages,

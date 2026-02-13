@@ -1,12 +1,12 @@
-use serde::{Deserialize, Serialize};
 use futures::StreamExt;
+use serde::{Deserialize, Serialize};
 
+use crate::core::tool::ToolDescriptor;
 use crate::model::shared::{plan_markdown_system_prompt, strip_tool_call_markup};
 use crate::model::{
-    AgentModelClient, ModelError, StreamDelta, WorkerAction, WorkerActionRequest,
-    WorkerDecision, WorkerToolCall,
+    AgentModelClient, ModelError, StreamDelta, WorkerAction, WorkerActionRequest, WorkerDecision,
+    WorkerToolCall,
 };
-use crate::core::tool::ToolDescriptor;
 use crate::runtime::plan_mode_settings::{DEFAULT_PLAN_MODE_MAX_TOKENS, WORKER_MAX_TOKENS};
 
 const DEFAULT_MINIMAX_BASE_URL: &str = "https://api.minimaxi.chat";
@@ -76,7 +76,12 @@ impl MiniMaxClient {
             )
         };
         let response = self
-            .run_chat_json_native(&plan_markdown_system_prompt(), &user, DEFAULT_PLAN_MODE_MAX_TOKENS, tools)
+            .run_chat_json_native(
+                &plan_markdown_system_prompt(),
+                &user,
+                DEFAULT_PLAN_MODE_MAX_TOKENS,
+                tools,
+            )
             .await?;
 
         let markdown = if let Some(ref tool_calls) = response.tool_calls {
@@ -252,10 +257,7 @@ impl AgentModelClient for MiniMaxClient {
         self.model.clone()
     }
 
-    async fn decide_action(
-        &self,
-        req: WorkerActionRequest,
-    ) -> Result<WorkerDecision, ModelError> {
+    async fn decide_action(&self, req: WorkerActionRequest) -> Result<WorkerDecision, ModelError> {
         let noop = |_delta: StreamDelta| Ok::<(), String>(());
         self.decide_action_streaming(req, noop).await
     }
@@ -269,7 +271,9 @@ impl MiniMaxClient {
         user: &str,
         max_tokens: u32,
     ) -> Result<String, ModelError> {
-        let response = self.run_chat_json_native(system, user, max_tokens, None).await?;
+        let response = self
+            .run_chat_json_native(system, user, max_tokens, None)
+            .await?;
         Ok(response.content.unwrap_or_default())
     }
 
@@ -330,10 +334,7 @@ impl MiniMaxClient {
             .await
             .map_err(|e| ModelError::Request(e.to_string()))?;
 
-        tracing::debug!(
-            "MiniMax API response: status={status}, body={}",
-            text
-        );
+        tracing::debug!("MiniMax API response: status={status}, body={}", text);
 
         if status.as_u16() == 401 || status.as_u16() == 403 {
             return Err(ModelError::Auth(format!("MiniMax auth failed ({status})")));
@@ -572,8 +573,7 @@ fn process_minimax_stream_line(
                 if !delta_content.is_empty() {
                     *saw_content_delta = true;
                     content.push_str(&delta_content);
-                    on_delta(StreamDelta::Content(delta_content))
-                        .map_err(ModelError::Request)?;
+                    on_delta(StreamDelta::Content(delta_content)).map_err(ModelError::Request)?;
                 }
             }
 
@@ -589,7 +589,8 @@ fn process_minimax_stream_line(
                 for call in tool_calls {
                     let idx = call.index.unwrap_or(0);
                     if tool_call_accumulators.len() <= idx {
-                        tool_call_accumulators.resize_with(idx + 1, MiniMaxToolCallAccumulator::default);
+                        tool_call_accumulators
+                            .resize_with(idx + 1, MiniMaxToolCallAccumulator::default);
                     }
 
                     let entry = &mut tool_call_accumulators[idx];

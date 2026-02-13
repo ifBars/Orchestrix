@@ -10,8 +10,8 @@ use crate::core::prompt_references::expand_prompt_references;
 use crate::core::tool::ToolDescriptor;
 use crate::db::{queries, Database};
 use crate::model::{
-    strip_tool_call_markup, AgentModelClient, GlmClient, KimiClient, MiniMaxClient, WorkerAction,
-    WorkerActionRequest, WorkerToolCall,
+    strip_tool_call_markup, AgentModelClient, GlmClient, KimiClient, MiniMaxClient, ModalClient,
+    WorkerAction, WorkerActionRequest, WorkerToolCall,
 };
 use crate::policy::PolicyEngine;
 use crate::runtime::approval::ApprovalGate;
@@ -594,6 +594,27 @@ pub async fn generate_plan_markdown_artifact(
         }
         "zhipu" | "glm" => {
             let planner = GlmClient::new(api_key, model, base_url);
+            planner_model = planner.model_id().to_string();
+            run_multi_turn_planning(
+                &db,
+                &bus,
+                &planner,
+                &task_id,
+                &run_id,
+                &prompt_with_refs,
+                &context,
+                &skills_context,
+                plan_mode_tools,
+                tool_registry.as_ref(),
+                &policy,
+                approval_gate.as_ref(),
+                &workspace_root,
+                max_tokens,
+            )
+            .await?
+        }
+        "modal" => {
+            let planner = ModalClient::new(api_key, model, base_url);
             planner_model = planner.model_id().to_string();
             run_multi_turn_planning(
                 &db,

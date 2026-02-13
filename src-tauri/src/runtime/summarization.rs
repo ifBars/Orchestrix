@@ -7,7 +7,7 @@
 //! - Persistent storage of conversation summaries
 
 use crate::db::{queries, Database};
-use crate::model::{GlmClient, KimiClient, MiniMaxClient, ModelCatalog};
+use crate::model::{GlmClient, KimiClient, MiniMaxClient, ModalClient, ModelCatalog};
 use chrono::Utc;
 use uuid::Uuid;
 
@@ -173,9 +173,19 @@ pub async fn generate_summary(
 
     // Generate summary based on provider using simple completion (no agent loop)
     let summary_text = match provider {
-        "kimi" => summarize_with_kimi(api_key, model, base_url, &system_prompt, &conversation_text).await,
-        "zhipu" | "glm" => summarize_with_glm(api_key, model, base_url, &system_prompt, &conversation_text).await,
-        _ => summarize_with_minimax(api_key, model, base_url, &system_prompt, &conversation_text).await,
+        "kimi" => {
+            summarize_with_kimi(api_key, model, base_url, &system_prompt, &conversation_text).await
+        }
+        "zhipu" | "glm" => {
+            summarize_with_glm(api_key, model, base_url, &system_prompt, &conversation_text).await
+        }
+        "modal" => {
+            summarize_with_modal(api_key, model, base_url, &system_prompt, &conversation_text).await
+        }
+        _ => {
+            summarize_with_minimax(api_key, model, base_url, &system_prompt, &conversation_text)
+                .await
+        }
     };
 
     let summary = ConversationSummary {
@@ -222,7 +232,10 @@ async fn summarize_with_kimi(
     {
         Ok(summary) => summary,
         Err(e) => {
-            tracing::warn!("Kimi summarization failed: {}, falling back to basic summary", e);
+            tracing::warn!(
+                "Kimi summarization failed: {}, falling back to basic summary",
+                e
+            );
             generate_fallback_summary(conversation)
         }
     }
@@ -248,7 +261,10 @@ async fn summarize_with_minimax(
     {
         Ok(summary) => summary,
         Err(e) => {
-            tracing::warn!("MiniMax summarization failed: {}, falling back to basic summary", e);
+            tracing::warn!(
+                "MiniMax summarization failed: {}, falling back to basic summary",
+                e
+            );
             generate_fallback_summary(conversation)
         }
     }
@@ -275,7 +291,40 @@ async fn summarize_with_glm(
     {
         Ok(summary) => summary,
         Err(e) => {
-            tracing::warn!("GLM summarization failed: {}, falling back to basic summary", e);
+            tracing::warn!(
+                "GLM summarization failed: {}, falling back to basic summary",
+                e
+            );
+            generate_fallback_summary(conversation)
+        }
+    }
+}
+
+/// Summarize using Modal model with simple completion (no agent loop).
+#[allow(dead_code)]
+async fn summarize_with_modal(
+    api_key: &str,
+    model: Option<&str>,
+    base_url: Option<&str>,
+    system_prompt: &str,
+    conversation: &str,
+) -> String {
+    let planner = ModalClient::new(
+        api_key.to_string(),
+        model.map(String::from),
+        base_url.map(String::from),
+    );
+
+    match planner
+        .complete(system_prompt, conversation, SUMMARIZATION_MAX_TOKENS)
+        .await
+    {
+        Ok(summary) => summary,
+        Err(e) => {
+            tracing::warn!(
+                "Modal summarization failed: {}, falling back to basic summary",
+                e
+            );
             generate_fallback_summary(conversation)
         }
     }
@@ -342,14 +391,7 @@ pub async fn get_or_generate_summary(
 
     // Generate new summary
     generate_summary(
-        db,
-        task_id,
-        run_id,
-        provider,
-        api_key,
-        model,
-        base_url,
-        settings,
+        db, task_id, run_id, provider, api_key, model, base_url, settings,
     )
     .await
 }
@@ -449,10 +491,8 @@ pub fn build_context_with_summary(
 /// Load compaction settings from database (or return defaults).
 pub fn load_compaction_settings(db: &Database) -> Result<CompactionSettings, String> {
     match queries::get_setting(db, "compaction_settings") {
-        Ok(Some(json_str)) => {
-            serde_json::from_str(&json_str)
-                .map_err(|e| format!("Failed to parse compaction settings: {e}"))
-        }
+        Ok(Some(json_str)) => serde_json::from_str(&json_str)
+            .map_err(|e| format!("Failed to parse compaction settings: {e}")),
         Ok(None) => Ok(CompactionSettings::default()),
         Err(e) => Err(format!("Failed to load compaction settings: {e}")),
     }

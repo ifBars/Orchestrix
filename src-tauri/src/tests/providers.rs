@@ -10,7 +10,10 @@
 
 #[cfg(test)]
 pub mod tests {
-    use crate::model::{AgentModelClient, KimiClient, MiniMaxClient, WorkerAction, WorkerActionRequest, WorkerDecision};
+    use crate::model::{
+        AgentModelClient, KimiClient, MiniMaxClient, WorkerAction, WorkerActionRequest,
+        WorkerDecision,
+    };
     use crate::tests::load_api_key;
     use serde_json::json;
 
@@ -207,8 +210,7 @@ pub mod tests {
     async fn test_minimax_base_url_override() {
         let api_key = load_api_key();
         let custom_url = "https://api.example.com/v1/minimax";
-        let planner =
-            MiniMaxClient::new_with_base_url(api_key, None, Some(custom_url.to_string()));
+        let planner = MiniMaxClient::new_with_base_url(api_key, None, Some(custom_url.to_string()));
 
         assert!(!planner.model_id().is_empty());
     }

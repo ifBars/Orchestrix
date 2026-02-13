@@ -9,6 +9,7 @@ pub enum ProviderId {
     MiniMax,
     Kimi,
     Zhipu,
+    Modal,
 }
 
 impl ProviderId {
@@ -17,11 +18,17 @@ impl ProviderId {
             ProviderId::MiniMax => "minimax",
             ProviderId::Kimi => "kimi",
             ProviderId::Zhipu => "zhipu",
+            ProviderId::Modal => "modal",
         }
     }
 
     pub const fn all() -> &'static [ProviderId] {
-        &[ProviderId::MiniMax, ProviderId::Kimi, ProviderId::Zhipu]
+        &[
+            ProviderId::MiniMax,
+            ProviderId::Kimi,
+            ProviderId::Zhipu,
+            ProviderId::Modal,
+        ]
     }
 }
 
@@ -39,6 +46,7 @@ impl FromStr for ProviderId {
             "minimax" => Ok(ProviderId::MiniMax),
             "kimi" => Ok(ProviderId::Kimi),
             "zhipu" | "glm" => Ok(ProviderId::Zhipu),
+            "modal" => Ok(ProviderId::Modal),
             _ => Err(format!("unknown provider: {}", s)),
         }
     }
@@ -90,6 +98,7 @@ mod tests {
         assert_eq!(ProviderId::from_str("kimi").unwrap(), ProviderId::Kimi);
         assert_eq!(ProviderId::from_str("zhipu").unwrap(), ProviderId::Zhipu);
         assert_eq!(ProviderId::from_str("glm").unwrap(), ProviderId::Zhipu);
+        assert_eq!(ProviderId::from_str("modal").unwrap(), ProviderId::Modal);
         assert_eq!(
             ProviderId::from_str("MINIMAX").unwrap(),
             ProviderId::MiniMax

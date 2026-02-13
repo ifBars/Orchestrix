@@ -205,6 +205,38 @@ CREATE TABLE conversation_summaries (
 CREATE INDEX idx_conversation_summaries_task ON conversation_summaries(task_id, created_at);
 "#,
     },
+    Migration {
+        version: 8,
+        sql: r#"
+CREATE TABLE embedding_indexes (
+    workspace_root TEXT PRIMARY KEY,
+    provider       TEXT NOT NULL,
+    status         TEXT NOT NULL,
+    dims           INTEGER,
+    file_count     INTEGER NOT NULL DEFAULT 0,
+    chunk_count    INTEGER NOT NULL DEFAULT 0,
+    indexed_at     TEXT,
+    updated_at     TEXT NOT NULL,
+    error          TEXT
+);
+
+CREATE TABLE embedding_chunks (
+    id             INTEGER PRIMARY KEY AUTOINCREMENT,
+    workspace_root TEXT NOT NULL,
+    path           TEXT NOT NULL,
+    chunk_idx      INTEGER NOT NULL,
+    line_start     INTEGER,
+    line_end       INTEGER,
+    content        TEXT NOT NULL,
+    embedding_json TEXT NOT NULL,
+    created_at     TEXT NOT NULL,
+    FOREIGN KEY (workspace_root) REFERENCES embedding_indexes(workspace_root) ON DELETE CASCADE
+);
+
+CREATE INDEX idx_embedding_chunks_workspace ON embedding_chunks(workspace_root);
+CREATE INDEX idx_embedding_chunks_workspace_path ON embedding_chunks(workspace_root, path);
+"#,
+    },
 ];
 
 pub(super) fn run_migrations(conn: &Connection) -> Result<(), DbError> {

@@ -7,8 +7,5 @@ use crate::model::types::{ModelError, WorkerActionRequest, WorkerDecision};
 #[allow(async_fn_in_trait)]
 pub trait AgentModelClient: Send + Sync {
     fn model_id(&self) -> String;
-    async fn decide_action(
-        &self,
-        req: WorkerActionRequest,
-    ) -> Result<WorkerDecision, ModelError>;
+    async fn decide_action(&self, req: WorkerActionRequest) -> Result<WorkerDecision, ModelError>;
 }

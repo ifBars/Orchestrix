@@ -18,11 +18,15 @@
 //! - `types`: Core types (Tool trait, ToolCallInput/Output, ToolError)
 //! - `registry`: ToolRegistry for managing and invoking tools
 //! - `fs`: Filesystem tools (read, write, list)
-//! - `search`: Search tools (ripgrep)
+//! - `patch`: Structured file patching (apply-patch format)
+//! - `search`: Content search tools (ripgrep with structured output)
+//! - `file_search`: Fuzzy filename search (nucleo-based)
 //! - `cmd`: Command execution tools
 //! - `git`: Git repository tools
 //! - `agent`: Agent management tools (todo, mode switching)
 //! - `skills`: Skills management tools
+//! - `dev_server`: Development server management tools
+//! - `web_snapshot`: Web page screenshot capture tool
 //!
 //! # Adding New Tools
 //!
@@ -33,18 +37,24 @@
 
 // Public exports
 pub use registry::ToolRegistry;
+pub use semantic_search::set_semantic_index_service;
 #[allow(unused_imports)]
 pub use types::{ToolCallInput, ToolCallOutput, ToolError};
 
 // Submodules
 mod agent;
 mod cmd;
+pub mod dev_server;
+mod file_search;
 mod fs;
 mod git;
+pub mod patch;
 mod registry;
 mod search;
+mod semantic_search;
 mod skills;
 mod types;
+mod web_snapshot;
 
 /// Infer a tool call from step title and optional tool intent.
 /// Used as a fallback when the model doesn't explicitly return a tool call.

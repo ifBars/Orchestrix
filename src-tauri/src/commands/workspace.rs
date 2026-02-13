@@ -35,6 +35,9 @@ pub fn set_workspace_root(
     state
         .orchestrator
         .set_workspace_root(PathBuf::from(&workspace_root));
+    state
+        .embedding_index_service
+        .ensure_workspace_index_started(PathBuf::from(&workspace_root));
     Ok(())
 }
 

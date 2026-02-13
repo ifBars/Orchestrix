@@ -101,6 +101,32 @@ pub struct ToolCallRow {
     pub error: Option<String>,
 }
 
+#[derive(Debug, Clone, Serialize)]
+pub struct EmbeddingIndexRow {
+    pub workspace_root: String,
+    pub provider: String,
+    pub status: String,
+    pub dims: Option<i64>,
+    pub file_count: i64,
+    pub chunk_count: i64,
+    pub indexed_at: Option<String>,
+    pub updated_at: String,
+    pub error: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct EmbeddingChunkRow {
+    pub id: i64,
+    pub workspace_root: String,
+    pub path: String,
+    pub chunk_idx: i64,
+    pub line_start: Option<i64>,
+    pub line_end: Option<i64>,
+    pub content: String,
+    pub embedding_json: String,
+    pub created_at: String,
+}
+
 // ---------------------------------------------------------------------------
 // Task queries
 // ---------------------------------------------------------------------------
@@ -721,6 +747,125 @@ pub fn get_setting(db: &Database, key: &str) -> Result<Option<String>, DbError> 
         Some(row) => Ok(Some(row?)),
         None => Ok(None),
     }
+}
+
+pub fn upsert_embedding_index(db: &Database, row: &EmbeddingIndexRow) -> Result<(), DbError> {
+    let conn = db.conn();
+    conn.execute(
+        "INSERT INTO embedding_indexes (
+            workspace_root, provider, status, dims, file_count, chunk_count, indexed_at, updated_at, error
+         ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)
+         ON CONFLICT(workspace_root) DO UPDATE SET
+            provider = excluded.provider,
+            status = excluded.status,
+            dims = excluded.dims,
+            file_count = excluded.file_count,
+            chunk_count = excluded.chunk_count,
+            indexed_at = excluded.indexed_at,
+            updated_at = excluded.updated_at,
+            error = excluded.error",
+        params![
+            row.workspace_root,
+            row.provider,
+            row.status,
+            row.dims,
+            row.file_count,
+            row.chunk_count,
+            row.indexed_at,
+            row.updated_at,
+            row.error,
+        ],
+    )?;
+    Ok(())
+}
+
+pub fn get_embedding_index(
+    db: &Database,
+    workspace_root: &str,
+) -> Result<Option<EmbeddingIndexRow>, DbError> {
+    let conn = db.conn();
+    let mut stmt = conn.prepare(
+        "SELECT workspace_root, provider, status, dims, file_count, chunk_count, indexed_at, updated_at, error
+         FROM embedding_indexes WHERE workspace_root = ?1",
+    )?;
+    let mut rows = stmt.query_map(params![workspace_root], |row| {
+        Ok(EmbeddingIndexRow {
+            workspace_root: row.get(0)?,
+            provider: row.get(1)?,
+            status: row.get(2)?,
+            dims: row.get(3)?,
+            file_count: row.get(4)?,
+            chunk_count: row.get(5)?,
+            indexed_at: row.get(6)?,
+            updated_at: row.get(7)?,
+            error: row.get(8)?,
+        })
+    })?;
+    match rows.next() {
+        Some(row) => Ok(Some(row?)),
+        None => Ok(None),
+    }
+}
+
+pub fn delete_embedding_chunks_for_workspace(
+    db: &Database,
+    workspace_root: &str,
+) -> Result<(), DbError> {
+    let conn = db.conn();
+    conn.execute(
+        "DELETE FROM embedding_chunks WHERE workspace_root = ?1",
+        params![workspace_root],
+    )?;
+    Ok(())
+}
+
+pub fn insert_embedding_chunk(db: &Database, row: &EmbeddingChunkRow) -> Result<(), DbError> {
+    let conn = db.conn();
+    conn.execute(
+        "INSERT INTO embedding_chunks (
+            workspace_root, path, chunk_idx, line_start, line_end, content, embedding_json, created_at
+         ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+        params![
+            row.workspace_root,
+            row.path,
+            row.chunk_idx,
+            row.line_start,
+            row.line_end,
+            row.content,
+            row.embedding_json,
+            row.created_at,
+        ],
+    )?;
+    Ok(())
+}
+
+pub fn list_embedding_chunks_for_workspace(
+    db: &Database,
+    workspace_root: &str,
+) -> Result<Vec<EmbeddingChunkRow>, DbError> {
+    let conn = db.conn();
+    let mut stmt = conn.prepare(
+        "SELECT id, workspace_root, path, chunk_idx, line_start, line_end, content, embedding_json, created_at
+         FROM embedding_chunks
+         WHERE workspace_root = ?1
+         ORDER BY path ASC, chunk_idx ASC",
+    )?;
+    let rows = stmt
+        .query_map(params![workspace_root], |row| {
+            Ok(EmbeddingChunkRow {
+                id: row.get(0)?,
+                workspace_root: row.get(1)?,
+                path: row.get(2)?,
+                chunk_idx: row.get(3)?,
+                line_start: row.get(4)?,
+                line_end: row.get(5)?,
+                content: row.get(6)?,
+                embedding_json: row.get(7)?,
+                created_at: row.get(8)?,
+            })
+        })?
+        .collect::<Result<Vec<_>, _>>()?;
+    Ok(rows)
 }
 
 // ---------------------------------------------------------------------------

@@ -257,9 +257,15 @@ impl TransportConfig {
 /// Returns the highest protocol version that both client and server support.
 pub fn negotiate_protocol_version(server_version: &str) -> Option<&'static str> {
     // Check if server version is in our supported list
-    if SUPPORTED_PROTOCOL_VERSIONS.iter().any(|&v| v == server_version) {
+    if SUPPORTED_PROTOCOL_VERSIONS
+        .iter()
+        .any(|&v| v == server_version)
+    {
         // Use the server's version if we support it
-        SUPPORTED_PROTOCOL_VERSIONS.iter().find(|&&v| v == server_version).copied()
+        SUPPORTED_PROTOCOL_VERSIONS
+            .iter()
+            .find(|&&v| v == server_version)
+            .copied()
     } else {
         // Find the highest version we support that the server might support
         // For now, just return the first supported version as fallback
@@ -465,10 +471,7 @@ impl StdioTransport {
             if let Some(response_id) = response.get("id") {
                 let id_matches = response_id.as_i64() == Some(id)
                     || response_id.as_u64() == Some(id as u64)
-                    || response_id
-                        .as_str()
-                        .and_then(|s| s.parse::<i64>().ok())
-                        == Some(id);
+                    || response_id.as_str().and_then(|s| s.parse::<i64>().ok()) == Some(id);
 
                 if id_matches {
                     if let Some(error) = response.get("error") {
@@ -482,16 +485,15 @@ impl StdioTransport {
             }
 
             // This might be a notification, log and skip it
-            trace!("Received notification or unmatched response: {:?}", response);
+            trace!(
+                "Received notification or unmatched response: {:?}",
+                response
+            );
         }
     }
 
     /// Send a JSON-RPC notification.
-    async fn notify(
-        &self,
-        method: &str,
-        params: serde_json::Value,
-    ) -> Result<(), TransportError> {
+    async fn notify(&self, method: &str, params: serde_json::Value) -> Result<(), TransportError> {
         trace!("Sending notification: method={}", method);
 
         let notification = serde_json::json!({
@@ -504,12 +506,10 @@ impl StdioTransport {
     }
 
     /// Write a message to the process stdin.
-    async fn write_message(
-        &self,
-        message: &serde_json::Value,
-    ) -> Result<(), TransportError> {
-        let body = serde_json::to_string(message)
-            .map_err(|e| TransportError::serialization(format!("Failed to serialize message: {}", e)))?;
+    async fn write_message(&self, message: &serde_json::Value) -> Result<(), TransportError> {
+        let body = serde_json::to_string(message).map_err(|e| {
+            TransportError::serialization(format!("Failed to serialize message: {}", e))
+        })?;
         let framed = format!("{}\n", body);
 
         let mut stdin = self.stdin.lock().await;
@@ -608,7 +608,8 @@ impl McpTransport for StdioTransport {
 
                     // Store capabilities and update state
                     *self.protocol_version.lock().await = Some(protocol_version.to_string());
-                    *self.server_capabilities.lock().await = Some(init_response.capabilities.clone());
+                    *self.server_capabilities.lock().await =
+                        Some(init_response.capabilities.clone());
                     *self.server_info.lock().await = Some(init_response.server_info);
                     *state = TransportState::Initialized;
 
@@ -643,7 +644,9 @@ impl McpTransport for StdioTransport {
                 return Err(TransportError::NotInitialized);
             }
             TransportState::Failed => {
-                return Err(TransportError::Failed("Transport is in failed state".to_string()));
+                return Err(TransportError::Failed(
+                    "Transport is in failed state".to_string(),
+                ));
             }
             TransportState::Initialized => {}
         }
@@ -839,9 +842,8 @@ impl HttpTransport {
             }
         }
 
-        Err(last_error.unwrap_or_else(|| {
-            TransportError::Failed("All retry attempts exhausted".to_string())
-        }))
+        Err(last_error
+            .unwrap_or_else(|| TransportError::Failed("All retry attempts exhausted".to_string())))
     }
 
     /// Internal request method without retry.
@@ -887,7 +889,6 @@ impl HttpTransport {
         request_body: &serde_json::Value,
         expect_response: bool,
     ) -> Result<serde_json::Value, TransportError> {
-
         let primary_url = self.base_url.clone();
         let fallback_url = format!("{}/rpc", self.base_url);
 
@@ -906,14 +907,12 @@ impl HttpTransport {
                 );
                 self.send_http_jsonrpc(&fallback_url, request_body, expect_response)
                     .await
-                    .map_err(|fallback_err| {
-                        TransportError::Http {
-                            status,
-                            message: format!(
-                                "Primary endpoint '{}' failed ({}): {}. Fallback '{}' failed: {}",
-                                primary_url, status, message, fallback_url, fallback_err
-                            ),
-                        }
+                    .map_err(|fallback_err| TransportError::Http {
+                        status,
+                        message: format!(
+                            "Primary endpoint '{}' failed ({}): {}. Fallback '{}' failed: {}",
+                            primary_url, status, message, fallback_url, fallback_err
+                        ),
                     })?
             }
             Err(err) => return Err(err),
@@ -1005,10 +1004,9 @@ impl HttpTransport {
             .unwrap_or("")
             .to_string();
 
-        let body = response
-            .text()
-            .await
-            .map_err(|e| TransportError::InvalidResponse(format!("Failed to read response body: {}", e)))?;
+        let body = response.text().await.map_err(|e| {
+            TransportError::InvalidResponse(format!("Failed to read response body: {}", e))
+        })?;
 
         if body.trim().is_empty() {
             if expect_response {
@@ -1104,7 +1102,8 @@ impl McpTransport for HttpTransport {
                         .map_err(|e| TransportError::InvalidResponse(e.to_string()))?;
 
                     *self.protocol_version.lock().await = Some(protocol_version.to_string());
-                    *self.server_capabilities.lock().await = Some(init_response.capabilities.clone());
+                    *self.server_capabilities.lock().await =
+                        Some(init_response.capabilities.clone());
                     *self.server_info.lock().await = Some(init_response.server_info);
 
                     if let Err(e) = self
@@ -1145,7 +1144,9 @@ impl McpTransport for HttpTransport {
                 return Err(TransportError::NotInitialized);
             }
             TransportState::Failed => {
-                return Err(TransportError::Failed("Transport is in failed state".to_string()));
+                return Err(TransportError::Failed(
+                    "Transport is in failed state".to_string(),
+                ));
             }
             TransportState::Initialized => {}
         }
@@ -1276,7 +1277,8 @@ pub struct SseTransport {
     server_capabilities: Arc<Mutex<Option<ServerCapabilities>>>,
     server_info: Arc<Mutex<Option<Implementation>>>,
     config: TransportConfig,
-    event_stream: Arc<Mutex<Option<Pin<Box<dyn Stream<Item = Result<SseEvent, TransportError>> + Send>>>>>,
+    event_stream:
+        Arc<Mutex<Option<Pin<Box<dyn Stream<Item = Result<SseEvent, TransportError>> + Send>>>>>,
     subscriptions: Arc<Mutex<HashMap<String, tokio::sync::mpsc::Sender<SseEvent>>>>,
     last_event_id: Arc<Mutex<Option<String>>>,
     reconnect_attempts: Arc<AtomicI64>,
@@ -1367,23 +1369,22 @@ impl SseTransport {
     }
 
     /// Connect to the SSE stream with automatic reconnection.
-    async fn connect_sse(&self) -> Result<Pin<Box<dyn Stream<Item = Result<SseEvent, TransportError>> + Send>>, TransportError> {
+    async fn connect_sse(
+        &self,
+    ) -> Result<Pin<Box<dyn Stream<Item = Result<SseEvent, TransportError>> + Send>>, TransportError>
+    {
         let url = format!("{}/events", self.base_url);
 
-        let mut request = self
-            .client
-            .get(&url)
-            .headers(self.headers.clone());
+        let mut request = self.client.get(&url).headers(self.headers.clone());
 
         // Add Last-Event-ID header for replay
         if let Some(last_id) = self.last_event_id.lock().await.as_ref() {
             request = request.header("Last-Event-ID", last_id);
         }
 
-        let response = request
-            .send()
-            .await
-            .map_err(|e| TransportError::connection(format!("Failed to connect to SSE stream: {}", e)))?;
+        let response = request.send().await.map_err(|e| {
+            TransportError::connection(format!("Failed to connect to SSE stream: {}", e))
+        })?;
 
         if !response.status().is_success() {
             let status = response.status();
@@ -1443,8 +1444,7 @@ impl SseTransport {
         let delay = exponential_backoff(attempt as u32);
         warn!(
             "SSE connection lost, reconnecting in {:?} (attempt {})",
-            delay,
-            attempt
+            delay, attempt
         );
 
         sleep(delay).await;
@@ -1492,9 +1492,8 @@ impl SseTransport {
             }
         }
 
-        Err(last_error.unwrap_or_else(|| {
-            TransportError::Failed("All retry attempts exhausted".to_string())
-        }))
+        Err(last_error
+            .unwrap_or_else(|| TransportError::Failed("All retry attempts exhausted".to_string())))
     }
 
     /// Internal request method without retry.
@@ -1534,10 +1533,9 @@ impl SseTransport {
             });
         }
 
-        let response_body: serde_json::Value = response
-            .json()
-            .await
-            .map_err(|e| TransportError::InvalidResponse(format!("Failed to parse response: {}", e)))?;
+        let response_body: serde_json::Value = response.json().await.map_err(|e| {
+            TransportError::InvalidResponse(format!("Failed to parse response: {}", e))
+        })?;
 
         if let Some(error) = response_body.get("error") {
             return Err(TransportError::InvalidResponse(format!(
@@ -1678,7 +1676,8 @@ impl McpTransport for SseTransport {
                     }
 
                     *self.protocol_version.lock().await = Some(protocol_version.to_string());
-                    *self.server_capabilities.lock().await = Some(init_response.capabilities.clone());
+                    *self.server_capabilities.lock().await =
+                        Some(init_response.capabilities.clone());
                     *self.server_info.lock().await = Some(init_response.server_info);
                     *state = TransportState::Initialized;
 
@@ -1711,7 +1710,9 @@ impl McpTransport for SseTransport {
                 return Err(TransportError::NotInitialized);
             }
             TransportState::Failed => {
-                return Err(TransportError::Failed("Transport is in failed state".to_string()));
+                return Err(TransportError::Failed(
+                    "Transport is in failed state".to_string(),
+                ));
             }
             TransportState::Initialized => {}
         }
@@ -1886,7 +1887,7 @@ mod tests {
     #[test]
     fn test_transport_request_id_generator() {
         let gen = TransportRequestIdGenerator::new();
-        
+
         let id1 = gen.next_id();
         let id2 = gen.next_id();
         let id3 = gen.next_id();

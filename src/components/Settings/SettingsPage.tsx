@@ -2,6 +2,7 @@ import { ArrowLeft } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { AgentsSection } from "@/components/Settings/AgentsSection";
 import { CompactionSection } from "@/components/Settings/CompactionSection";
+import { EmbeddingsSection } from "@/components/Settings/EmbeddingsSection";
 import { GeneralSection } from "@/components/Settings/GeneralSection";
 import { McpSection } from "@/components/Settings/McpSection";
 import { ProvidersSection } from "@/components/Settings/ProvidersSection";
@@ -48,6 +49,8 @@ function renderSection(section: SettingsSectionId) {
       return <GeneralSection />;
     case "providers":
       return <ProvidersSection />;
+    case "embeddings":
+      return <EmbeddingsSection />;
     case "agents":
       return <AgentsSection />;
     case "skills":

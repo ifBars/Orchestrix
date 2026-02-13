@@ -16,53 +16,94 @@ use std::time::{Duration, Instant};
 use serde::{Deserialize, Serialize};
 use tokio::sync::RwLock;
 
-pub mod transport;
-pub mod connection;
-pub mod filtering;
-pub mod events;
-pub mod types;
-pub mod jsonrpc;
 pub mod client;
+pub mod connection;
+pub mod events;
+pub mod filtering;
+pub mod jsonrpc;
+pub mod transport;
+pub mod types;
 
 #[cfg(test)]
 pub mod connection_test;
 
 // Re-export main MCP protocol types
 pub use types::{
-    // JSON-RPC types
-    JsonRpcRequest, JsonRpcResponse, JsonRpcNotification, JsonRpcError, RequestId,
-    // Initialize types
-    InitializeRequest, InitializeResponse, ClientCapabilities, ServerCapabilities,
-    Implementation, RootsCapability, PromptsCapability, ResourcesCapability, ToolsCapability,
-    // Tool types
-    Tool, ToolAnnotations, ListToolsRequest, ListToolsResult, CallToolRequest, CallToolResult,
-    // Resource types
-    Resource, ResourceTemplate, ListResourcesRequest, ListResourcesResult,
-    ReadResourceRequest, ReadResourceResult, ResourceContent,
-    // Prompt types
-    Prompt, PromptArgument, ListPromptsRequest, ListPromptsResult,
-    GetPromptRequest, GetPromptResult, PromptMessage, Role,
-    // Content types
-    Content, TextContent, ImageContent, EmbeddedResource,
-    // Notification types
-    ProgressNotification, LoggingMessageNotification, LoggingLevel,
-    ResourceUpdatedNotification, ResourceListChangedNotification,
-    ToolListChangedNotification, PromptListChangedNotification,
-    // Other types
-    SubscribeRequest, UnsubscribeRequest, EmptyResult, SetLevelRequest,
     // Error codes
-    error_codes, JSON_RPC_VERSION,
+    error_codes,
+    CallToolRequest,
+    CallToolResult,
+    ClientCapabilities,
+    // Content types
+    Content,
+    EmbeddedResource,
+    EmptyResult,
+    GetPromptRequest,
+    GetPromptResult,
+    ImageContent,
+    Implementation,
+    // Initialize types
+    InitializeRequest,
+    InitializeResponse,
+    JsonRpcError,
+    JsonRpcNotification,
+    // JSON-RPC types
+    JsonRpcRequest,
+    JsonRpcResponse,
+    ListPromptsRequest,
+    ListPromptsResult,
+    ListResourcesRequest,
+    ListResourcesResult,
+    ListToolsRequest,
+    ListToolsResult,
+    LoggingLevel,
+    LoggingMessageNotification,
+    // Notification types
+    ProgressNotification,
+    // Prompt types
+    Prompt,
+    PromptArgument,
+    PromptListChangedNotification,
+    PromptMessage,
+    PromptsCapability,
+    ReadResourceRequest,
+    ReadResourceResult,
+    RequestId,
+    // Resource types
+    Resource,
+    ResourceContent,
+    ResourceListChangedNotification,
+    ResourceTemplate,
+    ResourceUpdatedNotification,
+    ResourcesCapability,
+    Role,
+    RootsCapability,
+    ServerCapabilities,
+    SetLevelRequest,
+    // Other types
+    SubscribeRequest,
+    TextContent,
+    // Tool types
+    Tool,
+    ToolAnnotations,
+    ToolListChangedNotification,
+    ToolsCapability,
+    UnsubscribeRequest,
+    JSON_RPC_VERSION,
 };
 
-use transport::{McpTransport, TransportConfig};
 use connection::ConnectionManager;
 pub use filtering::{FilterMode, GlobalApprovalPolicy, ToolApprovalPolicy, ToolFilter};
+use transport::{McpTransport, TransportConfig};
 
 // Re-export JSON-RPC client types
-pub use jsonrpc::{JsonRpcClient, RequestIdGenerator, RpcClientError, JsonRpcResult as RpcClientResult, JsonRpcClientBuilder, DEFAULT_REQUEST_TIMEOUT};
+pub use jsonrpc::{
+    JsonRpcClient, JsonRpcClientBuilder, JsonRpcResult as RpcClientResult, RequestIdGenerator,
+    RpcClientError, DEFAULT_REQUEST_TIMEOUT,
+};
 
 // Re-export high-level client types
-pub use client::{McpClient, ClientState, ClientError};
+pub use client::{ClientError, ClientState, McpClient};
 
 /// Type of MCP server transport.
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
@@ -113,7 +154,7 @@ pub struct McpServerConfig {
     /// Whether the server is enabled.
     #[serde(default = "default_true")]
     pub enabled: bool,
-    
+
     // Stdio-specific fields
     /// Command to execute (for stdio transport).
     pub command: Option<String>,
@@ -125,7 +166,7 @@ pub struct McpServerConfig {
     pub env: HashMap<String, String>,
     /// Working directory for the command (for stdio transport).
     pub working_dir: Option<String>,
-    
+
     // HTTP/SSE-specific fields
     /// URL endpoint for HTTP/SSE transport.
     pub url: Option<String>,
@@ -141,7 +182,7 @@ pub struct McpServerConfig {
     /// Health check interval in seconds (default: 60).
     #[serde(default = "default_health_interval")]
     pub health_check_interval_secs: u64,
-    
+
     // Tool filtering
     /// Tool filter configuration.
     #[serde(default)]
@@ -151,10 +192,18 @@ pub struct McpServerConfig {
     pub approval_policy: ToolApprovalPolicy,
 }
 
-fn default_true() -> bool { true }
-fn default_timeout() -> u64 { 30 }
-fn default_pool_size() -> usize { 5 }
-fn default_health_interval() -> u64 { 60 }
+fn default_true() -> bool {
+    true
+}
+fn default_timeout() -> u64 {
+    30
+}
+fn default_pool_size() -> usize {
+    5
+}
+fn default_health_interval() -> u64 {
+    60
+}
 
 impl McpServerConfig {
     /// Create a new stdio-based server configuration.
@@ -178,7 +227,7 @@ impl McpServerConfig {
             approval_policy: ToolApprovalPolicy::default(),
         }
     }
-    
+
     /// Create a new HTTP-based server configuration.
     #[allow(dead_code)]
     pub fn new_http(id: String, name: String, url: String) -> Self {
@@ -200,7 +249,7 @@ impl McpServerConfig {
             approval_policy: ToolApprovalPolicy::default(),
         }
     }
-    
+
     /// Create a new SSE-based server configuration.
     #[allow(dead_code)]
     pub fn new_sse(id: String, name: String, url: String) -> Self {
@@ -222,7 +271,7 @@ impl McpServerConfig {
             approval_policy: ToolApprovalPolicy::default(),
         }
     }
-    
+
     /// Validate the configuration.
     pub fn validate(&self) -> Result<(), String> {
         if self.id.trim().is_empty() {
@@ -231,7 +280,7 @@ impl McpServerConfig {
         if self.name.trim().is_empty() {
             return Err("Server name cannot be empty".to_string());
         }
-        
+
         match self.transport {
             McpTransportType::Stdio => {
                 if self.command.is_none() || self.command.as_ref().unwrap().trim().is_empty() {
@@ -248,7 +297,7 @@ impl McpServerConfig {
                 }
             }
         }
-        
+
         Ok(())
     }
 }
@@ -317,7 +366,7 @@ impl McpClientManager {
         let config = Self::load_config().await?;
         let config_arc = Arc::new(RwLock::new(config));
         let connection_manager = Arc::new(ConnectionManager::new());
-        
+
         Ok(Self {
             connection_manager,
             config: config_arc,
@@ -325,7 +374,7 @@ impl McpClientManager {
             event_emitter: None,
         })
     }
-    
+
     /// Set an event emitter callback.
     pub fn set_event_emitter<F>(&mut self, emitter: F)
     where
@@ -333,126 +382,132 @@ impl McpClientManager {
     {
         self.event_emitter = Some(Box::new(emitter));
     }
-    
+
     /// Emit an event if emitter is configured.
     fn emit_event(&self, event: events::McpEvent) {
         if let Some(emitter) = &self.event_emitter {
             emitter(event);
         }
     }
-    
+
     /// Load server configurations from disk.
     async fn load_config() -> Result<HashMap<String, McpServerConfig>, String> {
         let path = mcp_servers_path();
         let Ok(raw) = tokio::fs::read_to_string(&path).await else {
             return Ok(HashMap::new());
         };
-        
-        let servers: Vec<McpServerConfig> = serde_json::from_str(&raw)
-            .map_err(|e| format!("Failed to parse MCP config: {}", e))?;
-        
+
+        let servers: Vec<McpServerConfig> =
+            serde_json::from_str(&raw).map_err(|e| format!("Failed to parse MCP config: {}", e))?;
+
         let mut map = HashMap::new();
         for server in servers {
             map.insert(server.id.clone(), server);
         }
-        
+
         Ok(map)
     }
-    
+
     /// Save server configurations to disk.
     async fn save_config(&self) -> Result<(), String> {
         let path = mcp_servers_path();
         let config = self.config.read().await;
         let servers: Vec<&McpServerConfig> = config.values().collect();
-        
+
         let body = serde_json::to_string_pretty(&servers)
             .map_err(|e| format!("Failed to serialize MCP config: {}", e))?;
-        
+
         if let Some(parent) = path.parent() {
-            tokio::fs::create_dir_all(parent).await
+            tokio::fs::create_dir_all(parent)
+                .await
                 .map_err(|e| format!("Failed to create config dir: {}", e))?;
         }
-        
-        tokio::fs::write(&path, body).await
+
+        tokio::fs::write(&path, body)
+            .await
             .map_err(|e| format!("Failed to write MCP config: {}", e))?;
-        
+
         Ok(())
     }
-    
+
     /// List all configured servers.
     pub async fn list_servers(&self) -> Vec<McpServerConfig> {
         let config = self.config.read().await;
         let mut servers: Vec<McpServerConfig> = config.values().cloned().collect();
-        servers.sort_by(|a, b| a.name.to_ascii_lowercase().cmp(&b.name.to_ascii_lowercase()));
+        servers.sort_by(|a, b| {
+            a.name
+                .to_ascii_lowercase()
+                .cmp(&b.name.to_ascii_lowercase())
+        });
         servers
     }
-    
+
     /// Get a specific server configuration.
     pub async fn get_server(&self, server_id: &str) -> Option<McpServerConfig> {
         self.config.read().await.get(server_id).cloned()
     }
-    
+
     /// Upsert a server configuration.
     pub async fn upsert_server(&self, server: McpServerConfig) -> Result<(), String> {
         server.validate()?;
-        
+
         let is_new = !self.config.read().await.contains_key(&server.id);
-        
+
         {
             let mut config = self.config.write().await;
             config.insert(server.id.clone(), server.clone());
         }
-        
+
         self.save_config().await?;
-        
+
         self.emit_event(if is_new {
-            events::McpEvent::ServerAdded { 
+            events::McpEvent::ServerAdded {
                 server_id: server.id,
                 server_name: server.name,
                 transport: server.transport.to_string(),
             }
         } else {
-            events::McpEvent::ServerUpdated { 
+            events::McpEvent::ServerUpdated {
                 server_id: server.id,
                 server_name: server.name,
             }
         });
-        
+
         Ok(())
     }
-    
+
     /// Remove a server configuration.
     pub async fn remove_server(&self, server_id: &str) -> Result<bool, String> {
         let server = {
             let mut config = self.config.write().await;
             config.remove(server_id)
         };
-        
+
         if server.is_none() {
             return Ok(false);
         }
-        
+
         let server = server.unwrap();
-        
+
         // Close any active connections
         self.connection_manager.close_connection(server_id).await;
-        
+
         self.save_config().await?;
-        
-        self.emit_event(events::McpEvent::ServerRemoved { 
+
+        self.emit_event(events::McpEvent::ServerRemoved {
             server_id: server_id.to_string(),
             server_name: server.name,
         });
-        
+
         Ok(true)
     }
-    
+
     /// Refresh the tools cache from all enabled servers.
     pub async fn refresh_tools_cache(&self) -> Result<McpToolsCache, String> {
         let servers = self.list_servers().await;
         let mut all_tools = Vec::new();
         let mut server_count = 0;
-        
+
         for server in servers.into_iter().filter(|s| s.enabled) {
             match self.discover_server_tools(&server).await {
                 Ok(tools) => {
@@ -460,7 +515,10 @@ impl McpClientManager {
                     all_tools.extend(tools);
                 }
                 Err(e) => {
-                    eprintln!("Failed to discover tools from server {}: {}", server.name, e);
+                    eprintln!(
+                        "Failed to discover tools from server {}: {}",
+                        server.name, e
+                    );
                     self.emit_event(events::McpEvent::ServerError {
                         server_id: server.id.clone(),
                         server_name: server.name.clone(),
@@ -469,55 +527,65 @@ impl McpClientManager {
                 }
             }
         }
-        
+
         let cache = McpToolsCache {
             tools: all_tools.clone(),
             updated_at: chrono::Utc::now().to_rfc3339(),
             server_count,
         };
-        
+
         // Save cache to disk
         let cache_path = mcp_tools_cache_path();
         let body = serde_json::to_string_pretty(&cache)
             .map_err(|e| format!("Failed to serialize tools cache: {}", e))?;
-        
+
         if let Some(parent) = cache_path.parent() {
-            tokio::fs::create_dir_all(parent).await
+            tokio::fs::create_dir_all(parent)
+                .await
                 .map_err(|e| format!("Failed to create cache dir: {}", e))?;
         }
-        
-        tokio::fs::write(&cache_path, body).await
+
+        tokio::fs::write(&cache_path, body)
+            .await
             .map_err(|e| format!("Failed to write tools cache: {}", e))?;
-        
+
         self.emit_event(events::McpEvent::ToolsCacheRefreshed {
             total_tools: all_tools.len(),
             server_count,
         });
-        
+
         Ok(cache)
     }
-    
+
     /// Discover tools from a specific server.
-    async fn discover_server_tools(&self, server: &McpServerConfig) -> Result<Vec<McpToolEntry>, String> {
+    async fn discover_server_tools(
+        &self,
+        server: &McpServerConfig,
+    ) -> Result<Vec<McpToolEntry>, String> {
         let start = Instant::now();
-        
+
         self.emit_event(events::McpEvent::ToolDiscoveryStarted {
             server_id: server.id.clone(),
             server_name: server.name.clone(),
         });
-        
+
         let mut transport = self.create_transport(server).await?;
-        
+
         // Initialize the transport before making requests
-        transport.initialize().await.map_err(|e| format!("Failed to initialize transport: {}", e))?;
-        
-        let response = transport.request("tools/list", serde_json::json!({})).await?;
-        
+        transport
+            .initialize()
+            .await
+            .map_err(|e| format!("Failed to initialize transport: {}", e))?;
+
+        let response = transport
+            .request("tools/list", serde_json::json!({}))
+            .await?;
+
         let tools_array = response
             .get("tools")
             .and_then(|v| v.as_array())
             .ok_or_else(|| "Invalid tools/list response: missing 'tools' array".to_string())?;
-        
+
         let mut entries = Vec::new();
         for tool in tools_array {
             let name = tool
@@ -525,32 +593,34 @@ impl McpClientManager {
                 .and_then(|v| v.as_str())
                 .unwrap_or("unknown")
                 .to_string();
-            
+
             let description = tool
                 .get("description")
                 .and_then(|v| v.as_str())
                 .unwrap_or("")
                 .to_string();
-            
+
             let input_schema = tool
                 .get("inputSchema")
                 .or_else(|| tool.get("input_schema"))
                 .cloned()
                 .unwrap_or_else(|| serde_json::json!({}));
-            
+
             let read_only_hint = tool
                 .get("readOnlyHint")
                 .or_else(|| tool.get("read_only_hint"))
                 .and_then(|v| v.as_bool());
-            
+
             // Check if tool requires approval based on policy
-            let requires_approval = server.approval_policy.requires_approval(&name, read_only_hint);
-            
+            let requires_approval = server
+                .approval_policy
+                .requires_approval(&name, read_only_hint);
+
             // Check if tool passes the filter
             if !server.tool_filter.allows(&name) {
                 continue;
             }
-            
+
             entries.push(McpToolEntry {
                 server_id: server.id.clone(),
                 server_name: server.name.clone(),
@@ -561,45 +631,50 @@ impl McpClientManager {
                 requires_approval,
             });
         }
-        
+
         let duration = start.elapsed().as_millis() as u64;
-        
+
         self.emit_event(events::McpEvent::ToolDiscoveryCompleted {
             server_id: server.id.clone(),
             server_name: server.name.clone(),
             tool_count: entries.len(),
             duration_ms: duration,
         });
-        
+
         Ok(entries)
     }
-    
+
     /// Load cached tools from disk.
     pub async fn load_tools_cache(&self) -> Vec<McpToolEntry> {
         let path = mcp_tools_cache_path();
         let Ok(raw) = tokio::fs::read_to_string(&path).await else {
             return Vec::new();
         };
-        
+
         let Ok(parsed) = serde_json::from_str::<McpToolsCache>(&raw) else {
             return Vec::new();
         };
-        
+
         parsed.tools
     }
-    
+
     /// Create a transport for a server configuration.
-    async fn create_transport(&self, server: &McpServerConfig) -> Result<Box<dyn McpTransport>, String> {
+    async fn create_transport(
+        &self,
+        server: &McpServerConfig,
+    ) -> Result<Box<dyn McpTransport>, String> {
         let config = TransportConfig {
             timeout: Duration::from_secs(server.timeout_secs),
             auth: server.auth.clone(),
             retry_count: 3,
             pool_size: server.pool_size,
         };
-        
+
         match server.transport {
             McpTransportType::Stdio => {
-                let command = server.command.as_ref()
+                let command = server
+                    .command
+                    .as_ref()
                     .ok_or_else(|| "Stdio transport requires a command".to_string())?;
                 transport::StdioTransport::new(
                     command.clone(),
@@ -610,18 +685,22 @@ impl McpClientManager {
                 )
             }
             McpTransportType::Http => {
-                let url = server.url.as_ref()
+                let url = server
+                    .url
+                    .as_ref()
                     .ok_or_else(|| "HTTP transport requires a URL".to_string())?;
                 transport::HttpTransport::new(url.clone(), config).await
             }
             McpTransportType::Sse => {
-                let url = server.url.as_ref()
+                let url = server
+                    .url
+                    .as_ref()
                     .ok_or_else(|| "SSE transport requires a URL".to_string())?;
                 transport::SseTransport::new(url.clone(), config).await
             }
         }
     }
-    
+
     /// Call a tool on a specific server.
     pub async fn call_tool(
         &self,
@@ -629,18 +708,21 @@ impl McpClientManager {
         tool_name: &str,
         arguments: serde_json::Value,
     ) -> Result<serde_json::Value, String> {
-        let server = self.get_server(server_id).await
+        let server = self
+            .get_server(server_id)
+            .await
             .ok_or_else(|| format!("Server not found: {}", server_id))?;
-        
+
         if !server.enabled {
             return Err(format!("Server is disabled: {}", server_id));
         }
-        
+
         // Check if tool requires approval
         let tools = self.load_tools_cache().await;
-        let tool_entry = tools.iter()
+        let tool_entry = tools
+            .iter()
             .find(|t| t.server_id == server_id && t.tool_name == tool_name);
-        
+
         if let Some(entry) = tool_entry {
             if entry.requires_approval {
                 self.emit_event(events::McpEvent::ToolApprovalRequired {
@@ -650,30 +732,35 @@ impl McpClientManager {
                 });
             }
         }
-        
+
         self.emit_event(events::McpEvent::ToolCallStarted {
             server_id: server_id.to_string(),
             server_name: server.name.clone(),
             tool_name: tool_name.to_string(),
         });
-        
+
         let start = Instant::now();
-        
+
         let mut transport = self.create_transport(&server).await?;
-        
+
         // Initialize the transport before making requests
-        transport.initialize().await.map_err(|e| format!("Failed to initialize transport: {}", e))?;
-        
-        let response = transport.request(
-            "tools/call",
-            serde_json::json!({
-                "name": tool_name,
-                "arguments": arguments,
-            }),
-        ).await;
-        
+        transport
+            .initialize()
+            .await
+            .map_err(|e| format!("Failed to initialize transport: {}", e))?;
+
+        let response = transport
+            .request(
+                "tools/call",
+                serde_json::json!({
+                    "name": tool_name,
+                    "arguments": arguments,
+                }),
+            )
+            .await;
+
         let duration = start.elapsed().as_millis() as u64;
-        
+
         match response {
             Ok(result) => {
                 self.emit_event(events::McpEvent::ToolCallCompleted {
@@ -704,29 +791,29 @@ impl McpClientManager {
             }
         }
     }
-    
+
     /// Get runtime information for all servers.
     pub async fn get_runtime_info(&self) -> Vec<McpServerRuntimeInfo> {
         self.runtime_info.read().await.values().cloned().collect()
     }
-    
+
     /// Get runtime information for a specific server.
     pub async fn get_server_runtime_info(&self, server_id: &str) -> Option<McpServerRuntimeInfo> {
         self.runtime_info.read().await.get(server_id).cloned()
     }
-    
+
     /// Initialize and start health monitoring for all enabled servers.
     pub async fn initialize(&self) -> Result<(), String> {
         // Load initial runtime info
         let servers = self.list_servers().await;
-        
+
         for server in servers {
             let info = McpServerRuntimeInfo {
                 server_id: server.id.clone(),
-                health: if server.enabled { 
-                    ServerHealth::Connecting 
-                } else { 
-                    ServerHealth::Disabled 
+                health: if server.enabled {
+                    ServerHealth::Connecting
+                } else {
+                    ServerHealth::Disabled
                 },
                 last_health_check: None,
                 connected_at: None,
@@ -734,41 +821,48 @@ impl McpClientManager {
                 avg_response_time_ms: None,
                 error_count: 0,
             };
-            
-            self.runtime_info.write().await.insert(server.id.clone(), info);
+
+            self.runtime_info
+                .write()
+                .await
+                .insert(server.id.clone(), info);
         }
-        
+
         // Initial tool cache refresh
         self.refresh_tools_cache().await?;
-        
+
         Ok(())
     }
-    
+
     // ============================================================================
     // Resource Operations
     // ============================================================================
-    
+
     /// List available resources from a server.
-    pub async fn list_resources(&self, server_id: &str, cursor: Option<&str>) 
-        -> Result<ListResourcesResult, String> 
-    {
-        let server = self.get_server(server_id).await
+    pub async fn list_resources(
+        &self,
+        server_id: &str,
+        cursor: Option<&str>,
+    ) -> Result<ListResourcesResult, String> {
+        let server = self
+            .get_server(server_id)
+            .await
             .ok_or_else(|| format!("Server not found: {}", server_id))?;
-        
+
         if !server.enabled {
             return Err(format!("Server is disabled: {}", server_id));
         }
-        
+
         self.emit_event(events::McpEvent::ResourceListStarted {
             server_id: server_id.to_string(),
             server_name: server.name.clone(),
         });
-        
+
         let start = Instant::now();
-        
+
         let transport = self.create_transport(&server).await?;
         let mut client = McpClient::new(transport);
-        
+
         // Initialize and get capabilities
         let capabilities = match client.initialize().await {
             Ok(caps) => caps,
@@ -782,7 +876,7 @@ impl McpClientManager {
                 return Err(err);
             }
         };
-        
+
         // Check if server supports resources
         if capabilities.resources.is_none() {
             let err = format!("Server does not support resources: {}", server_id);
@@ -793,7 +887,7 @@ impl McpClientManager {
             });
             return Err(err);
         }
-        
+
         match client.list_resources(cursor.map(|s| s.to_string())).await {
             Ok(result) => {
                 let duration = start.elapsed().as_millis() as u64;
@@ -816,29 +910,33 @@ impl McpClientManager {
             }
         }
     }
-    
+
     /// Read a resource from a server.
-    pub async fn read_resource(&self, server_id: &str, uri: &str) 
-        -> Result<ReadResourceResult, String> 
-    {
-        let server = self.get_server(server_id).await
+    pub async fn read_resource(
+        &self,
+        server_id: &str,
+        uri: &str,
+    ) -> Result<ReadResourceResult, String> {
+        let server = self
+            .get_server(server_id)
+            .await
             .ok_or_else(|| format!("Server not found: {}", server_id))?;
-        
+
         if !server.enabled {
             return Err(format!("Server is disabled: {}", server_id));
         }
-        
+
         self.emit_event(events::McpEvent::ResourceReadStarted {
             server_id: server_id.to_string(),
             server_name: server.name.clone(),
             uri: uri.to_string(),
         });
-        
+
         let start = Instant::now();
-        
+
         let transport = self.create_transport(&server).await?;
         let mut client = McpClient::new(transport);
-        
+
         // Initialize and get capabilities
         let capabilities = match client.initialize().await {
             Ok(caps) => caps,
@@ -853,7 +951,7 @@ impl McpClientManager {
                 return Err(err);
             }
         };
-        
+
         // Check if server supports resources
         if capabilities.resources.is_none() {
             let err = format!("Server does not support resources: {}", server_id);
@@ -865,7 +963,7 @@ impl McpClientManager {
             });
             return Err(err);
         }
-        
+
         match client.read_resource(uri).await {
             Ok(result) => {
                 let duration = start.elapsed().as_millis() as u64;
@@ -889,36 +987,39 @@ impl McpClientManager {
             }
         }
     }
-    
+
     /// Subscribe to resource updates from a server.
-    pub async fn subscribe_resource(&self, server_id: &str, uri: &str) 
-        -> Result<(), String> 
-    {
-        let server = self.get_server(server_id).await
+    pub async fn subscribe_resource(&self, server_id: &str, uri: &str) -> Result<(), String> {
+        let server = self
+            .get_server(server_id)
+            .await
             .ok_or_else(|| format!("Server not found: {}", server_id))?;
-        
+
         if !server.enabled {
             return Err(format!("Server is disabled: {}", server_id));
         }
-        
+
         let transport = self.create_transport(&server).await?;
         let mut client = McpClient::new(transport);
-        
+
         // Initialize and get capabilities
         let capabilities = match client.initialize().await {
             Ok(caps) => caps,
             Err(e) => return Err(format!("Failed to initialize client: {}", e)),
         };
-        
+
         // Check if server supports resource subscriptions
         if let Some(ref resources) = capabilities.resources {
             if resources.subscribe != Some(true) {
-                return Err(format!("Server does not support resource subscriptions: {}", server_id));
+                return Err(format!(
+                    "Server does not support resource subscriptions: {}",
+                    server_id
+                ));
             }
         } else {
             return Err(format!("Server does not support resources: {}", server_id));
         }
-        
+
         match client.subscribe_resource(uri).await {
             Ok(_) => {
                 self.emit_event(events::McpEvent::ResourceSubscribed {
@@ -931,36 +1032,39 @@ impl McpClientManager {
             Err(e) => Err(format!("Failed to subscribe to resource: {}", e)),
         }
     }
-    
+
     /// Unsubscribe from resource updates from a server.
-    pub async fn unsubscribe_resource(&self, server_id: &str, uri: &str) 
-        -> Result<(), String> 
-    {
-        let server = self.get_server(server_id).await
+    pub async fn unsubscribe_resource(&self, server_id: &str, uri: &str) -> Result<(), String> {
+        let server = self
+            .get_server(server_id)
+            .await
             .ok_or_else(|| format!("Server not found: {}", server_id))?;
-        
+
         if !server.enabled {
             return Err(format!("Server is disabled: {}", server_id));
         }
-        
+
         let transport = self.create_transport(&server).await?;
         let mut client = McpClient::new(transport);
-        
+
         // Initialize and get capabilities
         let capabilities = match client.initialize().await {
             Ok(caps) => caps,
             Err(e) => return Err(format!("Failed to initialize client: {}", e)),
         };
-        
+
         // Check if server supports resource subscriptions
         if let Some(ref resources) = capabilities.resources {
             if resources.subscribe != Some(true) {
-                return Err(format!("Server does not support resource subscriptions: {}", server_id));
+                return Err(format!(
+                    "Server does not support resource subscriptions: {}",
+                    server_id
+                ));
             }
         } else {
             return Err(format!("Server does not support resources: {}", server_id));
         }
-        
+
         match client.unsubscribe_resource(uri).await {
             Ok(_) => {
                 self.emit_event(events::McpEvent::ResourceUnsubscribed {
@@ -973,32 +1077,36 @@ impl McpClientManager {
             Err(e) => Err(format!("Failed to unsubscribe from resource: {}", e)),
         }
     }
-    
+
     // ============================================================================
     // Prompt Operations
     // ============================================================================
-    
+
     /// List available prompts from a server.
-    pub async fn list_prompts(&self, server_id: &str, cursor: Option<&str>) 
-        -> Result<ListPromptsResult, String> 
-    {
-        let server = self.get_server(server_id).await
+    pub async fn list_prompts(
+        &self,
+        server_id: &str,
+        cursor: Option<&str>,
+    ) -> Result<ListPromptsResult, String> {
+        let server = self
+            .get_server(server_id)
+            .await
             .ok_or_else(|| format!("Server not found: {}", server_id))?;
-        
+
         if !server.enabled {
             return Err(format!("Server is disabled: {}", server_id));
         }
-        
+
         self.emit_event(events::McpEvent::PromptListStarted {
             server_id: server_id.to_string(),
             server_name: server.name.clone(),
         });
-        
+
         let start = Instant::now();
-        
+
         let transport = self.create_transport(&server).await?;
         let mut client = McpClient::new(transport);
-        
+
         // Initialize and get capabilities
         let capabilities = match client.initialize().await {
             Ok(caps) => caps,
@@ -1012,7 +1120,7 @@ impl McpClientManager {
                 return Err(err);
             }
         };
-        
+
         // Check if server supports prompts
         if capabilities.prompts.is_none() {
             let err = format!("Server does not support prompts: {}", server_id);
@@ -1023,7 +1131,7 @@ impl McpClientManager {
             });
             return Err(err);
         }
-        
+
         match client.list_prompts(cursor.map(|s| s.to_string())).await {
             Ok(result) => {
                 let duration = start.elapsed().as_millis() as u64;
@@ -1046,29 +1154,34 @@ impl McpClientManager {
             }
         }
     }
-    
+
     /// Get a prompt from a server.
-    pub async fn get_prompt(&self, server_id: &str, name: &str, arguments: Option<serde_json::Value>) 
-        -> Result<GetPromptResult, String> 
-    {
-        let server = self.get_server(server_id).await
+    pub async fn get_prompt(
+        &self,
+        server_id: &str,
+        name: &str,
+        arguments: Option<serde_json::Value>,
+    ) -> Result<GetPromptResult, String> {
+        let server = self
+            .get_server(server_id)
+            .await
             .ok_or_else(|| format!("Server not found: {}", server_id))?;
-        
+
         if !server.enabled {
             return Err(format!("Server is disabled: {}", server_id));
         }
-        
+
         self.emit_event(events::McpEvent::PromptGetStarted {
             server_id: server_id.to_string(),
             server_name: server.name.clone(),
             prompt_name: name.to_string(),
         });
-        
+
         let start = Instant::now();
-        
+
         let transport = self.create_transport(&server).await?;
         let mut client = McpClient::new(transport);
-        
+
         // Initialize and get capabilities
         let capabilities = match client.initialize().await {
             Ok(caps) => caps,
@@ -1083,7 +1196,7 @@ impl McpClientManager {
                 return Err(err);
             }
         };
-        
+
         // Check if server supports prompts
         if capabilities.prompts.is_none() {
             let err = format!("Server does not support prompts: {}", server_id);
@@ -1095,7 +1208,7 @@ impl McpClientManager {
             });
             return Err(err);
         }
-        
+
         // Convert arguments from JSON Value to HashMap<String, String>
         let args = arguments.map(|v| {
             if let serde_json::Value::Object(map) = v {
@@ -1108,7 +1221,7 @@ impl McpClientManager {
                 std::collections::HashMap::new()
             }
         });
-        
+
         match client.get_prompt(name, args).await {
             Ok(result) => {
                 let duration = start.elapsed().as_millis() as u64;
@@ -1172,20 +1285,21 @@ fn data_dir() -> PathBuf {
 pub async fn migrate_legacy_config() -> Result<(), String> {
     let legacy_path = data_dir().join("mcp-servers-v1.json");
     let new_path = data_dir().join("mcp-servers-v2.json");
-    
+
     // Check if new config already exists
     if tokio::fs::try_exists(&new_path).await.unwrap_or(false) {
         return Ok(());
     }
-    
+
     // Check if legacy config exists
     if !tokio::fs::try_exists(&legacy_path).await.unwrap_or(false) {
         return Ok(());
     }
-    
-    let raw = tokio::fs::read_to_string(&legacy_path).await
+
+    let raw = tokio::fs::read_to_string(&legacy_path)
+        .await
         .map_err(|e| format!("Failed to read legacy config: {}", e))?;
-    
+
     #[derive(Debug, Clone, Deserialize)]
     struct LegacyConfig {
         id: String,
@@ -1195,11 +1309,12 @@ pub async fn migrate_legacy_config() -> Result<(), String> {
         env: HashMap<String, String>,
         enabled: bool,
     }
-    
-    let legacy_servers: Vec<LegacyConfig> = serde_json::from_str(&raw)
-        .map_err(|e| format!("Failed to parse legacy config: {}", e))?;
-    
-    let new_servers: Vec<McpServerConfig> = legacy_servers.into_iter()
+
+    let legacy_servers: Vec<LegacyConfig> =
+        serde_json::from_str(&raw).map_err(|e| format!("Failed to parse legacy config: {}", e))?;
+
+    let new_servers: Vec<McpServerConfig> = legacy_servers
+        .into_iter()
         .map(|legacy| McpServerConfig {
             id: legacy.id,
             name: legacy.name,
@@ -1218,16 +1333,17 @@ pub async fn migrate_legacy_config() -> Result<(), String> {
             approval_policy: ToolApprovalPolicy::default(),
         })
         .collect();
-    
+
     let body = serde_json::to_string_pretty(&new_servers)
         .map_err(|e| format!("Failed to serialize migrated config: {}", e))?;
-    
-    tokio::fs::write(&new_path, body).await
+
+    tokio::fs::write(&new_path, body)
+        .await
         .map_err(|e| format!("Failed to write migrated config: {}", e))?;
-    
+
     // Rename legacy file as backup
     let backup_path = data_dir().join("mcp-servers-v1.json.backup");
     let _ = tokio::fs::rename(&legacy_path, &backup_path).await;
-    
+
     Ok(())
 }
