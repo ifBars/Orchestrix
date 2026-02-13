@@ -27,8 +27,8 @@ dist-ssr
 # Agent/AI skill directories
 .agent/
 .agent/*
-.agents/
 .agents/*
+!.agents/skills/orchestrix-app-development/
 .claude/
 .claude/*
 .cursor/
@@ -49,4 +49,4 @@ dist-ssr
 .cursor/
 .claude/
 .agent/
-.agents/
+.agents/*
