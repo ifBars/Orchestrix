@@ -37,3 +37,4 @@ pub use shared::strip_tool_call_markup;
 // Re-export provider clients for convenience
 pub use providers::minimax::MiniMaxClient;
 pub use providers::kimi::KimiClient;
+pub use providers::glm::GlmClient;

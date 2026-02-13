@@ -8,6 +8,7 @@ use std::str::FromStr;
 pub enum ProviderId {
     MiniMax,
     Kimi,
+    Zhipu,
 }
 
 impl ProviderId {
@@ -15,11 +16,12 @@ impl ProviderId {
         match self {
             ProviderId::MiniMax => "minimax",
             ProviderId::Kimi => "kimi",
+            ProviderId::Zhipu => "zhipu",
         }
     }
 
     pub const fn all() -> &'static [ProviderId] {
-        &[ProviderId::MiniMax, ProviderId::Kimi]
+        &[ProviderId::MiniMax, ProviderId::Kimi, ProviderId::Zhipu]
     }
 }
 
@@ -36,6 +38,7 @@ impl FromStr for ProviderId {
         match s.to_ascii_lowercase().as_str() {
             "minimax" => Ok(ProviderId::MiniMax),
             "kimi" => Ok(ProviderId::Kimi),
+            "zhipu" | "glm" => Ok(ProviderId::Zhipu),
             _ => Err(format!("unknown provider: {}", s)),
         }
     }
@@ -85,6 +88,8 @@ mod tests {
             ProviderId::MiniMax
         );
         assert_eq!(ProviderId::from_str("kimi").unwrap(), ProviderId::Kimi);
+        assert_eq!(ProviderId::from_str("zhipu").unwrap(), ProviderId::Zhipu);
+        assert_eq!(ProviderId::from_str("glm").unwrap(), ProviderId::Zhipu);
         assert_eq!(
             ProviderId::from_str("MINIMAX").unwrap(),
             ProviderId::MiniMax

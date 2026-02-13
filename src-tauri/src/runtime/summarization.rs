@@ -7,7 +7,7 @@
 //! - Persistent storage of conversation summaries
 
 use crate::db::{queries, Database};
-use crate::model::{KimiClient, MiniMaxClient, ModelCatalog};
+use crate::model::{GlmClient, KimiClient, MiniMaxClient, ModelCatalog};
 use chrono::Utc;
 use uuid::Uuid;
 
@@ -172,10 +172,10 @@ pub async fn generate_summary(
         .unwrap_or_else(default_summary_prompt);
 
     // Generate summary based on provider using simple completion (no agent loop)
-    let summary_text = if provider == "kimi" {
-        summarize_with_kimi(api_key, model, base_url, &system_prompt, &conversation_text).await
-    } else {
-        summarize_with_minimax(api_key, model, base_url, &system_prompt, &conversation_text).await
+    let summary_text = match provider {
+        "kimi" => summarize_with_kimi(api_key, model, base_url, &system_prompt, &conversation_text).await,
+        "zhipu" | "glm" => summarize_with_glm(api_key, model, base_url, &system_prompt, &conversation_text).await,
+        _ => summarize_with_minimax(api_key, model, base_url, &system_prompt, &conversation_text).await,
     };
 
     let summary = ConversationSummary {
@@ -249,6 +249,33 @@ async fn summarize_with_minimax(
         Ok(summary) => summary,
         Err(e) => {
             tracing::warn!("MiniMax summarization failed: {}, falling back to basic summary", e);
+            generate_fallback_summary(conversation)
+        }
+    }
+}
+
+/// Summarize using GLM (Zhipu) model with simple completion (no agent loop).
+#[allow(dead_code)]
+async fn summarize_with_glm(
+    api_key: &str,
+    model: Option<&str>,
+    base_url: Option<&str>,
+    system_prompt: &str,
+    conversation: &str,
+) -> String {
+    let planner = GlmClient::new(
+        api_key.to_string(),
+        model.map(String::from),
+        base_url.map(String::from),
+    );
+
+    match planner
+        .complete(system_prompt, conversation, SUMMARIZATION_MAX_TOKENS)
+        .await
+    {
+        Ok(summary) => summary,
+        Err(e) => {
+            tracing::warn!("GLM summarization failed: {}, falling back to basic summary", e);
             generate_fallback_summary(conversation)
         }
     }

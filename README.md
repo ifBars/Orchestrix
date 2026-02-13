@@ -7,8 +7,7 @@ A lightweight, desktop AI agent management application built with Tauri, Rust, a
 Orchestrix is a **backend-authoritative, event-driven** desktop application designed for managing AI agents. It provides:
 
 - **Conversation-first execution**: Natural chat interface for task management
-- **Multi-provider support**: Works with MiniMax and Kimi models
-- **Plan-then-execute workflow**: AI plans tasks before execution with human-in-the-loop review
+- **Multi-provider support**: Works with MiniMax, Kimi, and other models
 - **Full execution visibility**: Users can inspect decisions, tool calls, and artifacts in real time
 - **Condensed timeline UX**: High-signal summaries with on-demand detail expansion
 - **Performance-first event pipeline**: Batched event streaming built for long-running tasks
@@ -27,8 +26,9 @@ Orchestrix is a **backend-authoritative, event-driven** desktop application desi
 - Sub-agent delegation for parallel work
 
 ### Model Support
-- **MiniMax**: MiniMax-M2.1 and other models
-- **Kimi**: kimi-k2.5 and other coding-optimized models
+- **MiniMax**: MiniMax-M2.5 and other models
+- **Kimi**: kimi-k2.5 and other models
+- **Z.AI**: glm-5 and other models
 - Easy provider configuration via UI or environment variables
 
 ### Tool System
@@ -55,35 +55,24 @@ Orchestrix is a **backend-authoritative, event-driven** desktop application desi
 
 - [Rust](https://rustup.rs/) 1.75+
 - [Bun](https://bun.sh/) (required - do not use npm/pnpm)
-- API key from [MiniMax](https://www.minimaxi.com/) or [Kimi](https://platform.moonshot.cn/)
+- API key from [MiniMax](https://www.minimaxi.com/) or [Kimi](https://platform.moonshot.cn/) coding plans
 
 ### Installation
 
 ```bash
 # Clone the repository
-git clone <repository-url>
+git clone https://github.com/ifBars/Orchestrix
 cd orchestrix
 
 # Install dependencies
 bun install
 
-# Configure API key (choose one)
-export MINIMAX_API_KEY="your-key-here"
-# OR
-export KIMI_API_KEY="your-key-here"
-
 # Start the development server
 bun tauri dev
+
+# Build the application
+bun tauri build
 ```
-
-### First Task
-
-1. Open the application
-2. Click "New Task" in the sidebar
-3. Enter a prompt (e.g., "Create a Python script that fetches weather data")
-4. Review the generated plan
-5. Click "Approve" to start execution
-6. Monitor progress in the conversation timeline
 
 ## Architecture Overview
 
@@ -117,7 +106,7 @@ bun tauri dev
               └──────────────┘
 ```
 
-### Core Principles
+## Core Principles
 
 - **Backend-authoritative**: All orchestration, state, and execution live in Rust
 - **Event-driven UI**: Frontend renders state via streamed events; never controls logic
@@ -126,7 +115,7 @@ bun tauri dev
 - **Transparency-first UX**: Users can always inspect what the AI is doing
 - **Minimal surface area**: No embedded editor, no live code manipulation by humans
 
-## Documentation
+### Documentation
 
 - **[SETUP.md](./SETUP.md)** - Detailed installation and configuration
 - **[ARCHITECTURE.md](./ARCHITECTURE.md)** - System design and data flow
@@ -136,7 +125,7 @@ bun tauri dev
 - **[SKILLS_GUIDE.md](./SKILLS_GUIDE.md)** - Working with the skills system
 - **[TROUBLESHOOTING.md](./TROUBLESHOOTING.md)** - Common issues and solutions
 
-## Project Structure
+### Project Structure
 
 ```
 orchestrix/
@@ -154,23 +143,6 @@ orchestrix/
 │       ├── tools/          # Tool registry
 │       └── bus/            # Event bus and batching
 └── .agents/skills/         # Agent skills (MCP-compatible)
-```
-
-## Development
-
-### Scripts
-
-```bash
-# Development
-bun tauri dev           # Start dev server with hot reload
-
-# Building
-bun run build           # Build frontend
-bun tauri build         # Build production app
-
-# Code Quality
-cargo fmt               # Format Rust code
-cargo clippy            # Lint Rust code
 ```
 
 ### Tech Stack
@@ -193,11 +165,3 @@ cargo clippy            # Lint Rust code
 2. Write tests for new features in `src-tauri/src/testing.rs`
 3. Use `bun` for all package management
 4. Ensure `cargo fmt` and `cargo clippy` pass
-
-## License
-
-[Add your license here]
-
----
-
-**Note:** This project uses Bun exclusively. Do not use npm, pnpm, or yarn.

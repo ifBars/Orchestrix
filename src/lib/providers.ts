@@ -8,6 +8,7 @@ export type ProviderOption = {
 export function providerLabel(providerId: string): string {
   if (providerId === "minimax") return "MiniMax";
   if (providerId === "kimi") return "Kimi";
+  if (providerId === "zhipu") return "GLM (Zhipu)";
   return providerId
     .split(/[-_\s]+/)
     .filter((token) => token.length > 0)

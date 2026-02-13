@@ -10,7 +10,7 @@ use crate::core::prompt_references::expand_prompt_references;
 use crate::core::tool::ToolDescriptor;
 use crate::db::{queries, Database};
 use crate::model::{
-    strip_tool_call_markup, AgentModelClient, KimiClient, MiniMaxClient, WorkerAction,
+    strip_tool_call_markup, AgentModelClient, GlmClient, KimiClient, MiniMaxClient, WorkerAction,
     WorkerActionRequest, WorkerToolCall,
 };
 use crate::policy::PolicyEngine;
@@ -570,46 +570,70 @@ pub async fn generate_plan_markdown_artifact(
     let policy = Arc::new(PolicyEngine::new(workspace_root.clone()));
 
     // Multi-turn planning: let the agent use tools before creating the artifact
-    let (markdown, source_artifact_path) = if provider == "kimi" {
-        let planner = KimiClient::new(api_key, model, base_url);
-        planner_model = planner.model_id().to_string();
-        run_multi_turn_planning(
-            &db,
-            &bus,
-            &planner,
-            &task_id,
-            &run_id,
-            &prompt_with_refs,
-            &context,
-            &skills_context,
-            plan_mode_tools,
-            tool_registry.as_ref(),
-            &policy,
-            approval_gate.as_ref(),
-            &workspace_root,
-            max_tokens,
-        )
-        .await?
-    } else {
-        let planner = MiniMaxClient::new_with_base_url(api_key, model, base_url);
-        planner_model = planner.model_id().to_string();
-        run_multi_turn_planning(
-            &db,
-            &bus,
-            &planner,
-            &task_id,
-            &run_id,
-            &prompt_with_refs,
-            &context,
-            &skills_context,
-            plan_mode_tools,
-            tool_registry.as_ref(),
-            &policy,
-            approval_gate.as_ref(),
-            &workspace_root,
-            max_tokens,
-        )
-        .await?
+    let (markdown, source_artifact_path) = match provider.as_str() {
+        "kimi" => {
+            let planner = KimiClient::new(api_key, model, base_url);
+            planner_model = planner.model_id().to_string();
+            run_multi_turn_planning(
+                &db,
+                &bus,
+                &planner,
+                &task_id,
+                &run_id,
+                &prompt_with_refs,
+                &context,
+                &skills_context,
+                plan_mode_tools,
+                tool_registry.as_ref(),
+                &policy,
+                approval_gate.as_ref(),
+                &workspace_root,
+                max_tokens,
+            )
+            .await?
+        }
+        "zhipu" | "glm" => {
+            let planner = GlmClient::new(api_key, model, base_url);
+            planner_model = planner.model_id().to_string();
+            run_multi_turn_planning(
+                &db,
+                &bus,
+                &planner,
+                &task_id,
+                &run_id,
+                &prompt_with_refs,
+                &context,
+                &skills_context,
+                plan_mode_tools,
+                tool_registry.as_ref(),
+                &policy,
+                approval_gate.as_ref(),
+                &workspace_root,
+                max_tokens,
+            )
+            .await?
+        }
+        _ => {
+            let planner = MiniMaxClient::new_with_base_url(api_key, model, base_url);
+            planner_model = planner.model_id().to_string();
+            run_multi_turn_planning(
+                &db,
+                &bus,
+                &planner,
+                &task_id,
+                &run_id,
+                &prompt_with_refs,
+                &context,
+                &skills_context,
+                plan_mode_tools,
+                tool_registry.as_ref(),
+                &policy,
+                approval_gate.as_ref(),
+                &workspace_root,
+                max_tokens,
+            )
+            .await?
+        }
     };
 
     queries::update_run_status_and_plan(&db, &run_id, "awaiting_review", None, None, None)

@@ -37,11 +37,13 @@ export function ProvidersSection() {
     setBaseUrl(current?.base_url ?? "");
   }, [current?.base_url, current?.default_model, provider]);
 
-  const modelPlaceholder = provider === "minimax" ? "e.g. MiniMax-M2.1" : "e.g. kimi-k2.5";
+  const modelPlaceholder = provider === "minimax" ? "e.g. MiniMax-M2.1" : provider === "zhipu" ? "e.g. glm-5" : "e.g. kimi-k2.5";
   const baseUrlPlaceholder =
     provider === "minimax"
       ? "https://api.minimaxi.chat"
-      : "https://api.moonshot.cn";
+      : provider === "zhipu"
+        ? "https://api.z.ai/api/coding/paas/v4"
+        : "https://api.moonshot.cn";
 
   const handleSaveProvider = async () => {
     if (!apiKey.trim()) return;

@@ -51,11 +51,39 @@ impl ModelCatalog {
             },
             ProviderEntry {
                 provider: ProviderId::Kimi.as_str().to_string(),
+                models: vec![ModelInfo {
+                    name: "kimi-k2.5".to_string(),
+                    context_window: 256_000,
+                    description: "Kimi general purpose model".to_string(),
+                }],
+            },
+            ProviderEntry {
+                provider: ProviderId::Zhipu.as_str().to_string(),
                 models: vec![
                     ModelInfo {
-                        name: "kimi-k2.5".to_string(),
-                        context_window: 256_000,
-                        description: "Kimi general purpose model".to_string(),
+                        name: "glm-5".to_string(),
+                        context_window: 1_000_000,
+                        description: "GLM-5 latest flagship model".to_string(),
+                    },
+                    ModelInfo {
+                        name: "glm-4.7".to_string(),
+                        context_window: 1_000_000,
+                        description: "GLM-4.7 advanced model".to_string(),
+                    },
+                    ModelInfo {
+                        name: "glm-4.6".to_string(),
+                        context_window: 1_000_000,
+                        description: "GLM-4.6 model".to_string(),
+                    },
+                    ModelInfo {
+                        name: "glm-4.5".to_string(),
+                        context_window: 1_000_000,
+                        description: "GLM-4.5 model".to_string(),
+                    },
+                    ModelInfo {
+                        name: "glm-4.5-air".to_string(),
+                        context_window: 1_000_000,
+                        description: "GLM-4.5 Air lightweight model".to_string(),
                     },
                 ],
             },
@@ -67,6 +95,7 @@ impl ModelCatalog {
         match provider {
             ProviderId::MiniMax => "MiniMax-M2.5".to_string(),
             ProviderId::Kimi => "kimi-k2.5".to_string(),
+            ProviderId::Zhipu => "glm-5".to_string(),
         }
     }
 }
