@@ -434,6 +434,7 @@ pub fn run() {
             commands::embeddings::get_embedding_provider_info,
             commands::embeddings::embedding_dims,
             commands::embeddings::embed_texts,
+            commands::embeddings::get_embedding_index_status,
             // mcp
             commands::mcp::list_mcp_servers,
             commands::mcp::get_mcp_server,

@@ -37,6 +37,7 @@ import type {
   CreateAgentPresetInput,
   EmbeddingConfig,
   EmbeddingConfigView,
+  EmbeddingIndexStatus,
   EventRow,
   ModelCatalogEntry,
   NewCustomSkill,
@@ -88,6 +89,7 @@ type AppStoreState = {
   selectedTaskId: string | null;
   providerConfigs: ProviderConfigView[];
   embeddingConfig: EmbeddingConfigView | null;
+  embeddingIndexStatus: EmbeddingIndexStatus | null;
   modelCatalog: ModelCatalogEntry[];
   selectedProvider: string;
   selectedModel: string;
@@ -126,6 +128,7 @@ type AppStoreState = {
   selectProviderModel: (provider: string, model: string) => void;
   refreshEmbeddingConfig: () => Promise<void>;
   setEmbeddingConfig: (config: EmbeddingConfig) => Promise<void>;
+  refreshEmbeddingIndexStatus: () => Promise<void>;
 
   setWorkspaceRoot: (workspaceRoot: string) => Promise<void>;
   refreshWorkspaceRoot: () => Promise<void>;
@@ -181,6 +184,7 @@ export const useAppStore = create<AppStoreState>((set, get) => ({
   selectedTaskId: null,
   providerConfigs: [],
   embeddingConfig: null,
+  embeddingIndexStatus: null,
   modelCatalog: [],
   selectedProvider: "",
   selectedModel: "",
@@ -198,10 +202,11 @@ export const useAppStore = create<AppStoreState>((set, get) => ({
   bootstrap: async () => {
     if (get().bootstrapped) return;
 
-    const [tasks, providerConfigs, embeddingConfig, modelCatalog, workspaceRoot, skills, workspaceSkills, agentPresets, mcpServers, mcpTools] = await Promise.all([
+    const [tasks, providerConfigs, embeddingConfig, embeddingIndexStatus, modelCatalog, workspaceRoot, skills, workspaceSkills, agentPresets, mcpServers, mcpTools] = await Promise.all([
       invoke<TaskRow[]>("list_tasks"),
       invoke<ProviderConfigView[]>("get_provider_configs"),
       invoke<EmbeddingConfigView>("get_embedding_config"),
+      invoke<EmbeddingIndexStatus | null>("get_embedding_index_status"),
       invoke<ModelCatalogEntry[]>("get_model_catalog"),
       invoke<WorkspaceRootView>("get_workspace_root"),
       invoke<SkillCatalogItem[]>("list_available_skills"),
@@ -251,6 +256,7 @@ export const useAppStore = create<AppStoreState>((set, get) => ({
       tasks: normalizedTasks,
       providerConfigs,
       embeddingConfig,
+      embeddingIndexStatus,
       modelCatalog,
       selectedProvider: initialSelection.provider,
       selectedModel: initialSelection.model,
@@ -692,20 +698,31 @@ export const useAppStore = create<AppStoreState>((set, get) => ({
     set({ embeddingConfig });
   },
 
+  refreshEmbeddingIndexStatus: async () => {
+    const embeddingIndexStatus = await invoke<EmbeddingIndexStatus | null>("get_embedding_index_status");
+    set({ embeddingIndexStatus });
+  },
+
   setEmbeddingConfig: async (config: EmbeddingConfig) => {
     const embeddingConfig = await invoke<EmbeddingConfigView>("set_embedding_config", { config });
     set({ embeddingConfig });
+    await get().refreshEmbeddingIndexStatus();
   },
 
   setWorkspaceRoot: async (workspaceRoot: string) => {
     await invoke("set_workspace_root", { workspaceRoot });
     set({ workspaceRoot });
-    await Promise.all([get().refreshWorkspaceSkills(), get().refreshAgentPresets()]);
+    await Promise.all([
+      get().refreshWorkspaceSkills(),
+      get().refreshAgentPresets(),
+      get().refreshEmbeddingIndexStatus(),
+    ]);
   },
 
   refreshWorkspaceRoot: async () => {
     const root = await invoke<WorkspaceRootView>("get_workspace_root");
     set({ workspaceRoot: root.workspace_root });
+    await get().refreshEmbeddingIndexStatus();
   },
 
   refreshTaskArtifacts: async (taskId: string) => {

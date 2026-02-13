@@ -91,7 +91,7 @@ impl Tool for SearchEmbeddingsTool {
             .map_err(|error| ToolError::Execution(error.to_string()))?;
 
         Ok(ToolCallOutput {
-            ok: response.status == "ready",
+            ok: true,
             data: serde_json::to_value(response).unwrap_or_else(|_| serde_json::json!({})),
             error: None,
         })

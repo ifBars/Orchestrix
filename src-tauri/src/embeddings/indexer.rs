@@ -17,6 +17,8 @@ const CHUNK_TARGET_CHARS: usize = 1200;
 const CHUNK_OVERLAP_LINES: usize = 6;
 const EMBED_BATCH_SIZE: usize = 32;
 const MAX_SEARCH_QUERY_CHARS: usize = 6000;
+const MAX_INDEX_FILES: usize = 10_000;
+const MAX_INDEX_CHUNKS: usize = 80_000;
 
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct EmbeddingIndexStatus {
@@ -117,8 +119,16 @@ impl SemanticIndexService {
     pub fn ensure_workspace_index_started(self: &Arc<Self>, workspace_root: PathBuf) {
         let normalized_root = normalize_workspace_key(&workspace_root);
         let service = Arc::clone(self);
-        tokio::spawn(async move {
-            if service.is_index_ready(&normalized_root) {
+        tauri::async_runtime::spawn(async move {
+            let provider_id = match service.client.provider_id().await {
+                Ok(value) => value,
+                Err(error) => {
+                    service.mark_index_failed(&normalized_root, "unknown", &error);
+                    return;
+                }
+            };
+
+            if !service.needs_indexing(&normalized_root, &provider_id) {
                 return;
             }
 
@@ -130,9 +140,16 @@ impl SemanticIndexService {
                 guard.insert(normalized_root.clone());
             }
 
-            let _ = service
-                .run_indexing(workspace_root.clone(), normalized_root.clone())
-                .await;
+            if let Err(error) = service
+                .run_indexing(
+                    workspace_root.clone(),
+                    normalized_root.clone(),
+                    provider_id.clone(),
+                )
+                .await
+            {
+                service.mark_index_failed(&normalized_root, &provider_id, &error);
+            }
 
             let mut guard = service.in_progress.lock().await;
             guard.remove(&normalized_root);
@@ -167,13 +184,14 @@ impl SemanticIndexService {
         if query.trim().is_empty() {
             return Ok(SemanticSearchResponse {
                 status: "error".to_string(),
-                indexed: self.is_index_ready(&normalized_root),
+                indexed: self.has_ready_index(&normalized_root),
                 message: "query must not be empty".to_string(),
                 results: Vec::new(),
             });
         }
 
-        if !self.is_index_ready(&normalized_root) {
+        let provider_id = self.client.provider_id().await?;
+        if !self.is_index_ready_for_provider(&normalized_root, &provider_id) {
             self.ensure_workspace_index_started(workspace_root);
             return Ok(SemanticSearchResponse {
                 status: "indexing".to_string(),
@@ -253,19 +271,63 @@ impl SemanticIndexService {
         })
     }
 
-    fn is_index_ready(&self, workspace_key: &str) -> bool {
+    fn is_index_ready_for_provider(&self, workspace_key: &str, provider_id: &str) -> bool {
         matches!(
             queries::get_embedding_index(&self.db, workspace_key),
-            Ok(Some(row)) if row.status == "ready" && row.chunk_count > 0
+            Ok(Some(row)) if row.status == "ready" && row.provider == provider_id
         )
+    }
+
+    fn has_ready_index(&self, workspace_key: &str) -> bool {
+        matches!(
+            queries::get_embedding_index(&self.db, workspace_key),
+            Ok(Some(row)) if row.status == "ready"
+        )
+    }
+
+    fn needs_indexing(&self, workspace_key: &str, provider_id: &str) -> bool {
+        match queries::get_embedding_index(&self.db, workspace_key) {
+            Ok(Some(row)) => !(row.status == "ready" && row.provider == provider_id),
+            Ok(None) => true,
+            Err(_) => true,
+        }
+    }
+
+    fn mark_index_failed(&self, workspace_key: &str, provider_id: &str, error: &EmbeddingError) {
+        let now = Utc::now().to_rfc3339();
+        let _ = queries::upsert_embedding_index(
+            &self.db,
+            &queries::EmbeddingIndexRow {
+                workspace_root: workspace_key.to_string(),
+                provider: provider_id.to_string(),
+                status: "failed".to_string(),
+                dims: None,
+                file_count: 0,
+                chunk_count: 0,
+                indexed_at: None,
+                updated_at: now,
+                error: Some(error.to_string()),
+            },
+        );
+
+        self.bus.emit(
+            "log",
+            "log.error",
+            None,
+            serde_json::json!({
+                "workspace_root": workspace_key,
+                "message": format!("Embedding index failed for {}", workspace_key),
+                "error": error.to_string(),
+            }),
+        );
     }
 
     async fn run_indexing(
         &self,
         workspace_root: PathBuf,
         workspace_key: String,
+        provider_id: String,
     ) -> Result<(), EmbeddingError> {
-        let provider_id = self.client.provider_id().await?;
         let now = Utc::now().to_rfc3339();
 
         let _ = queries::upsert_embedding_index(
@@ -320,7 +382,13 @@ impl SemanticIndexService {
             return Ok(());
         }
 
-        let mut all_embeddings: Vec<Vec<f32>> = Vec::with_capacity(chunks.len());
+        queries::delete_embedding_chunks_for_workspace(&self.db, &workspace_key)
+            .map_err(|error| EmbeddingError::Runtime(error.to_string()))?;
+
+        let created_at = Utc::now().to_rfc3339();
+        let mut dims: Option<usize> = None;
+        let mut persisted_count: usize = 0;
+
         for batch in chunks.chunks(EMBED_BATCH_SIZE) {
             let texts = batch
                 .iter()
@@ -342,34 +410,32 @@ impl SemanticIndexService {
                     texts.len()
                 )));
             }
-            all_embeddings.extend(vectors);
-        }
 
-        let dims = all_embeddings.first().map(|value| value.len()).unwrap_or(0);
+            for (chunk, vector) in batch.iter().zip(vectors.iter()) {
+                if dims.is_none() {
+                    dims = Some(vector.len());
+                }
 
-        queries::delete_embedding_chunks_for_workspace(&self.db, &workspace_key)
-            .map_err(|error| EmbeddingError::Runtime(error.to_string()))?;
+                let embedding_json = serde_json::to_string(vector)
+                    .map_err(|error| EmbeddingError::Runtime(error.to_string()))?;
 
-        let created_at = Utc::now().to_rfc3339();
-        for (chunk, vector) in chunks.iter().zip(all_embeddings.iter()) {
-            let embedding_json = serde_json::to_string(vector)
+                queries::insert_embedding_chunk(
+                    &self.db,
+                    &queries::EmbeddingChunkRow {
+                        id: 0,
+                        workspace_root: workspace_key.clone(),
+                        path: chunk.path.clone(),
+                        chunk_idx: chunk.chunk_idx as i64,
+                        line_start: chunk.line_start.map(|value| value as i64),
+                        line_end: chunk.line_end.map(|value| value as i64),
+                        content: chunk.content.clone(),
+                        embedding_json,
+                        created_at: created_at.clone(),
+                    },
+                )
                 .map_err(|error| EmbeddingError::Runtime(error.to_string()))?;
-
-            queries::insert_embedding_chunk(
-                &self.db,
-                &queries::EmbeddingChunkRow {
-                    id: 0,
-                    workspace_root: workspace_key.clone(),
-                    path: chunk.path.clone(),
-                    chunk_idx: chunk.chunk_idx as i64,
-                    line_start: chunk.line_start.map(|value| value as i64),
-                    line_end: chunk.line_end.map(|value| value as i64),
-                    content: chunk.content.clone(),
-                    embedding_json,
-                    created_at: created_at.clone(),
-                },
-            )
-            .map_err(|error| EmbeddingError::Runtime(error.to_string()))?;
+                persisted_count += 1;
+            }
         }
 
         let updated_at = Utc::now().to_rfc3339();
@@ -379,9 +445,9 @@ impl SemanticIndexService {
                 workspace_root: workspace_key.clone(),
                 provider: provider_id,
                 status: "ready".to_string(),
-                dims: Some(dims as i64),
+                dims: dims.map(|value| value as i64),
                 file_count: file_count as i64,
-                chunk_count: chunks.len() as i64,
+                chunk_count: persisted_count as i64,
                 indexed_at: Some(updated_at.clone()),
                 updated_at: updated_at.clone(),
                 error: None,
@@ -398,11 +464,11 @@ impl SemanticIndexService {
                     "Embedding index ready for {} (files: {}, chunks: {})",
                     workspace_key,
                     file_count,
-                    chunks.len()
+                    persisted_count
                 ),
                 "workspace_root": workspace_key,
                 "file_count": file_count,
-                "chunk_count": chunks.len(),
+                "chunk_count": persisted_count,
             }),
         );
 
@@ -419,6 +485,7 @@ fn collect_workspace_chunks(workspace_root: &Path) -> Result<Vec<FileChunk>, Emb
     }
 
     let mut chunks = Vec::new();
+    let mut seen_files = 0usize;
     let walker = WalkBuilder::new(workspace_root)
         .hidden(false)
         .follow_links(false)
@@ -437,6 +504,9 @@ fn collect_workspace_chunks(workspace_root: &Path) -> Result<Vec<FileChunk>, Emb
         let path = entry.path();
         if entry.file_type().map_or(true, |kind| kind.is_dir()) {
             continue;
+        }
+        if seen_files >= MAX_INDEX_FILES || chunks.len() >= MAX_INDEX_CHUNKS {
+            break;
         }
 
         if !is_supported_text_file(path) {
@@ -464,7 +534,12 @@ fn collect_workspace_chunks(workspace_root: &Path) -> Result<Vec<FileChunk>, Emb
             Err(_) => continue,
         };
 
+        seen_files += 1;
         let mut file_chunks = split_into_chunks(&relative_path, &content);
+        if chunks.len() + file_chunks.len() > MAX_INDEX_CHUNKS {
+            let remaining = MAX_INDEX_CHUNKS.saturating_sub(chunks.len());
+            file_chunks.truncate(remaining);
+        }
         chunks.append(&mut file_chunks);
     }
 
@@ -520,10 +595,12 @@ fn split_into_chunks(path: &str, content: &str) -> Vec<FileChunk> {
         if end_line_idx >= lines.len() {
             break;
         }
-        start_line_idx = end_line_idx.saturating_sub(CHUNK_OVERLAP_LINES);
-        if start_line_idx == end_line_idx {
-            start_line_idx += 1;
-        }
+        let next_start = end_line_idx.saturating_sub(CHUNK_OVERLAP_LINES);
+        start_line_idx = if next_start <= start_line_idx {
+            end_line_idx
+        } else {
+            next_start
+        };
     }
 
     chunks
@@ -593,6 +670,12 @@ fn truncate_chars(text: &str, max_chars: usize) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::Arc;
+
+    use tokio::sync::RwLock;
+
+    use crate::bus::EventBus;
+    use crate::db::Database;
 
     #[test]
     fn split_chunks_keeps_overlap_and_line_ranges() {
@@ -603,5 +686,126 @@ mod tests {
         assert!(!chunks.is_empty());
         assert_eq!(chunks[0].line_start, Some(1));
         assert!(chunks.last().and_then(|chunk| chunk.line_end).unwrap_or(0) >= 30);
+    }
+
+    #[tokio::test]
+    async fn indexing_persists_chunks_and_searches_semantically() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        std::fs::create_dir_all(temp.path().join("src")).expect("create src");
+        std::fs::write(
+            temp.path().join("src").join("alpha.rs"),
+            "fn alpha_feature() { /* alpha token */ }\n",
+        )
+        .expect("write alpha");
+        std::fs::write(
+            temp.path().join("src").join("beta.rs"),
+            "fn beta_feature() { /* beta token */ }\n",
+        )
+        .expect("write beta");
+
+        let db = Arc::new(Database::open_in_memory().expect("in-memory db"));
+        let bus = Arc::new(EventBus::new());
+        let client = Arc::new(MockEmbeddingClient::new("mock-provider"));
+        let service = SemanticIndexService::new(db, bus, client);
+
+        let workspace_key = normalize_workspace_key(temp.path());
+        service
+            .run_indexing(
+                temp.path().to_path_buf(),
+                workspace_key,
+                "mock-provider".to_string(),
+            )
+            .await
+            .expect("indexing should succeed");
+
+        let status = service
+            .index_status(temp.path())
+            .expect("index status should exist");
+        assert_eq!(status.status, "ready");
+        assert!(status.chunk_count > 0);
+
+        let response = service
+            .semantic_search(temp.path().to_path_buf(), "alpha token".to_string(), 5)
+            .await
+            .expect("semantic search should succeed");
+        assert_eq!(response.status, "ready");
+        assert!(!response.results.is_empty());
+        assert!(response.results[0].path.contains("alpha.rs"));
+    }
+
+    #[tokio::test]
+    async fn provider_mismatch_marks_index_as_needing_rebuild() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        std::fs::create_dir_all(temp.path().join("src")).expect("create src");
+        std::fs::write(
+            temp.path().join("src").join("index.ts"),
+            "export const alpha = 'alpha';\n",
+        )
+        .expect("write file");
+
+        let db = Arc::new(Database::open_in_memory().expect("in-memory db"));
+        let bus = Arc::new(EventBus::new());
+        let client = Arc::new(MockEmbeddingClient::new("provider-a"));
+        let service = SemanticIndexService::new(db, bus, client.clone());
+
+        let workspace_key = normalize_workspace_key(temp.path());
+        service
+            .run_indexing(
+                temp.path().to_path_buf(),
+                workspace_key.clone(),
+                "provider-a".to_string(),
+            )
+            .await
+            .expect("initial indexing should succeed");
+
+        assert!(!service.needs_indexing(&workspace_key, "provider-a"));
+        assert!(service.needs_indexing(&workspace_key, "provider-b"));
+
+        client.set_provider("provider-b").await;
+        let response = service
+            .semantic_search(temp.path().to_path_buf(), "alpha".to_string(), 3)
+            .await
+            .expect("semantic search should return indexing while rebuilding");
+        assert_eq!(response.status, "indexing");
+    }
+
+    struct MockEmbeddingClient {
+        provider: RwLock<String>,
+    }
+
+    impl MockEmbeddingClient {
+        fn new(provider: &str) -> Self {
+            Self {
+                provider: RwLock::new(provider.to_string()),
+            }
+        }
+
+        async fn set_provider(&self, provider: &str) {
+            *self.provider.write().await = provider.to_string();
+        }
+    }
+
+    #[async_trait::async_trait]
+    impl EmbeddingClient for MockEmbeddingClient {
+        async fn provider_id(&self) -> Result<String, EmbeddingError> {
+            Ok(self.provider.read().await.clone())
+        }
+
+        async fn embed(
+            &self,
+            texts: &[String],
+            _opts: Option<EmbedOptions>,
+        ) -> Result<Vec<Vec<f32>>, EmbeddingError> {
+            Ok(texts.iter().map(|value| encode_text(value)).collect())
+        }
+    }
+
+    fn encode_text(text: &str) -> Vec<f32> {
+        let lower = text.to_ascii_lowercase();
+        vec![
+            if lower.contains("alpha") { 1.0 } else { 0.0 },
+            if lower.contains("beta") { 1.0 } else { 0.0 },
+            (lower.len() as f32 % 13.0) / 13.0,
+        ]
     }
 }

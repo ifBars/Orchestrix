@@ -135,6 +135,18 @@ export interface EmbeddingProviderInfo {
   kind: EmbeddingProviderKind;
 }
 
+export interface EmbeddingIndexStatus {
+  workspace_root: string;
+  provider: string;
+  status: "indexing" | "ready" | "failed" | string;
+  dims: number | null;
+  file_count: number;
+  chunk_count: number;
+  indexed_at: string | null;
+  updated_at: string;
+  error: string | null;
+}
+
 export interface WorkspaceRootView {
   workspace_root: string;
 }

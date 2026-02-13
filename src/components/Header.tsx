@@ -1,7 +1,7 @@
-import { ChevronDown, Folder, Minus, Moon, PanelRight, Square, Sun, X } from "lucide-react";
+import { ChevronDown, Folder, LoaderCircle, Minus, Moon, PanelRight, Square, Sun, X } from "lucide-react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
-import { type MouseEvent } from "react";
+import { type MouseEvent, useEffect } from "react";
 import { useShallow } from "zustand/shallow";
 import { useAppStore } from "@/stores/appStore";
 import appIcon from "../../src-tauri/icons/icon.png";
@@ -14,9 +14,26 @@ type HeaderProps = {
 };
 
 export function Header({ darkMode, artifactsOpen, onToggleTheme, onToggleArtifacts }: HeaderProps) {
-  const [workspaceRoot, setWorkspaceRoot] = useAppStore(
-    useShallow((state) => [state.workspaceRoot, state.setWorkspaceRoot])
+  const [workspaceRoot, embeddingIndexStatus, setWorkspaceRoot, refreshEmbeddingIndexStatus] = useAppStore(
+    useShallow((state) => [
+      state.workspaceRoot,
+      state.embeddingIndexStatus,
+      state.setWorkspaceRoot,
+      state.refreshEmbeddingIndexStatus,
+    ])
   );
+
+  useEffect(() => {
+    refreshEmbeddingIndexStatus().catch(console.error);
+  }, [workspaceRoot, refreshEmbeddingIndexStatus]);
+
+  useEffect(() => {
+    if (embeddingIndexStatus?.status !== "indexing") return;
+    const timer = window.setInterval(() => {
+      refreshEmbeddingIndexStatus().catch(console.error);
+    }, 1800);
+    return () => window.clearInterval(timer);
+  }, [embeddingIndexStatus?.status, refreshEmbeddingIndexStatus]);
 
   const startDrag = async (event: MouseEvent<HTMLElement>) => {
     const target = event.target as HTMLElement;
@@ -48,6 +65,21 @@ export function Header({ darkMode, artifactsOpen, onToggleTheme, onToggleArtifac
 
   const workspaceName = workspaceRoot ? workspaceRoot.split(/[/\\]/).pop() : "No workspace";
 
+  const indexTone =
+    embeddingIndexStatus?.status === "ready"
+      ? "text-success"
+      : embeddingIndexStatus?.status === "failed"
+        ? "text-destructive"
+        : "text-info";
+  const indexLabel =
+    embeddingIndexStatus?.status === "ready"
+      ? `Embeddings ready (${embeddingIndexStatus.chunk_count} chunks)`
+      : embeddingIndexStatus?.status === "failed"
+        ? "Embeddings failed"
+        : embeddingIndexStatus?.status === "indexing"
+          ? `Indexing embeddings (${embeddingIndexStatus.chunk_count} chunks)`
+          : "Embeddings idle";
+
   return (
     <div
       data-tauri-drag-region
@@ -75,6 +107,24 @@ export function Header({ darkMode, artifactsOpen, onToggleTheme, onToggleArtifac
           <span className="max-w-40 truncate">{workspaceName}</span>
           <ChevronDown size={10} />
         </button>
+
+        {embeddingIndexStatus ? (
+          <div
+            className="no-drag flex items-center gap-1.5 rounded-md border border-border/70 bg-background/55 px-2.5 py-1 text-[11px]"
+            title={
+              embeddingIndexStatus.status === "failed" && embeddingIndexStatus.error
+                ? `Embedding index failed: ${embeddingIndexStatus.error}`
+                : `${indexLabel}. Provider: ${embeddingIndexStatus.provider}`
+            }
+          >
+            {embeddingIndexStatus.status === "indexing" ? (
+              <LoaderCircle size={12} className="animate-spin text-info" />
+            ) : (
+              <span className={`h-1.5 w-1.5 rounded-full ${embeddingIndexStatus.status === "ready" ? "bg-success" : embeddingIndexStatus.status === "failed" ? "bg-destructive" : "bg-info"}`} />
+            )}
+            <span className={indexTone}>{indexLabel}</span>
+          </div>
+        ) : null}
       </div>
 
       <div className="no-drag flex items-center gap-2">
