@@ -1,4 +1,4 @@
-import { ArrowUp, Bot, FileText, Folder, Loader2, MessageCircle, Paperclip, Sparkles, XCircle } from "lucide-react";
+import { ArrowUp, Bot, FileText, Folder, Loader2, Paperclip, Sparkles, XCircle } from "lucide-react";
 import { invoke } from "@tauri-apps/api/core";
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
 import { useEffect, useMemo, useRef, useState } from "react";
@@ -71,6 +71,12 @@ export function Composer() {
     setPrompt("");
     setAttachments([]);
 
+    const presetIdFromPrompt = extractAgentPresetId(value);
+    const effectivePresetId = presetIdFromPrompt ?? selectedAgentPresetId;
+    if (presetIdFromPrompt && presetIdFromPrompt !== selectedAgentPresetId) {
+      setSelectedAgentPreset(presetIdFromPrompt);
+    }
+
     if (canContinueChat && selectedTask) {
       // Send as follow-up message to existing task
       setSending(true);
@@ -81,7 +87,7 @@ export function Composer() {
       }
     } else {
       // Create new task
-      await createTask(value, { mode, agentPresetId: selectedAgentPresetId ?? undefined });
+      await createTask(value, { mode, agentPresetId: effectivePresetId ?? undefined });
     }
   };
 
@@ -138,6 +144,12 @@ export function Composer() {
     const after = prompt.slice(cursor);
     const next = `${before}@${item.value} ${after}`;
     setPrompt(next);
+    if (item.kind === "agent") {
+      const presetId = item.value.startsWith("agent:") ? item.value.slice("agent:".length) : item.value;
+      if (presetId.length > 0) {
+        setSelectedAgentPreset(presetId);
+      }
+    }
     setMentionOpen(false);
     setMentionItems([]);
     setMentionQuery("");
@@ -158,7 +170,12 @@ export function Composer() {
   const mentionGroups = useMemo(() => {
     const grouped = new Map<string, WorkspaceReferenceCandidate[]>();
     for (const item of mentionItems) {
-      const key = item.kind === "skill" ? "Skills" : item.group || "(root)";
+      const key =
+        item.kind === "agent"
+          ? "Agent Presets"
+          : item.kind === "skill"
+          ? "Skills"
+          : item.group || "(root)";
       const bucket = grouped.get(key);
       if (bucket) {
         bucket.push(item);
@@ -269,14 +286,20 @@ export function Composer() {
                   </div>
                   {group.items.map((item) => {
                     const idx = flatIndex++;
+                    const isActive = idx === mentionIndex;
+                    const isAgent = item.kind === "agent";
                     return (
                       <button
                         key={`${item.kind}:${item.value}`}
                         type="button"
                         onClick={() => insertMention(item)}
                         className={`flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left text-xs transition-colors ${
-                          idx === mentionIndex
-                            ? "bg-accent text-foreground"
+                          isActive
+                            ? isAgent
+                              ? "bg-info/14 text-foreground"
+                              : "bg-accent text-foreground"
+                            : isAgent
+                            ? "text-muted-foreground hover:bg-info/10 hover:text-foreground"
                             : "text-muted-foreground hover:bg-accent/60"
                         }`}
                       >
@@ -289,7 +312,12 @@ export function Composer() {
                         ) : (
                           <Sparkles size={12} />
                         )}
-                        <span className="truncate">@{item.value}</span>
+                        <span className="truncate font-medium">@{item.value}</span>
+                        {isAgent && (
+                          <span className="rounded-full border border-info/35 bg-info/10 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-info">
+                            Preset
+                          </span>
+                        )}
                         <span className="ml-auto truncate text-[10px] text-muted-foreground/70">{item.description}</span>
                       </button>
                     );
@@ -435,4 +463,9 @@ function getMentionContext(text: string, cursor: number): { start: number; query
   if (token.includes("\n")) return null;
 
   return { start, query: token.slice(1) };
+}
+
+function extractAgentPresetId(content: string): string | null {
+  const match = content.match(/(?:^|\s)@agent:([A-Za-z0-9._-]+)/);
+  return match?.[1] ?? null;
 }

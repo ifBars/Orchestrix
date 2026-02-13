@@ -1,5 +1,6 @@
 import { ArrowRight } from "lucide-react";
 import type { TaskRow } from "@/types";
+import { PromptWithMentions } from "./PromptWithMentions";
 
 type UserMessageProps = {
   prompt: string | null;
@@ -22,7 +23,7 @@ export function UserMessage({ prompt, relatedTasks, onSelectTask }: UserMessageP
       <div className="min-w-0 flex-1">
         {hasPrompt && (
           <div className="rounded-xl border border-border/70 bg-background/55 px-3 py-2.5">
-            <p className="text-sm leading-relaxed text-foreground">{prompt}</p>
+            <PromptWithMentions content={prompt ?? ""} className="text-sm leading-relaxed text-foreground" />
           </div>
         )}
         {relatedTasks.length > 0 && (
