@@ -2,9 +2,9 @@
 
 use crate::db::{queries, Database};
 
-/// Default max tokens for plan mode (25,000).
-/// This allows ample room for reasoning while staying within context limits.
-pub const DEFAULT_PLAN_MODE_MAX_TOKENS: u32 = 25_000;
+/// Default max tokens for plan mode (180,000).
+/// Matches worker mode to give planning the same budget as execution.
+pub const DEFAULT_PLAN_MODE_MAX_TOKENS: u32 = 180_000;
 
 /// High limit for worker/build mode (180,000).
 /// Based on MiniMax's 204,800 context window, leaving room for input tokens.
