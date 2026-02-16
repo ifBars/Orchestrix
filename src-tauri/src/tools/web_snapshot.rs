@@ -203,8 +203,13 @@ async fn capture_snapshot(
         .map_err(|e| ToolError::Execution(format!("failed to enable logging: {}", e)))?;
 
     // Navigate to URL
-    tab.navigate_to(&args.url)
+    let navigation = tab
+        .navigate_to(&args.url)
         .map_err(|e| ToolError::Execution(format!("failed to navigate: {}", e)))?;
+
+    navigation
+        .wait_until_navigated()
+        .map_err(|e| ToolError::Execution(format!("failed to wait for navigation: {}", e)))?;
 
     // Wait for selector if specified
     if let Some(ref selector) = args.wait_for_selector {
