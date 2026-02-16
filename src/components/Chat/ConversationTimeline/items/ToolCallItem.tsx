@@ -22,7 +22,7 @@ export function ToolCallItem({ item, compact = false }: ToolCallItemProps) {
   );
 
   return (
-    <div className={compact ? "" : "ml-11"}>
+    <div className={compact ? "" : "ml-11 animate-in fade-in slide-in-from-left-2 duration-300"}>
       <button
         type="button"
         aria-expanded={expanded}
@@ -45,7 +45,7 @@ export function ToolCallItem({ item, compact = false }: ToolCallItemProps) {
       </button>
 
       {expanded && (
-        <div className="mt-1 rounded-lg border border-border/60 bg-card/45 p-3">
+        <div className="mt-1 rounded-lg border border-border/60 bg-card/45 p-3 animate-in fade-in slide-in-from-top-1 duration-200">
           {item.toolArgs && Object.keys(item.toolArgs).length > 0 && (
             <div className="mb-2">
               <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Arguments</span>

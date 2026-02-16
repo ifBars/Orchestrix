@@ -37,6 +37,20 @@ function pushAgentCompletionMessage(ctx: HandlerContext, content: string, subAge
 }
 
 export function handleToolCallStarted(ctx: HandlerContext): HandlerResult {
+  // Flush any text stream before showing the tool call
+  // Preserve it even if still streaming, since we're moving to tool execution.
+  const completedStream = ctx.flushAgentMessageStream();
+  if (completedStream && completedStream.content.trim()) {
+    ctx.items.push({
+      id: completedStream.streamId,
+      type: "agentMessage",
+      timestamp: completedStream.updatedAt,
+      seq: completedStream.seq,
+      content: completedStream.content.trim(),
+      subAgentId: completedStream.subAgentId,
+    });
+  }
+
   ctx.removeLastTransient();
   const toolName = ctx.event.payload?.tool_name as string | undefined;
   const rationale = ctx.event.payload?.rationale as string | undefined;

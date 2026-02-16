@@ -99,15 +99,30 @@ export function handleMessageStreamCompleted(ctx: HandlerContext): HandlerResult
 }
 
 export function handleMessageStreamCancelled(ctx: HandlerContext): HandlerResult {
-  ctx.clearAgentMessageStream();
+  // When the backend cancels a stream (e.g. model chose tool calls instead of
+  // a text response), preserve any content that was already streamed so the
+  // user doesn't see text appear and then vanish.
+  const stream = ctx.flushAgentMessageStream();
+  if (stream && stream.content.trim()) {
+    ctx.items.push({
+      id: stream.streamId,
+      type: "agentMessage",
+      timestamp: stream.updatedAt,
+      seq: stream.seq,
+      content: stream.content.trim(),
+      subAgentId: stream.subAgentId,
+    });
+    return { planChanged: false, timelineChanged: true, agentStreamChanged: true };
+  }
   return { planChanged: false, timelineChanged: false, agentStreamChanged: true };
 }
 
 export function handleDeciding(ctx: HandlerContext): HandlerResult {
-  // If we have a completed message stream (text) from before, flush it now
+  // If we have a message stream (text) from before, flush it now
   // so it doesn't get lost or look out of order.
+  // Preserve it even if still streaming, since we're moving to the next turn.
   const completedStream = ctx.flushAgentMessageStream();
-  if (completedStream && !completedStream.isStreaming && completedStream.content.trim()) {
+  if (completedStream && completedStream.content.trim()) {
     ctx.items.push({
       id: completedStream.streamId,
       type: "agentMessage",
@@ -132,9 +147,10 @@ export function handleDeciding(ctx: HandlerContext): HandlerResult {
 }
 
 export function handleToolCallsPreparing(ctx: HandlerContext): HandlerResult {
-  // Flush any completed text stream before showing "Preparing tool calls"
+  // Flush any text stream before showing "Preparing tool calls"
+  // Preserve it even if still streaming, since we're moving to tool execution.
   const completedStream = ctx.flushAgentMessageStream();
-  if (completedStream && !completedStream.isStreaming && completedStream.content.trim()) {
+  if (completedStream && completedStream.content.trim()) {
     ctx.items.push({
       id: completedStream.streamId,
       type: "agentMessage",
@@ -162,9 +178,10 @@ export function handleToolCallsPreparing(ctx: HandlerContext): HandlerResult {
 }
 
 export function handleSubagentsScheduled(ctx: HandlerContext): HandlerResult {
-  // Flush any completed text stream before showing "Sub-agents scheduled"
+  // Flush any text stream before showing "Sub-agents scheduled"
+  // Preserve it even if still streaming, since we're moving to sub-agent execution.
   const completedStream = ctx.flushAgentMessageStream();
-  if (completedStream && !completedStream.isStreaming && completedStream.content.trim()) {
+  if (completedStream && completedStream.content.trim()) {
     ctx.items.push({
       id: completedStream.streamId,
       type: "agentMessage",
