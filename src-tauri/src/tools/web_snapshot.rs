@@ -223,6 +223,15 @@ async fn capture_snapshot(
         tokio::time::sleep(std::time::Duration::from_millis(wait_timeout_ms)).await;
     }
 
+    // Verify page is accessible before capturing screenshot
+    let current_url = tab.get_url();
+    if current_url.is_empty() || current_url == "about:blank" {
+        return Err(ToolError::Execution(
+            "Page appears to be blank. The URL may not have loaded correctly.".into(),
+        ));
+    }
+    eprintln!("[web.snapshot] Page URL confirmed: {}", current_url);
+
     // Get page title
     let page_title = tab.get_title().ok().map(|t| t.to_string());
 
@@ -232,13 +241,8 @@ async fn capture_snapshot(
     // Collect failed requests
     let failed_requests = collect_failed_requests(&tab);
 
-    // Capture screenshot
-    let screenshot_data = if full_page {
-        tab.capture_screenshot(CaptureScreenshotFormatOption::Png, None, None, true)
-    } else {
-        tab.capture_screenshot(CaptureScreenshotFormatOption::Png, None, None, false)
-    }
-    .map_err(|e| ToolError::Execution(format!("failed to capture screenshot: {}", e)))?;
+    // Capture screenshot with retry logic
+    let screenshot_data = capture_screenshot_with_retry(&tab, full_page, 3).await?;
 
     // Save screenshot to file
     std::fs::write(&artifact_path, screenshot_data)
@@ -256,6 +260,56 @@ async fn capture_snapshot(
         failed_requests,
         page_title,
     })
+}
+
+async fn capture_screenshot_with_retry(
+    tab: &headless_chrome::Tab,
+    full_page: bool,
+    max_retries: u32,
+) -> Result<Vec<u8>, ToolError> {
+    let mut last_error = None;
+    
+    for attempt in 1..=max_retries {
+        // Small delay before each attempt to ensure rendering is complete
+        if attempt > 1 {
+            tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+        }
+        
+        match if full_page {
+            tab.capture_screenshot(CaptureScreenshotFormatOption::Png, None, None, true)
+        } else {
+            tab.capture_screenshot(CaptureScreenshotFormatOption::Png, None, None, false)
+        } {
+            Ok(data) => return Ok(data),
+            Err(e) => {
+                let error_msg = format!("{}", e);
+                last_error = Some(error_msg.clone());
+                
+                // Check if the page might have crashed
+                if error_msg.contains("-32000") || error_msg.contains("Unable to capture") {
+                    eprintln!("[web.snapshot] Screenshot failed (attempt {}/{}): {}", attempt, max_retries, error_msg);
+                    
+                    // Try to re-activate the tab before retry
+                    if attempt < max_retries {
+                        if let Err(activate_err) = tab.activate() {
+                            eprintln!("[web.snapshot] Failed to re-activate tab: {}", activate_err);
+                        }
+                        // Wait a bit for the tab to stabilize
+                        tokio::time::sleep(std::time::Duration::from_millis(300)).await;
+                    }
+                } else {
+                    // Non-retryable error
+                    return Err(ToolError::Execution(format!("failed to capture screenshot: {}", e)));
+                }
+            }
+        }
+    }
+    
+    Err(ToolError::Execution(format!(
+        "failed to capture screenshot after {} attempts. Last error: {}",
+        max_retries,
+        last_error.unwrap_or_else(|| "unknown error".to_string())
+    )))
 }
 
 fn collect_console_errors(_tab: &headless_chrome::Tab) -> Vec<ConsoleError> {
