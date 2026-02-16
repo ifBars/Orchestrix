@@ -1,11 +1,13 @@
 use crate::core::skills::{
     add_custom_skill as add_custom_skill_record,
     import_context7_skill as import_context7_skill_record,
-    import_vercel_skill as import_vercel_skill_record, list_all_skills,
-    remove_custom_skill as remove_custom_skill_record, search_skills as search_skills_catalog,
-    NewCustomSkill, SkillCatalogItem,
+    import_vercel_skill as import_vercel_skill_record,
+    install_agent_skill as install_agent_skill_record, list_all_skills,
+    remove_custom_skill as remove_custom_skill_record,
+    search_agent_skills as search_agent_skills_record, search_skills as search_skills_catalog,
+    AgentSkillInstallResult, AgentSkillSearchItem, NewCustomSkill, SkillCatalogItem,
 };
-use crate::AppError;
+use crate::{load_workspace_root, AppError, AppState};
 
 #[tauri::command]
 pub fn list_available_skills() -> Vec<SkillCatalogItem> {
@@ -43,4 +45,26 @@ pub fn import_context7_skill(
 #[tauri::command]
 pub fn import_vercel_skill(skill_name: String) -> Result<SkillCatalogItem, AppError> {
     import_vercel_skill_record(&skill_name).map_err(AppError::Other)
+}
+
+#[tauri::command]
+pub async fn search_agent_skills(
+    query: String,
+    limit: Option<usize>,
+) -> Result<Vec<AgentSkillSearchItem>, AppError> {
+    search_agent_skills_record(&query, limit.unwrap_or(25).clamp(1, 100))
+        .await
+        .map_err(AppError::Other)
+}
+
+#[tauri::command]
+pub async fn install_agent_skill(
+    state: tauri::State<'_, AppState>,
+    skill_name: String,
+    repo_url: Option<String>,
+) -> Result<AgentSkillInstallResult, AppError> {
+    let workspace_root = load_workspace_root(&state.db);
+    install_agent_skill_record(&workspace_root, &skill_name, repo_url)
+        .await
+        .map_err(AppError::Other)
 }

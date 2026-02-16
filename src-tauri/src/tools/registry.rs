@@ -106,13 +106,14 @@ impl ToolRegistry {
     /// Only includes read-only tools and plan-specific agent tools:
     /// fs.read, fs.list, search.rg, git.*, skills.*, agent.todo,
     /// agent.create_artifact, agent.request_build_mode
-    pub fn list_for_plan_mode(&self) -> Vec<ToolDescriptor> {
-        let allowed_tools: std::collections::HashSet<&str> = [
+    ///
+    /// If `include_embeddings` is false, excludes search.embeddings.
+    pub fn list_for_plan_mode(&self, include_embeddings: bool) -> Vec<ToolDescriptor> {
+        let mut allowed_tools: std::collections::HashSet<&str> = [
             "fs.read",
             "fs.list",
             "search.rg",
             "search.files",
-            "search.embeddings",
             "git.status",
             "git.diff",
             "git.log",
@@ -126,6 +127,10 @@ impl ToolRegistry {
         .cloned()
         .collect();
 
+        if include_embeddings {
+            allowed_tools.insert("search.embeddings");
+        }
+
         self.list()
             .into_iter()
             .filter(|t| allowed_tools.contains(t.name.as_str()))
@@ -136,10 +141,15 @@ impl ToolRegistry {
     ///
     /// Includes all tools except request_build_mode, create_artifact, and agent.complete.
     /// Note: agent.complete is exclusive to subagents spawned via subagent.spawn.
-    pub fn list_for_build_mode(&self) -> Vec<ToolDescriptor> {
+    ///
+    /// If `include_embeddings` is false, excludes search.embeddings.
+    pub fn list_for_build_mode(&self, include_embeddings: bool) -> Vec<ToolDescriptor> {
         self.list()
             .into_iter()
             .filter(|t| {
+                if !include_embeddings && t.name == "search.embeddings" {
+                    return false;
+                }
                 t.name != "agent.request_build_mode"
                     && t.name != "agent.create_artifact"
                     && t.name != "agent.complete"
@@ -148,8 +158,9 @@ impl ToolRegistry {
     }
 
     /// Generate a detailed tool reference string for PLAN mode.
-    pub fn tool_reference_for_plan_mode(&self) -> String {
-        let mut tools: Vec<_> = self.list_for_plan_mode();
+    /// If `include_embeddings` is false, excludes search.embeddings.
+    pub fn tool_reference_for_plan_mode(&self, include_embeddings: bool) -> String {
+        let mut tools: Vec<_> = self.list_for_plan_mode(include_embeddings);
         tools.sort_by(|a, b| a.name.cmp(&b.name));
 
         let mut out = String::new();
@@ -165,8 +176,9 @@ impl ToolRegistry {
     }
 
     /// Generate a detailed tool reference string for BUILD mode.
-    pub fn tool_reference_for_build_mode(&self) -> String {
-        let mut tools: Vec<_> = self.list_for_build_mode();
+    /// If `include_embeddings` is false, excludes search.embeddings.
+    pub fn tool_reference_for_build_mode(&self, include_embeddings: bool) -> String {
+        let mut tools: Vec<_> = self.list_for_build_mode(include_embeddings);
         tools.sort_by(|a, b| a.name.cmp(&b.name));
 
         let mut out = String::new();

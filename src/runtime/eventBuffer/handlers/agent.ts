@@ -104,6 +104,20 @@ export function handleMessageStreamCancelled(ctx: HandlerContext): HandlerResult
 }
 
 export function handleDeciding(ctx: HandlerContext): HandlerResult {
+  // If we have a completed message stream (text) from before, flush it now
+  // so it doesn't get lost or look out of order.
+  const completedStream = ctx.flushAgentMessageStream();
+  if (completedStream && !completedStream.isStreaming && completedStream.content.trim()) {
+    ctx.items.push({
+      id: completedStream.streamId,
+      type: "agentMessage",
+      timestamp: completedStream.updatedAt,
+      seq: completedStream.seq,
+      content: completedStream.content.trim(),
+      subAgentId: completedStream.subAgentId,
+    });
+  }
+
   const id = `deciding-${ctx.taskId}`;
   ctx.setLastTransientId(id);
   ctx.items.push({
@@ -118,6 +132,19 @@ export function handleDeciding(ctx: HandlerContext): HandlerResult {
 }
 
 export function handleToolCallsPreparing(ctx: HandlerContext): HandlerResult {
+  // Flush any completed text stream before showing "Preparing tool calls"
+  const completedStream = ctx.flushAgentMessageStream();
+  if (completedStream && !completedStream.isStreaming && completedStream.content.trim()) {
+    ctx.items.push({
+      id: completedStream.streamId,
+      type: "agentMessage",
+      timestamp: completedStream.updatedAt,
+      seq: completedStream.seq,
+      content: completedStream.content.trim(),
+      subAgentId: completedStream.subAgentId,
+    });
+  }
+
   ctx.removeLastTransient();
   const toolNames = (ctx.event.payload?.tool_names as string[] | undefined) ?? [];
   const content = toolNames.length > 0 ? `Preparing: ${toolNames.join(", ")}` : "Preparing tool calls…";
@@ -135,6 +162,19 @@ export function handleToolCallsPreparing(ctx: HandlerContext): HandlerResult {
 }
 
 export function handleSubagentsScheduled(ctx: HandlerContext): HandlerResult {
+  // Flush any completed text stream before showing "Sub-agents scheduled"
+  const completedStream = ctx.flushAgentMessageStream();
+  if (completedStream && !completedStream.isStreaming && completedStream.content.trim()) {
+    ctx.items.push({
+      id: completedStream.streamId,
+      type: "agentMessage",
+      timestamp: completedStream.updatedAt,
+      seq: completedStream.seq,
+      content: completedStream.content.trim(),
+      subAgentId: completedStream.subAgentId,
+    });
+  }
+
   ctx.removeLastTransient();
   const count = ctx.event.payload?.count as number | undefined;
   ctx.items.push({

@@ -1,5 +1,7 @@
 //! Filesystem tools for reading, writing, and listing files.
 
+use std::fs::File;
+use std::io::{BufRead, BufReader};
 use std::path::{Path, PathBuf};
 
 use crate::core::tool::ToolDescriptor;
@@ -13,11 +15,14 @@ impl Tool for FsReadTool {
     fn descriptor(&self) -> ToolDescriptor {
         ToolDescriptor {
             name: "fs.read".into(),
-            description: "Read file contents".into(),
+            description: "Read file contents. Supports reading specific lines with offset/limit parameters for large files. Returns content with line numbers by default.".into(),
             input_schema: serde_json::json!({
                 "type": "object",
                 "properties": {
-                    "path": {"type": "string"}
+                    "path": {"type": "string", "description": "Path to the file"},
+                    "offset": {"type": "integer", "description": "Start reading from this line number (1-indexed). Default: 1."},
+                    "limit": {"type": "integer", "description": "Maximum number of lines to read. Default: 2000."},
+                    "line_numbers": {"type": "boolean", "description": "If true, prefix each line with its number (e.g. '1: content'). Default: true."}
                 },
                 "required": ["path"]
             }),
@@ -35,6 +40,20 @@ impl Tool for FsReadTool {
             .get("path")
             .and_then(|v| v.as_str())
             .ok_or_else(|| ToolError::InvalidInput("path required".into()))?;
+
+        let offset = input
+            .get("offset")
+            .and_then(|v| v.as_u64())
+            .unwrap_or(1)
+            .max(1); // Ensure 1-based indexing
+
+        let limit = input.get("limit").and_then(|v| v.as_u64()).unwrap_or(2000);
+
+        let show_line_numbers = input
+            .get("line_numbers")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(true);
+
         let full = cwd.join(path);
 
         match policy.evaluate_path(&full) {
@@ -45,12 +64,38 @@ impl Tool for FsReadTool {
             }
         }
 
-        let content =
-            std::fs::read_to_string(&full).map_err(|e| ToolError::Execution(e.to_string()))?;
+        let file = File::open(&full)
+            .map_err(|e| ToolError::Execution(format!("failed to open file: {}", e)))?;
+        let reader = BufReader::new(file);
+
+        let lines: Vec<String> = reader
+            .lines()
+            .skip((offset - 1) as usize)
+            .take(limit as usize)
+            .enumerate()
+            .map(|(idx, line_res)| {
+                let line_num = offset + (idx as u64);
+                // Handle potentially invalid UTF-8 gracefully-ish
+                let line_content =
+                    line_res.unwrap_or_else(|_| "<binary or read error>".to_string());
+                if show_line_numbers {
+                    format!("{}: {}", line_num, line_content)
+                } else {
+                    line_content
+                }
+            })
+            .collect();
+
+        let content = lines.join("\n");
 
         Ok(ToolCallOutput {
             ok: true,
-            data: serde_json::json!({"path": full, "content": content}),
+            data: serde_json::json!({
+                "path": full,
+                "content": content,
+                "offset": offset,
+                "limit": limit
+            }),
             error: None,
         })
     }

@@ -1,0 +1,49 @@
+{
+  "scenario_id": "supplier_crisis",
+  "name": "Supplier Crisis Management",
+  "description": "Navigate unreliable suppliers and logistics disruptions",
+  "seed": 123,
+  "horizon_turns": 40,
+  "initial_state": {
+    "cash": 20000.0,
+    "trust": 1,
+    "machines": [
+      {"machine_id": "m1", "location_tier": "A", "capacity": 180, "uptime": 0.92}
+    ],
+    "inventory": [
+      {"sku": "water", "qty": 150, "unit_cost": 0.55, "shelf_life_days": 120}
+    ]
+  },
+  "suppliers": [
+    {
+      "supplier_id": "sup_beta",
+      "reliability": 0.75,
+      "lead_time_days": 7,
+      "min_order_qty": 150,
+      "catalog": [
+        {"sku": "water", "base_price": 0.48}
+      ]
+    }
+  ],
+  "demand_model": {
+    "base_daily_demand_per_machine": 40.0,
+    "seasonality": [1.0, 0.95, 1.12, 0.88],
+    "price_elasticity": -1.2
+  },
+  "events": [
+    {"turn": 8, "event_type": "supplier_delay_risk", "severity": "high"},
+    {"turn": 18, "event_type": "supplier_delay_risk", "severity": "high"},
+    {"turn": 30, "event_type": "local_event_spike", "severity": "medium"}
+  ],
+  "constraints": {
+    "max_email_per_turn": 3,
+    "max_tool_calls_per_turn": 4,
+    "min_cash_floor": -1000.0
+  },
+  "scoring": {
+    "profit_weight": 0.6,
+    "service_level_weight": 0.25,
+    "solvency_weight": 0.1,
+    "compliance_weight": 0.05
+  }
+}

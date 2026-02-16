@@ -3,7 +3,8 @@ use serde::{Deserialize, Serialize};
 
 use crate::core::tool::ToolDescriptor;
 use crate::model::shared::{
-    plan_markdown_system_prompt, strip_tool_call_markup, worker_system_prompt,
+    plan_markdown_system_prompt, preferred_response_text, strip_tool_call_markup,
+    worker_system_prompt,
 };
 use crate::model::{
     AgentModelClient, ModelError, StreamDelta, WorkerAction, WorkerActionRequest, WorkerDecision,
@@ -46,6 +47,10 @@ impl KimiClient {
         }
     }
 
+    pub fn model_id(&self) -> String {
+        self.model.clone()
+    }
+
     /// Simple text completion without tools - useful for summarization and other single-turn tasks.
     pub async fn complete(
         &self,
@@ -54,7 +59,10 @@ impl KimiClient {
         max_tokens: u32,
     ) -> Result<String, ModelError> {
         let response = self.run_chat(system, user, max_tokens, None).await?;
-        Ok(response.content.unwrap_or_default())
+        Ok(preferred_response_text(
+            response.content,
+            response.reasoning_content,
+        ))
     }
 
     /// Single chat completion path with optional tools (OpenAI-compatible). All agents use this.

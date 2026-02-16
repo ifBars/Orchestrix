@@ -145,7 +145,12 @@ impl Tool for WebSnapshotTool {
         let runtime = tokio::runtime::Handle::try_current()
             .map_err(|e| ToolError::Execution(format!("no async runtime: {}", e)))?;
 
-        let result = runtime.block_on(capture_snapshot(cwd, args))?;
+        let cwd_owned = cwd.to_path_buf();
+        let result = std::thread::spawn(move || {
+            runtime.block_on(capture_snapshot(&cwd_owned, args))
+        })
+        .join()
+        .map_err(|_| ToolError::Execution("web snapshot thread panicked".to_string()))??;
 
         Ok(ToolCallOutput {
             ok: true,

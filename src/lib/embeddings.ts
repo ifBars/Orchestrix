@@ -49,6 +49,7 @@ export type RustHfEmbeddingConfig = {
 };
 
 export type EmbeddingConfig = {
+  enabled: boolean;
   provider: "gemini" | "ollama" | "transformersjs" | "rust-hf";
   normalize_l2: boolean;
   gemini: {
@@ -63,6 +64,7 @@ export type EmbeddingConfig = {
 };
 
 export type EmbeddingConfigView = {
+  enabled: boolean;
   provider: "gemini" | "ollama" | "transformersjs" | "rust-hf";
   normalize_l2: boolean;
   gemini: GeminiEmbeddingConfigView;

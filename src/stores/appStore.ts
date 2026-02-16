@@ -31,6 +31,8 @@ import { create } from "zustand";
 import { runtimeEventBuffer } from "@/runtime/eventBuffer";
 import { useStreamTickStore } from "@/stores/streamStore";
 import type {
+  AgentSkillInstallResult,
+  AgentSkillSearchItem,
   ArtifactRow,
   AgentPreset,
   BusEvent,
@@ -125,6 +127,7 @@ type AppStoreState = {
     defaultModel?: string,
     baseUrl?: string,
   ) => Promise<void>;
+  removeProviderConfig: (provider: string) => Promise<void>;
   selectProviderModel: (provider: string, model: string) => void;
   refreshEmbeddingConfig: () => Promise<void>;
   setEmbeddingConfig: (config: EmbeddingConfig) => Promise<void>;
@@ -136,6 +139,8 @@ type AppStoreState = {
   refreshTaskLinks: (taskId: string) => Promise<void>;
   refreshSkills: () => Promise<void>;
   searchSkills: (query: string, source?: string, limit?: number) => Promise<SkillCatalogItem[]>;
+  searchAgentSkills: (query: string, limit?: number) => Promise<AgentSkillSearchItem[]>;
+  installAgentSkill: (skillName: string, repoUrl?: string) => Promise<AgentSkillInstallResult>;
   addCustomSkill: (skill: NewCustomSkill) => Promise<void>;
   importContext7Skill: (libraryId: string, title?: string) => Promise<void>;
   importVercelSkill: (skillName: string) => Promise<void>;
@@ -691,6 +696,12 @@ export const useAppStore = create<AppStoreState>((set, get) => ({
     set({ providerConfigs, selectedModel });
   },
 
+  removeProviderConfig: async (provider) => {
+    await invoke("remove_provider_config", { provider });
+    const providerConfigs = await invoke<ProviderConfigView[]>("get_provider_configs");
+    set({ providerConfigs });
+  },
+
   selectProviderModel: (provider, model) => set({ selectedProvider: provider, selectedModel: model }),
 
   refreshEmbeddingConfig: async () => {
@@ -767,6 +778,22 @@ export const useAppStore = create<AppStoreState>((set, get) => ({
       source: source?.trim() ? source.trim() : null,
       limit: typeof limit === "number" ? limit : null,
     });
+  },
+
+  searchAgentSkills: async (query: string, limit?: number) => {
+    return invoke<AgentSkillSearchItem[]>("search_agent_skills", {
+      query,
+      limit: typeof limit === "number" ? limit : null,
+    });
+  },
+
+  installAgentSkill: async (skillName: string, repoUrl?: string) => {
+    const result = await invoke<AgentSkillInstallResult>("install_agent_skill", {
+      skillName,
+      repoUrl: repoUrl || null,
+    });
+    await Promise.all([get().refreshSkills(), get().refreshWorkspaceSkills()]);
+    return result;
   },
 
   addCustomSkill: async (skill: NewCustomSkill) => {

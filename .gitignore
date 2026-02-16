@@ -50,5 +50,6 @@ dist-ssr
 .claude/
 .agent/
 .agents/*
-
-src-tauri/.fastembed_cache/
+.fastembed_cache/
+benchmarks/
+benchmark_viz/

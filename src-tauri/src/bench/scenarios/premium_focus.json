@@ -1,0 +1,48 @@
+{
+  "scenario_id": "premium_focus",
+  "name": "Premium Market Strategy",
+  "description": "Target high-margin premium locations with limited volume",
+  "seed": 456,
+  "horizon_turns": 40,
+  "initial_state": {
+    "cash": 35000.0,
+    "trust": 3,
+    "machines": [
+      {"machine_id": "m1", "location_tier": "premium", "capacity": 120, "uptime": 0.98}
+    ],
+    "inventory": [
+      {"sku": "water", "qty": 200, "unit_cost": 0.6, "shelf_life_days": 120}
+    ]
+  },
+  "suppliers": [
+    {
+      "supplier_id": "sup_premium",
+      "reliability": 0.95,
+      "lead_time_days": 4,
+      "min_order_qty": 80,
+      "catalog": [
+        {"sku": "water", "base_price": 0.58}
+      ]
+    }
+  ],
+  "demand_model": {
+    "base_daily_demand_per_machine": 30.0,
+    "seasonality": [1.0, 1.08, 1.05, 1.02],
+    "price_elasticity": -0.8
+  },
+  "events": [
+    {"turn": 15, "event_type": "local_event_spike", "severity": "high"},
+    {"turn": 32, "event_type": "local_event_spike", "severity": "medium"}
+  ],
+  "constraints": {
+    "max_email_per_turn": 3,
+    "max_tool_calls_per_turn": 4,
+    "min_cash_floor": -3000.0
+  },
+  "scoring": {
+    "profit_weight": 0.75,
+    "service_level_weight": 0.15,
+    "solvency_weight": 0.05,
+    "compliance_weight": 0.05
+  }
+}

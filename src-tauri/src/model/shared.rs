@@ -227,7 +227,14 @@ CRITICAL RULES:
   +    new_line
   *** End Patch
   ```
-  Use `@@` with a function/class name to scope the change. Context lines (prefixed with space) help locate the right position.
+  CRITICAL for `@@` context markers:
+  - The text after `@@` must MATCH a line in the actual file (it's used to locate where the change should be applied)
+  - Use a distinctive substring from the target area (e.g. function signature, class name, unique comment)
+  - OR use `@@` alone (no context) to match based on old/new lines only
+  - The tool will try fuzzy matching (ignoring whitespace, unicode normalization) but EXACT matches are most reliable
+  - If you're unsure of the exact text, use `fs.read` first to check the file content, or use `@@` with no context
+  
+  Context lines (prefixed with space) help locate the right position when context is ambiguous.
   `fs.patch` also supports `*** Add File`, `*** Delete File`, and `*** Move to` operations.
 - Use `fs.write` only for creating new files or when rewriting the entire file content.
 - Do NOT use `fs.patch` for auto-generated content (e.g. package.json from scaffolding, format output). Use `fs.write` or `cmd.exec` instead.
@@ -354,6 +361,23 @@ Return findings as structured JSON:
 If no findings, return an empty findings array and state "correct" with a note about any residual risks or testing gaps."#
 }
 
+/// Prefer explicit assistant content, but fall back to reasoning text when
+/// providers return an empty content string.
+pub fn preferred_response_text(
+    content: Option<String>,
+    reasoning_content: Option<String>,
+) -> String {
+    if let Some(content) = content {
+        if !content.trim().is_empty() {
+            return content;
+        }
+    }
+
+    reasoning_content
+        .filter(|reasoning| !reasoning.trim().is_empty())
+        .unwrap_or_default()
+}
+
 // ---------------------------------------------------------------------------
 // Strip tool-call markup from model output
 // ---------------------------------------------------------------------------
@@ -476,7 +500,27 @@ pub fn strip_tool_call_markup(text: &str) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::strip_tool_call_markup;
+    use super::{preferred_response_text, strip_tool_call_markup};
+
+    #[test]
+    fn preferred_response_text_falls_back_to_reasoning_when_content_empty() {
+        let text = preferred_response_text(
+            Some("   \n".to_string()),
+            Some("{\"quarter_strategies\":[\"ops_hardening\"]}".to_string()),
+        );
+
+        assert_eq!(text, "{\"quarter_strategies\":[\"ops_hardening\"]}");
+    }
+
+    #[test]
+    fn preferred_response_text_prefers_non_empty_content() {
+        let text = preferred_response_text(
+            Some("{\"quarter_strategies\":[\"premium_focus\"]}".to_string()),
+            Some("internal reasoning".to_string()),
+        );
+
+        assert_eq!(text, "{\"quarter_strategies\":[\"premium_focus\"]}");
+    }
 
     #[test]
     fn strip_tool_call_markup_removes_minimax_tool_call_syntax() {

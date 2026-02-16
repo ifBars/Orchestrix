@@ -166,6 +166,21 @@ fn env_for_provider(provider: &str) -> (Option<String>, Option<String>, Option<S
             std::env::var("KIMI_MODEL").ok(),
             std::env::var("KIMI_BASE_URL").ok(),
         ),
+        "zhipu" => (
+            std::env::var("ZHIPU_API_KEY").ok(),
+            std::env::var("ZHIPU_MODEL").ok(),
+            std::env::var("ZHIPU_BASE_URL").ok(),
+        ),
+        "modal" => (
+            std::env::var("MODAL_API_KEY").ok(),
+            std::env::var("MODAL_MODEL").ok(),
+            std::env::var("MODAL_BASE_URL").ok(),
+        ),
+        "minimax" => (
+            std::env::var("MINIMAX_API_KEY").ok(),
+            std::env::var("MINIMAX_MODEL").ok(),
+            std::env::var("MINIMAX_BASE_URL").ok(),
+        ),
         _ => (
             std::env::var("MINIMAX_API_KEY").ok(),
             std::env::var("MINIMAX_MODEL").ok(),
@@ -178,6 +193,15 @@ pub(crate) fn load_provider_config(
     db: &Database,
     provider: &str,
 ) -> Result<Option<ProviderConfig>, AppError> {
+    // Check database first - this is the authoritative source for UI
+    let raw = queries::get_setting(db, &provider_setting_key(provider))?;
+    if let Some(raw) = raw {
+        let cfg: ProviderConfig = serde_json::from_str(&raw)
+            .map_err(|e| AppError::Other(format!("invalid {provider} provider config: {e}")))?;
+        return Ok(Some(cfg));
+    }
+
+    // Fall back to environment variables only if no DB config exists
     let (env_key, env_model, env_base_url) = env_for_provider(provider);
     if let Some(api_key) = env_key {
         if !api_key.trim().is_empty() {
@@ -187,13 +211,6 @@ pub(crate) fn load_provider_config(
                 base_url: env_base_url,
             }));
         }
-    }
-
-    let raw = queries::get_setting(db, &provider_setting_key(provider))?;
-    if let Some(raw) = raw {
-        let cfg: ProviderConfig = serde_json::from_str(&raw)
-            .map_err(|e| AppError::Other(format!("invalid {provider} provider config: {e}")))?;
-        return Ok(Some(cfg));
     }
 
     // Backward compatibility with previous minimax key.
@@ -371,7 +388,9 @@ pub fn run() {
         embedding_index_service: embedding_index_service.clone(),
     };
 
-    embedding_index_service.ensure_workspace_index_started(load_workspace_root(&db));
+    if embeddings::is_semantic_search_configured(&db) {
+        embedding_index_service.ensure_workspace_index_started(load_workspace_root(&db));
+    }
 
     // Initialize MCP in the background so a slow/unhealthy server cannot block app startup.
     let mcp_manager_for_init = mcp_manager.clone();
@@ -425,6 +444,7 @@ pub fn run() {
             commands::plan_mode::get_plan_mode_max_tokens_command,
             // providers
             commands::providers::set_provider_config,
+            commands::providers::remove_provider_config,
             commands::providers::get_provider_configs,
             commands::providers::get_model_catalog,
             commands::providers::get_context_window_for_model,
@@ -467,6 +487,8 @@ pub fn run() {
             commands::skills::remove_custom_skill,
             commands::skills::import_context7_skill,
             commands::skills::import_vercel_skill,
+            commands::skills::search_agent_skills,
+            commands::skills::install_agent_skill,
             // workspace
             commands::workspace::set_workspace_root,
             commands::workspace::get_workspace_root,

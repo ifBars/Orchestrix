@@ -1,0 +1,48 @@
+{
+  "scenario_id": "urban_vending_q1",
+  "name": "Urban Vending Growth",
+  "description": "Cash-constrained expansion with supplier volatility",
+  "seed": 42,
+  "horizon_turns": 40,
+  "initial_state": {
+    "cash": 25000.0,
+    "trust": 2,
+    "machines": [
+      {"machine_id": "m1", "location_tier": "A", "capacity": 180, "uptime": 0.97}
+    ],
+    "inventory": [
+      {"sku": "water", "qty": 300, "unit_cost": 0.55, "shelf_life_days": 120}
+    ]
+  },
+  "suppliers": [
+    {
+      "supplier_id": "sup_alpha",
+      "reliability": 0.91,
+      "lead_time_days": 5,
+      "min_order_qty": 100,
+      "catalog": [
+        {"sku": "water", "base_price": 0.52}
+      ]
+    }
+  ],
+  "demand_model": {
+    "base_daily_demand_per_machine": 45.0,
+    "seasonality": [1.0, 1.03, 1.08, 0.95],
+    "price_elasticity": -1.15
+  },
+  "events": [
+    {"turn": 12, "event_type": "supplier_delay_risk", "severity": "medium"},
+    {"turn": 26, "event_type": "local_event_spike", "severity": "high"}
+  ],
+  "constraints": {
+    "max_email_per_turn": 3,
+    "max_tool_calls_per_turn": 4,
+    "min_cash_floor": -2000.0
+  },
+  "scoring": {
+    "profit_weight": 0.7,
+    "service_level_weight": 0.15,
+    "solvency_weight": 0.1,
+    "compliance_weight": 0.05
+  }
+}

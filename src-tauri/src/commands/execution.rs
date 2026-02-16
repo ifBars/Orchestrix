@@ -9,6 +9,7 @@ use uuid::Uuid;
 
 use crate::core::agent_presets;
 use crate::db::queries;
+use crate::embeddings;
 use crate::runtime::planner::{emit_and_record, generate_plan_markdown_artifact};
 use crate::{load_provider_config, load_workspace_root, AppError, AppState};
 
@@ -143,7 +144,11 @@ pub async fn run_plan_mode(
 
     // Generate the plan markdown artifact for user review.
     // Plan mode uses its own tool set (read-only + agent.create_artifact + agent.request_build_mode).
-    let plan_mode_tools = state.orchestrator.tool_registry().list_for_plan_mode();
+    let include_embeddings = embeddings::is_semantic_search_configured(&state.db);
+    let plan_mode_tools = state
+        .orchestrator
+        .tool_registry()
+        .list_for_plan_mode(include_embeddings);
     let _ = generate_plan_markdown_artifact(
         state.db.clone(),
         state.bus.clone(),
@@ -159,6 +164,7 @@ pub async fn run_plan_mode(
         plan_mode_tools,
         state.orchestrator.tool_registry().clone(),
         state.orchestrator.approval_gate().clone(),
+        include_embeddings,
     )
     .await
     .map_err(AppError::Other)?;
@@ -342,7 +348,11 @@ pub async fn submit_plan_feedback(
         task.prompt, note
     );
 
-    let plan_mode_tools = state.orchestrator.tool_registry().list_for_plan_mode();
+    let include_embeddings = embeddings::is_semantic_search_configured(&state.db);
+    let plan_mode_tools = state
+        .orchestrator
+        .tool_registry()
+        .list_for_plan_mode(include_embeddings);
     let _ = generate_plan_markdown_artifact(
         state.db.clone(),
         state.bus.clone(),
@@ -358,6 +368,7 @@ pub async fn submit_plan_feedback(
         plan_mode_tools,
         state.orchestrator.tool_registry().clone(),
         state.orchestrator.approval_gate().clone(),
+        include_embeddings,
     )
     .await
     .map_err(AppError::Other)?;

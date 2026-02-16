@@ -1,4 +1,5 @@
 use super::*;
+use crate::embeddings;
 
 pub(super) async fn execute_sub_agent(
     db: &Database,
@@ -123,6 +124,7 @@ pub(super) async fn execute_sub_agent(
                     base_url: c.base_url.clone(),
                 });
 
+        let include_embeddings = embeddings::is_semantic_search_configured(db);
         result = match timeout(
             Duration::from_millis(attempt_timeout_ms),
             super::worker::execute_step_with_tools(
@@ -143,6 +145,7 @@ pub(super) async fn execute_sub_agent(
                 task_prompt.clone(),
                 0,
                 &skills_context,
+                include_embeddings,
             ),
         )
         .await

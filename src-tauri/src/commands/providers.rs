@@ -58,6 +58,21 @@ pub fn get_provider_configs(
     Ok(result)
 }
 
+#[tauri::command]
+pub fn remove_provider_config(
+    state: tauri::State<'_, AppState>,
+    provider: String,
+) -> Result<(), AppError> {
+    let provider = provider.to_ascii_lowercase();
+    ProviderId::from_str(&provider)
+        .map_err(|_| AppError::Other(format!("unsupported provider: {provider}")))?;
+
+    let key = provider_setting_key(&provider);
+    queries::delete_setting(&state.db, &key)
+        .map_err(|e| AppError::Other(format!("Failed to remove provider config: {e}")))?;
+    Ok(())
+}
+
 /// Returns the context window size for a given model.
 fn get_model_context_window(model: &str) -> usize {
     ModelCatalog::all_models()

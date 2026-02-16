@@ -3,6 +3,7 @@ use std::process::Command;
 
 use crate::core::agent_presets;
 use crate::db::queries;
+use crate::embeddings;
 use crate::{load_workspace_root, AppError, AppState, ArtifactContentView, WorkspaceRootView};
 
 #[derive(Debug, Clone, serde::Serialize)]
@@ -35,9 +36,11 @@ pub fn set_workspace_root(
     state
         .orchestrator
         .set_workspace_root(PathBuf::from(&workspace_root));
-    state
-        .embedding_index_service
-        .ensure_workspace_index_started(PathBuf::from(&workspace_root));
+    if embeddings::is_semantic_search_configured(&state.db) {
+        state
+            .embedding_index_service
+            .ensure_workspace_index_started(PathBuf::from(&workspace_root));
+    }
     Ok(())
 }
 

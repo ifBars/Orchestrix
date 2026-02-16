@@ -1,4 +1,4 @@
-import { Check, Server } from "lucide-react";
+import { Check, Server, Trash2 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { useShallow } from "zustand/shallow";
 import { useAppStore } from "@/stores/appStore";
@@ -8,8 +8,8 @@ import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
 
 export function ProvidersSection() {
-  const [providerConfigs, modelCatalog, setProviderConfig] = useAppStore(
-    useShallow((state) => [state.providerConfigs, state.modelCatalog, state.setProviderConfig])
+  const [providerConfigs, modelCatalog, setProviderConfig, removeProviderConfig] = useAppStore(
+    useShallow((state) => [state.providerConfigs, state.modelCatalog, state.setProviderConfig, state.removeProviderConfig])
   );
 
   const providers = providerOptionsFromCatalog(modelCatalog);
@@ -20,6 +20,7 @@ export function ProvidersSection() {
   const [baseUrl, setBaseUrl] = useState("");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [removingProvider, setRemovingProvider] = useState<string | null>(null);
 
   const current = useMemo(
     () => providerConfigs.find((item) => item.provider === provider),
@@ -37,7 +38,7 @@ export function ProvidersSection() {
     setBaseUrl(current?.base_url ?? "");
   }, [current?.base_url, current?.default_model, provider]);
 
-  const modelPlaceholder = provider === "minimax" ? "e.g. MiniMax-M2.1" : provider === "zhipu" ? "e.g. glm-5" : provider === "modal" ? "e.g. zai-org/GLM-5-FP8" : "e.g. kimi-k2.5";
+  const modelPlaceholder = provider === "minimax" ? "e.g. MiniMax-M2.1" : provider === "zhipu" ? "e.g. glm-4.7" : provider === "modal" ? "e.g. zai-org/GLM-5-FP8" : "e.g. kimi-k2.5";
   const baseUrlPlaceholder =
     provider === "minimax"
       ? "https://api.minimaxi.chat"
@@ -46,6 +47,15 @@ export function ProvidersSection() {
         : provider === "modal"
           ? "https://api.us-west-2.modal.direct/v1"
           : "https://api.moonshot.cn";
+
+  const apiKeyHint =
+    provider === "zhipu"
+      ? "Get your key from z.ai/manage-apikey. Requires an active GLM Coding Plan."
+      : provider === "minimax"
+        ? "Get your key from platform.minimaxi.com."
+        : provider === "modal"
+          ? "Get your key from modal.com/settings."
+          : "Get your key from platform.moonshot.cn.";
 
   const handleSaveProvider = async () => {
     if (!apiKey.trim()) return;
@@ -60,6 +70,18 @@ export function ProvidersSection() {
       setError("Failed to save provider configuration.");
     } finally {
       setSaving(false);
+    }
+  };
+
+  const handleRemoveProvider = async (providerId: string) => {
+    setRemovingProvider(providerId);
+    try {
+      await removeProviderConfig(providerId);
+    } catch (removeError) {
+      console.error(removeError);
+      setError(`Failed to remove ${providerId} configuration.`);
+    } finally {
+      setRemovingProvider(null);
     }
   };
 
@@ -94,6 +116,7 @@ export function ProvidersSection() {
               value={apiKey}
               onChange={(event) => setApiKey(event.target.value)}
             />
+            <p className="text-[11px] text-muted-foreground/70">{apiKeyHint}</p>
           </div>
 
           <div className="space-y-1.5">
@@ -141,16 +164,29 @@ export function ProvidersSection() {
                     <Server size={13} />
                     <span>{providerLabel(providerOption.id)}</span>
                   </div>
-                  {configured ? (
-                    <span className="inline-flex items-center gap-1 rounded-full bg-success/15 px-2 py-0.5 text-[11px] font-medium text-success">
-                      <Check size={11} />
-                      Configured
-                    </span>
-                  ) : (
-                    <span className="rounded-full bg-warning/15 px-2 py-0.5 text-[11px] font-medium text-warning">
-                      Not configured
-                    </span>
-                  )}
+                  <div className="flex items-center gap-2">
+                    {configured ? (
+                      <>
+                        <span className="inline-flex items-center gap-1 rounded-full bg-success/15 px-2 py-0.5 text-[11px] font-medium text-success">
+                          <Check size={11} />
+                          Configured
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => handleRemoveProvider(providerOption.id)}
+                          disabled={removingProvider === providerOption.id}
+                          className="flex h-6 w-6 cursor-pointer items-center justify-center rounded text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive"
+                          title="Remove provider"
+                        >
+                          <Trash2 size={14} />
+                        </button>
+                      </>
+                    ) : (
+                      <span className="rounded-full bg-warning/15 px-2 py-0.5 text-[11px] font-medium text-warning">
+                        Not configured
+                      </span>
+                    )}
+                  </div>
                 </div>
                 <p className="mt-2 text-xs text-muted-foreground">
                   Model: <span className="text-foreground">{item?.default_model ?? "(default)"}</span>

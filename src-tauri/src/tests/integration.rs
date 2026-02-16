@@ -16,7 +16,7 @@ pub mod tests {
     }
 
     fn plan_mode_tools() -> Vec<crate::core::tool::ToolDescriptor> {
-        ToolRegistry::default().list_for_plan_mode()
+        ToolRegistry::default().list_for_plan_mode(false)
     }
 
     // ====================================================================================
@@ -188,8 +188,8 @@ Use modern React hooks and functional components."#;
         let planner = create_planner();
         let registry = ToolRegistry::default();
 
-        let tools = registry.list_for_build_mode();
-        let tool_descriptions = registry.tool_reference_for_build_mode();
+        let tools = registry.list_for_build_mode(false);
+        let tool_descriptions = registry.tool_reference_for_build_mode(false);
 
         let req = WorkerActionRequest {
             task_prompt: "Write 'test' to a file called test.txt".to_string(),
@@ -241,8 +241,8 @@ Use modern React hooks and functional components."#;
         let planner = create_planner();
         let registry = ToolRegistry::default();
 
-        let tools = registry.list_for_build_mode();
-        let tool_descriptions = registry.tool_reference_for_build_mode();
+        let tools = registry.list_for_build_mode(false);
+        let tool_descriptions = registry.tool_reference_for_build_mode(false);
 
         let req = WorkerActionRequest {
             task_prompt: r#"Create a React project structure:
@@ -290,8 +290,8 @@ Use fs.write and cmd.exec as needed."#
         let planner = create_planner();
         let registry = ToolRegistry::default();
 
-        let tools = registry.list_for_build_mode();
-        let tool_descriptions = registry.tool_reference_for_build_mode();
+        let tools = registry.list_for_build_mode(false);
+        let tool_descriptions = registry.tool_reference_for_build_mode(false);
 
         // Simulate that we've already created the file
         let prior_observations = vec![serde_json::json!({
@@ -374,8 +374,8 @@ Use fs.write and cmd.exec as needed."#
         println!("Step 2: Getting build decisions based on plan...");
 
         let registry = ToolRegistry::default();
-        let tools = registry.list_for_build_mode();
-        let tool_descriptions = registry.tool_reference_for_build_mode();
+        let tools = registry.list_for_build_mode(false);
+        let tool_descriptions = registry.tool_reference_for_build_mode(false);
 
         let req = WorkerActionRequest {
             task_prompt: format!("Implement this plan:\n\n{}", plan),

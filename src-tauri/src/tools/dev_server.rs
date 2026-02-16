@@ -206,19 +206,26 @@ impl Tool for DevServerStartTool {
         let runtime = tokio::runtime::Handle::try_current()
             .map_err(|e| ToolError::Execution(format!("no async runtime: {}", e)))?;
 
-        let output = runtime.block_on(async {
-            start_dev_server(
-                server_id.clone(),
-                run_id,
-                sub_agent_id,
-                args.command.clone(),
-                workdir.clone(),
-                port,
-                args.health_check_url,
-                args.max_wait_secs.unwrap_or(30),
-            )
-            .await
-        })?;
+        // We must spawn a dedicated thread to block on the async task,
+        // because we are already inside a Tokio runtime worker thread (the tool invocation),
+        // and calling block_on directly on the current thread would panic.
+        let output = std::thread::spawn(move || {
+            runtime.block_on(async {
+                start_dev_server(
+                    server_id.clone(),
+                    run_id,
+                    sub_agent_id,
+                    args.command.clone(),
+                    workdir.clone(),
+                    port,
+                    args.health_check_url,
+                    args.max_wait_secs.unwrap_or(30),
+                )
+                .await
+            })
+        })
+        .join()
+        .map_err(|_| ToolError::Execution("dev server start thread panicked".to_string()))??;
 
         Ok(ToolCallOutput {
             ok: true,
@@ -458,7 +465,8 @@ impl Tool for DevServerStopTool {
         let server_id = input
             .get("server_id")
             .and_then(|v| v.as_str())
-            .ok_or_else(|| ToolError::InvalidInput("server_id is required".into()))?;
+            .ok_or_else(|| ToolError::InvalidInput("server_id is required".into()))?
+            .to_string();
 
         let graceful_timeout = input
             .get("graceful_timeout_secs")
@@ -468,7 +476,12 @@ impl Tool for DevServerStopTool {
         let runtime = tokio::runtime::Handle::try_current()
             .map_err(|e| ToolError::Execution(format!("no async runtime: {}", e)))?;
 
-        let result = runtime.block_on(stop_dev_server(server_id, graceful_timeout))?;
+        let result = std::thread::spawn(move || {
+            runtime.block_on(stop_dev_server(&server_id, graceful_timeout))
+        })
+        .join()
+        .map_err(|_| ToolError::Execution("dev server stop thread panicked".to_string()))??;
+
         let has_error = result.error.clone();
 
         Ok(ToolCallOutput {
@@ -614,30 +627,35 @@ impl Tool for DevServerStatusTool {
         // Perform health check if running and has URL
         let health_result = if is_running {
             if let Some(ref url) = handle.url {
-                runtime.block_on(async {
-                    let client = match reqwest::Client::builder()
-                        .timeout(std::time::Duration::from_secs(5))
-                        .build()
-                    {
-                        Ok(c) => c,
-                        Err(_) => return None,
-                    };
-                    let start = Instant::now();
-                    match client.get(url).send().await {
-                        Ok(response) => Some(HealthCheckResult {
-                            success: response.status().is_success(),
-                            status_code: Some(response.status().as_u16()),
-                            response_time_ms: start.elapsed().as_millis() as u64,
-                            error: None,
-                        }),
-                        Err(e) => Some(HealthCheckResult {
-                            success: false,
-                            status_code: None,
-                            response_time_ms: start.elapsed().as_millis() as u64,
-                            error: Some(e.to_string()),
-                        }),
-                    }
+                let url = url.clone();
+                std::thread::spawn(move || {
+                    runtime.block_on(async {
+                        let client = match reqwest::Client::builder()
+                            .timeout(std::time::Duration::from_secs(5))
+                            .build()
+                        {
+                            Ok(c) => c,
+                            Err(_) => return None,
+                        };
+                        let start = Instant::now();
+                        match client.get(&url).send().await {
+                            Ok(response) => Some(HealthCheckResult {
+                                success: response.status().is_success(),
+                                status_code: Some(response.status().as_u16()),
+                                response_time_ms: start.elapsed().as_millis() as u64,
+                                error: None,
+                            }),
+                            Err(e) => Some(HealthCheckResult {
+                                success: false,
+                                status_code: None,
+                                response_time_ms: start.elapsed().as_millis() as u64,
+                                error: Some(e.to_string()),
+                            }),
+                        }
+                    })
                 })
+                .join()
+                .unwrap_or(None)
             } else {
                 None
             }

@@ -108,6 +108,7 @@ export interface RustHfEmbeddingConfig {
 }
 
 export interface EmbeddingConfigView {
+  enabled: boolean;
   provider: "gemini" | "ollama" | "transformersjs" | "rust-hf";
   normalize_l2: boolean;
   gemini: GeminiEmbeddingConfigView;
@@ -117,13 +118,14 @@ export interface EmbeddingConfigView {
 }
 
 export interface EmbeddingConfig {
+  enabled: boolean;
   provider: "gemini" | "ollama" | "transformersjs" | "rust-hf";
   normalize_l2: boolean;
   gemini: {
     api_key?: string | null;
     model: string;
     timeout_ms: number;
-    base_url: string | null;
+    base_url?: string | null;
   };
   ollama: OllamaEmbeddingConfig;
   transformersjs: TransformersJsEmbeddingConfig;
@@ -168,6 +170,24 @@ export interface SkillCatalogItem {
   source: string;
   tags: string[];
   is_custom: boolean;
+}
+
+export interface AgentSkillSearchItem {
+  skill_name: string;
+  title: string;
+  description: string;
+  source: string;
+  installs: number;
+  url: string;
+  install_command: string;
+}
+
+export interface AgentSkillInstallResult {
+  skill_name: string;
+  command: string;
+  stdout: string;
+  stderr: string;
+  exit_code: number | null;
 }
 
 export interface NewCustomSkill {

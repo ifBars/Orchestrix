@@ -405,7 +405,7 @@ async fn execute_subagent_spawn_observation(
 /// Execute a step with tool calling and optional model assistance.
 ///
 /// This is the main worker entry point that runs the decision-action-observation
-/// loop until the step completes or reaches max turns.
+/// loop until the step completes or max turns.
 pub async fn execute_step_with_tools(
     db: &Database,
     bus: &crate::bus::EventBus,
@@ -424,6 +424,7 @@ pub async fn execute_step_with_tools(
     task_prompt: String,
     delegation_depth: u32,
     skills_context: &str,
+    include_embeddings: bool,
 ) -> Result<String, String> {
     // Parse delegation contract
     let contract = parse_sub_agent_contract(sub_agent.context_json.as_deref());
@@ -439,7 +440,7 @@ pub async fn execute_step_with_tools(
 
     // Filter available tools by contract
     let mut available_tools: Vec<String> = tool_registry
-        .list_for_build_mode()
+        .list_for_build_mode(include_embeddings)
         .into_iter()
         .map(|v| v.name)
         .collect();
@@ -448,8 +449,8 @@ pub async fn execute_step_with_tools(
         available_tools.retain(|name| contract.permissions.allowed_tools.contains(name));
     }
 
-    let tool_descriptions = tool_registry.tool_reference_for_build_mode();
-    let mut tool_descriptors = tool_registry.list_for_build_mode();
+    let tool_descriptions = tool_registry.tool_reference_for_build_mode(include_embeddings);
+    let mut tool_descriptors = tool_registry.list_for_build_mode(include_embeddings);
     tool_descriptors.retain(|tool| available_tools.contains(&tool.name));
 
     // Create model client if config provided
@@ -563,6 +564,37 @@ pub async fn execute_step_with_tools(
 
         // Process action (with legacy Delegate normalized to subagent.spawn)
         let action = normalize_worker_action(decision.action);
+
+        // Record the assistant's decision/action in observations for history tracking
+        // This is crucial for multi-turn agent providers (like MiniMax) to reconstruct state.
+        match &action {
+            WorkerAction::ToolCalls { calls } => {
+                observations.push(serde_json::json!({
+                    "role": "assistant",
+                    "reasoning": decision.reasoning,
+                    "tool_calls": calls
+                }));
+            }
+            WorkerAction::ToolCall {
+                tool_name,
+                tool_args,
+                rationale,
+            } => {
+                observations.push(serde_json::json!({
+                    "role": "assistant",
+                    "reasoning": decision.reasoning,
+                    "tool_calls": [{
+                        "tool_name": tool_name,
+                        "tool_args": tool_args,
+                        "rationale": rationale
+                    }]
+                }));
+            }
+            // Complete/Delegate don't necessarily need to be recorded as "tool calls"
+            // in the history the same way, or they terminate the loop.
+            _ => {}
+        }
+
         match action {
             WorkerAction::Complete { summary } => {
                 // Check for incomplete todos

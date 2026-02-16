@@ -3,7 +3,8 @@ use serde::{Deserialize, Serialize};
 
 use crate::core::tool::ToolDescriptor;
 use crate::model::shared::{
-    plan_markdown_system_prompt, strip_tool_call_markup, worker_system_prompt,
+    plan_markdown_system_prompt, preferred_response_text, strip_tool_call_markup,
+    worker_system_prompt,
 };
 use crate::model::{
     AgentModelClient, ModelError, StreamDelta, WorkerAction, WorkerActionRequest, WorkerDecision,
@@ -12,7 +13,10 @@ use crate::model::{
 use crate::runtime::plan_mode_settings::{DEFAULT_PLAN_MODE_MAX_TOKENS, WORKER_MAX_TOKENS};
 
 const DEFAULT_GLM_BASE_URL: &str = "https://api.z.ai/api/coding/paas/v4";
-const GLM_CODING_MAX_TOKENS: u32 = 25_000;
+
+/// Maximum output tokens supported by GLM-4.7/GLM-5 series (128K).
+/// The Z.AI API rejects requests with max_tokens above this limit (error 1210).
+const GLM_MAX_OUTPUT_TOKENS: u32 = 131_072;
 
 #[derive(Debug, Clone)]
 pub struct GlmClient {
@@ -24,13 +28,18 @@ pub struct GlmClient {
 
 impl GlmClient {
     pub fn new(api_key: String, model: Option<String>, base_url: Option<String>) -> Self {
-        let resolved_base_url = base_url.unwrap_or_else(|| DEFAULT_GLM_BASE_URL.to_string());
+        let resolved_base_url = base_url
+            .map(|u| u.trim().trim_end_matches('/').to_string())
+            .filter(|u| !u.is_empty())
+            .unwrap_or_else(|| DEFAULT_GLM_BASE_URL.to_string());
         let is_coding_endpoint = resolved_base_url
             .to_ascii_lowercase()
             .contains("/api/coding/paas/v4");
         let resolved_model = model
             .map(|m| m.trim().to_string())
             .filter(|m| !m.is_empty())
+            // Z.AI API expects lowercase model names (glm-4.7, not GLM-4.7)
+            .map(|m| m.to_ascii_lowercase())
             .unwrap_or_else(|| {
                 if is_coding_endpoint {
                     "glm-4.7".to_string()
@@ -202,23 +211,8 @@ impl GlmClient {
     }
 
     fn normalize_max_tokens(&self, requested: u32) -> u32 {
-        let is_coding_endpoint = self
-            .base_url
-            .to_ascii_lowercase()
-            .contains("/api/coding/paas/v4");
-        if !is_coding_endpoint {
-            return requested;
-        }
-
-        let normalized = requested.min(GLM_CODING_MAX_TOKENS);
-        if normalized != requested {
-            tracing::warn!(
-                "GLM requested max_tokens={} exceeds coding endpoint limit; clamping to {}",
-                requested,
-                normalized
-            );
-        }
-        normalized
+        // Z.AI API rejects max_tokens above GLM_MAX_OUTPUT_TOKENS with error 1210.
+        requested.min(GLM_MAX_OUTPUT_TOKENS)
     }
 
     #[allow(dead_code)]
@@ -229,7 +223,10 @@ impl GlmClient {
         max_tokens: u32,
     ) -> Result<String, ModelError> {
         let response = self.run_chat(system, user, max_tokens, None).await?;
-        Ok(response.content.unwrap_or_default())
+        Ok(preferred_response_text(
+            response.content,
+            response.reasoning_content,
+        ))
     }
 
     async fn run_chat(
@@ -358,7 +355,7 @@ impl GlmClient {
 
         if status.as_u16() == 401 || status.as_u16() == 403 {
             return Err(ModelError::Auth(format!(
-                "GLM auth failed ({status}). Check API key and account access."
+                "GLM auth failed ({status}). Response: {text}"
             )));
         }
         if !status.is_success() {
@@ -838,27 +835,47 @@ mod unit_tests {
     use super::*;
 
     #[test]
-    fn normalize_max_tokens_clamps_for_coding_endpoint() {
+    fn normalize_max_tokens_caps_at_glm_limit() {
         let client = GlmClient::new(
             "test-key".to_string(),
             Some("glm-4.7".to_string()),
             Some("https://api.z.ai/api/coding/paas/v4".to_string()),
         );
 
+        // Values within limit pass through unchanged
         assert_eq!(client.normalize_max_tokens(8_192), 8_192);
         assert_eq!(client.normalize_max_tokens(25_000), 25_000);
-        assert_eq!(client.normalize_max_tokens(180_000), 25_000);
+        assert_eq!(client.normalize_max_tokens(131_072), 131_072);
+        // Values above GLM_MAX_OUTPUT_TOKENS are capped
+        assert_eq!(client.normalize_max_tokens(180_000), GLM_MAX_OUTPUT_TOKENS);
+        assert_eq!(client.normalize_max_tokens(200_000), GLM_MAX_OUTPUT_TOKENS);
     }
 
     #[test]
-    fn normalize_max_tokens_keeps_value_for_non_coding_endpoint() {
+    fn model_name_normalized_to_lowercase() {
         let client = GlmClient::new(
             "test-key".to_string(),
-            Some("glm-5".to_string()),
-            Some("https://api.z.ai/api/paas/v4".to_string()),
+            Some("GLM-4.7".to_string()),
+            None,
         );
+        assert_eq!(client.model, "glm-4.7");
 
-        assert_eq!(client.normalize_max_tokens(180_000), 180_000);
+        let client2 = GlmClient::new(
+            "test-key".to_string(),
+            Some("GLM-5".to_string()),
+            None,
+        );
+        assert_eq!(client2.model, "glm-5");
+    }
+
+    #[test]
+    fn base_url_trailing_slash_stripped() {
+        let client = GlmClient::new(
+            "test-key".to_string(),
+            None,
+            Some("https://api.z.ai/api/coding/paas/v4/".to_string()),
+        );
+        assert_eq!(client.base_url, "https://api.z.ai/api/coding/paas/v4");
     }
 }
 

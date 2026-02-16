@@ -190,6 +190,8 @@ fn print_summary_table(report: &EmbeddingsBenchReport) {
         throughput_texts: f64,
         throughput_chars: f64,
         mrr: f64,
+        pair_accuracy: f64,
+        quality_score: f64,
         self_sim: String,
         status: String,
         error: Option<String>,
@@ -237,6 +239,16 @@ fn print_summary_table(report: &EmbeddingsBenchReport) {
                     .as_ref()
                     .map(|quality| quality.retrieval_mrr_at_10)
                     .unwrap_or(0.0),
+                pair_accuracy: provider
+                    .quality
+                    .as_ref()
+                    .map(|quality| quality.semantic_pair_accuracy)
+                    .unwrap_or(0.0),
+                quality_score: provider
+                    .quality
+                    .as_ref()
+                    .map(|quality| quality.quality_score)
+                    .unwrap_or(0.0),
                 self_sim: provider
                     .quality
                     .as_ref()
@@ -260,19 +272,19 @@ fn print_summary_table(report: &EmbeddingsBenchReport) {
         rhs_ok
             .cmp(&lhs_ok)
             .then_with(|| {
-                lhs.p50_ms
-                    .partial_cmp(&rhs.p50_ms)
+                rhs.quality_score
+                    .partial_cmp(&lhs.quality_score)
                     .unwrap_or(std::cmp::Ordering::Equal)
             })
             .then_with(|| {
-                rhs.throughput_texts
-                    .partial_cmp(&lhs.throughput_texts)
+                lhs.p50_ms
+                    .partial_cmp(&rhs.p50_ms)
                     .unwrap_or(std::cmp::Ordering::Equal)
             })
     });
 
     println!(
-        "{:<16} {:<8} {:<6} {:>10} {:>12} {:>14} {:>8} {:<16} {:<8}",
+        "{:<16} {:<8} {:<6} {:>10} {:>12} {:>14} {:>8} {:>8} {:>8} {:<16} {:<8}",
         "provider",
         "kind",
         "dims",
@@ -280,17 +292,19 @@ fn print_summary_table(report: &EmbeddingsBenchReport) {
         "texts/sec",
         "chars/sec",
         "MRR@10",
+        "pair@1",
+        "qscore",
         "self-sim",
         "status"
     );
     println!(
-        "{:-<16} {:-<8} {:-<6} {:-<10} {:-<12} {:-<14} {:-<8} {:-<16} {:-<8}",
-        "", "", "", "", "", "", "", "", ""
+        "{:-<16} {:-<8} {:-<6} {:-<10} {:-<12} {:-<14} {:-<8} {:-<8} {:-<8} {:-<16} {:-<8}",
+        "", "", "", "", "", "", "", "", "", "", ""
     );
 
     for row in rows {
         println!(
-            "{:<16} {:<8} {:<6} {:>10.2} {:>12.2} {:>14.2} {:>8.4} {:<16} {:<8}",
+            "{:<16} {:<8} {:<6} {:>10.2} {:>12.2} {:>14.2} {:>8.4} {:>8.4} {:>8.4} {:<16} {:<8}",
             row.provider,
             row.kind,
             row.dims,
@@ -298,6 +312,8 @@ fn print_summary_table(report: &EmbeddingsBenchReport) {
             row.throughput_texts,
             row.throughput_chars,
             row.mrr,
+            row.pair_accuracy,
+            row.quality_score,
             row.self_sim,
             row.status,
         );

@@ -54,11 +54,11 @@ mod tests {
                     || n.starts_with("web.")
             })
             .collect();
-        // 26 built-in tools (19 original + fs.patch + search.files + 4 dev_server.*)
+        // 27 built-in tools (19 original + fs.patch + search.files + 4 dev_server.* + web.snapshot)
         assert_eq!(
             builtin_names.len(),
-            26,
-            "expected 26 built-in tools, got: {:?}",
+            27,
+            "expected 27 built-in tools, got: {:?}",
             builtin_names
         );
     }

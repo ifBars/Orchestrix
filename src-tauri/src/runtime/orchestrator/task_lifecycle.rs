@@ -1,5 +1,6 @@
 use super::*;
 use crate::core::prompt_references::expand_prompt_references;
+use crate::embeddings;
 
 impl Orchestrator {
     /// Legacy: unified plan+build entry. Current flow uses run_plan_mode then run_build_mode separately.
@@ -494,7 +495,7 @@ impl Orchestrator {
                         "step": step,
                         "contract": {
                             "permissions": {
-                                "allowed_tools": self.tool_registry.list().into_iter().map(|tool| tool.name).collect::<Vec<String>>(),
+                                "allowed_tools": self.tool_registry.list_for_build_mode(embeddings::is_semantic_search_configured(&self.db)).into_iter().map(|tool| tool.name).collect::<Vec<String>>(),
                                 "can_spawn_children": true,
                                 "max_delegation_depth": 1,
                             },
@@ -522,6 +523,7 @@ impl Orchestrator {
                         base_url: c.base_url.clone(),
                     });
 
+            let include_embeddings = embeddings::is_semantic_search_configured(&self.db);
             let step_result = super::worker::execute_step_with_tools(
                 &self.db,
                 &self.bus,
@@ -540,6 +542,7 @@ impl Orchestrator {
                 resolved_task_prompt.clone(),
                 0,
                 &skills_context,
+                include_embeddings,
             )
             .await;
 

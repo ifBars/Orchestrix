@@ -2,7 +2,9 @@ use futures::StreamExt;
 use serde::{Deserialize, Serialize};
 
 use crate::core::tool::ToolDescriptor;
-use crate::model::shared::{plan_markdown_system_prompt, strip_tool_call_markup};
+use crate::model::shared::{
+    plan_markdown_system_prompt, preferred_response_text, strip_tool_call_markup,
+};
 use crate::model::{
     AgentModelClient, ModelError, StreamDelta, WorkerAction, WorkerActionRequest, WorkerDecision,
     WorkerToolCall,
@@ -37,6 +39,10 @@ impl MiniMaxClient {
             base_url: base_url.unwrap_or_else(|| DEFAULT_MINIMAX_BASE_URL.to_string()),
             client: reqwest::Client::new(),
         }
+    }
+
+    pub fn model_id(&self) -> String {
+        self.model.clone()
     }
 
     /// Single-turn plan generation; used by integration tests. Production plan mode uses
@@ -75,10 +81,26 @@ impl MiniMaxClient {
                     .collect(),
             )
         };
+        let messages = vec![
+            MiniMaxMessage {
+                role: "system".to_string(),
+                content: Some(plan_markdown_system_prompt()),
+                tool_calls: None,
+                tool_call_id: None,
+                name: None,
+            },
+            MiniMaxMessage {
+                role: "user".to_string(),
+                content: Some(user),
+                tool_calls: None,
+                tool_call_id: None,
+                name: None,
+            },
+        ];
+
         let response = self
             .run_chat_json_native(
-                &plan_markdown_system_prompt(),
-                &user,
+                messages,
                 DEFAULT_PLAN_MODE_MAX_TOKENS,
                 tools,
             )
@@ -128,29 +150,7 @@ impl MiniMaxClient {
         F: FnMut(StreamDelta) -> Result<(), String> + Send,
     {
         let system = "You are an autonomous coding worker agent. Use native function calling for tools whenever tool use is needed. You may call multiple tools in one response when beneficial. If and only if the task is complete, respond with plain text summary.";
-        let tools_text = if !req.tool_descriptions.is_empty() {
-            req.tool_descriptions.clone()
-        } else if req.available_tools.is_empty() {
-            "(none)".to_string()
-        } else {
-            req.available_tools.join(", ")
-        };
-        let history_text = if req.prior_observations.is_empty() {
-            "(none yet)".to_string()
-        } else {
-            serde_json::to_string(&req.prior_observations)
-                .map_err(|e| ModelError::InvalidResponse(e.to_string()))?
-        };
-
-        let user = format!(
-            "Task:\n{}\n\nGoal:\n{}\n\nContext:\n{}\n\nAvailable Tools:\n{}\n\nPrior Observations:\n{}\n\nUse native function calling when tool use is needed. If the work is complete, reply with a short plain-text completion summary.",
-            req.task_prompt,
-            req.goal_summary,
-            req.context,
-            tools_text,
-            history_text,
-        );
-
+        
         let tools: Vec<MiniMaxToolDefinition> = req
             .tool_descriptors
             .iter()
@@ -164,11 +164,164 @@ impl MiniMaxClient {
             })
             .collect();
 
+        // Reconstruct conversation history from prior observations
+        let mut messages = Vec::new();
+        
+        // 1. System Message
+        messages.push(MiniMaxMessage {
+            role: "system".to_string(),
+            content: Some(system.to_string()),
+            tool_calls: None,
+            tool_call_id: None,
+            name: None,
+        });
+
+        // 2. Initial User Message (Task + Context)
+        let tools_text = if !req.tool_descriptions.is_empty() {
+            req.tool_descriptions.clone()
+        } else if req.available_tools.is_empty() {
+            "(none)".to_string()
+        } else {
+            req.available_tools.join(", ")
+        };
+
+        let user_prompt = format!(
+            "Task:\n{}\n\nGoal:\n{}\n\nContext:\n{}\n\nAvailable Tools:\n{}\n\nUse native function calling when tool use is needed. If the work is complete, reply with a short plain-text completion summary.",
+            req.task_prompt,
+            req.goal_summary,
+            req.context,
+            tools_text,
+        );
+
+        messages.push(MiniMaxMessage {
+            role: "user".to_string(),
+            content: Some(user_prompt),
+            tool_calls: None,
+            tool_call_id: None,
+            name: None,
+        });
+
+        // 3. History (Assistant Actions + Tool Observations)
+        // We use a simple counter to generate stable IDs for tool calls since we don't store them in WorkerAction
+        let mut tool_call_counter = 0;
+        let mut pending_tool_calls: std::collections::VecDeque<String> = std::collections::VecDeque::new();
+
+        for obs in req.prior_observations {
+            // Check if this is an Assistant Turn (injected by us in worker/mod.rs)
+            if let Some(role) = obs.get("role").and_then(|v| v.as_str()) {
+                if role == "assistant" {
+                    let content = obs.get("reasoning").and_then(|v| v.as_str()).unwrap_or("").to_string();
+                    let tool_calls_json = obs.get("tool_calls").and_then(|v| v.as_array());
+                    
+                    let mut minimax_tool_calls = None;
+                    if let Some(calls) = tool_calls_json {
+                        if !calls.is_empty() {
+                            let mut mapped_calls = Vec::new();
+                            for call in calls {
+                                let tool_name = call.get("tool_name").and_then(|v| v.as_str()).unwrap_or("unknown");
+                                let tool_args = call.get("tool_args").unwrap_or(&serde_json::json!({})).to_string();
+                                
+                                // Generate ID and queue it for the next observation
+                                let call_id = format!("call_{}", tool_call_counter);
+                                tool_call_counter += 1;
+                                pending_tool_calls.push_back(call_id.clone());
+
+                                mapped_calls.push(MiniMaxToolCall {
+                                    tool_type: "function".to_string(),
+                                    function: MiniMaxFunctionCall {
+                                        name: tool_name.to_string(),
+                                        arguments: tool_args,
+                                    },
+                                    id: Some(call_id),
+                                });
+                            }
+                            minimax_tool_calls = Some(mapped_calls);
+                        }
+                    }
+
+                    messages.push(MiniMaxMessage {
+                        role: "assistant".to_string(),
+                        content: if content.is_empty() && minimax_tool_calls.is_some() { None } else { Some(content) },
+                        tool_calls: minimax_tool_calls,
+                        tool_call_id: None,
+                        name: None,
+                    });
+                    continue;
+                }
+            }
+
+            // Otherwise, assume it is a Tool Observation
+            if let Some(tool_name) = obs.get("tool_name").and_then(|v| v.as_str()) {
+                let output = if let Some(out) = obs.get("output") {
+                    if out.is_string() {
+                        out.as_str().unwrap().to_string()
+                    } else {
+                        out.to_string()
+                    }
+                } else if let Some(err) = obs.get("error") {
+                    format!("Error: {}", err)
+                } else {
+                    "Success".to_string()
+                };
+
+                let actual_call_id = if let Some(id) = pending_tool_calls.pop_front() {
+                    id
+                } else {
+                    // Orphan case
+                    let id = format!("call_orphan_{}", tool_call_counter);
+                    tool_call_counter += 1;
+                    
+                    // Fixup history
+                    let needs_new_msg = if let Some(last) = messages.last() {
+                        last.role != "assistant"
+                    } else {
+                        true
+                    };
+
+                    let call_record = MiniMaxToolCall {
+                        tool_type: "function".to_string(),
+                        function: MiniMaxFunctionCall {
+                            name: tool_name.to_string(),
+                            arguments: "{}".to_string(),
+                        },
+                        id: Some(id.clone()),
+                    };
+
+                    if needs_new_msg {
+                        messages.push(MiniMaxMessage {
+                            role: "assistant".to_string(),
+                            content: None,
+                            tool_calls: Some(vec![call_record]),
+                            tool_call_id: None,
+                            name: None,
+                        });
+                    } else {
+                        // Append to last assistant message
+                        if let Some(last) = messages.last_mut() {
+                            if let Some(calls) = &mut last.tool_calls {
+                                calls.push(call_record);
+                            } else {
+                                last.tool_calls = Some(vec![call_record]);
+                            }
+                        }
+                    }
+                    id
+                };
+
+                messages.push(MiniMaxMessage {
+                    role: "tool".to_string(),
+                    content: Some(output),
+                    tool_calls: None,
+                    tool_call_id: Some(actual_call_id),
+                    name: Some(tool_name.to_string()),
+                });
+            }
+        }
+
         let max_tokens = req.max_tokens.unwrap_or(WORKER_MAX_TOKENS);
         let response = self
             .run_chat_json_native_streaming(
-                system,
-                &user,
+                messages,
                 max_tokens,
                 if tools.is_empty() { None } else { Some(tools) },
                 &mut on_delta,
@@ -271,16 +424,34 @@ impl MiniMaxClient {
         user: &str,
         max_tokens: u32,
     ) -> Result<String, ModelError> {
+        let messages = vec![
+            MiniMaxMessage {
+                role: "system".to_string(),
+                content: Some(system.to_string()),
+                tool_calls: None,
+                tool_call_id: None,
+                name: None,
+            },
+            MiniMaxMessage {
+                role: "user".to_string(),
+                content: Some(user.to_string()),
+                tool_calls: None,
+                tool_call_id: None,
+                name: None,
+            },
+        ];
         let response = self
-            .run_chat_json_native(system, user, max_tokens, None)
+            .run_chat_json_native(messages, max_tokens, None)
             .await?;
-        Ok(response.content.unwrap_or_default())
+        Ok(preferred_response_text(
+            response.content,
+            response.reasoning_content,
+        ))
     }
 
     async fn run_chat_json_native(
         &self,
-        system: &str,
-        user: &str,
+        messages: Vec<MiniMaxMessage>,
         max_tokens: u32,
         tools: Option<Vec<MiniMaxToolDefinition>>,
     ) -> Result<MiniMaxResponseMessage, ModelError> {
@@ -293,22 +464,16 @@ impl MiniMaxClient {
         let parallel_tool_calls = tools.as_ref().map(|_| true);
         let body = MiniMaxChatRequest {
             model: self.model.clone(),
-            messages: vec![
-                MiniMaxMessage {
-                    role: "system".to_string(),
-                    content: system.to_string(),
-                },
-                MiniMaxMessage {
-                    role: "user".to_string(),
-                    content: user.to_string(),
-                },
-            ],
+            messages,
             max_tokens,
             temperature: 0.1,
             stream: false,
             tools,
             tool_choice,
             parallel_tool_calls,
+            // Request standard JSON output, model might output <think> tags in content
+            // or we could use reasoning_split if we wanted separate fields.
+            // For now, let's keep it simple.
         };
 
         tracing::debug!(
@@ -362,8 +527,7 @@ impl MiniMaxClient {
 
     async fn run_chat_json_native_streaming(
         &self,
-        system: &str,
-        user: &str,
+        messages: Vec<MiniMaxMessage>,
         max_tokens: u32,
         tools: Option<Vec<MiniMaxToolDefinition>>,
         on_delta: &mut (dyn FnMut(StreamDelta) -> Result<(), String> + Send),
@@ -377,16 +541,7 @@ impl MiniMaxClient {
         let parallel_tool_calls = tools.as_ref().map(|_| true);
         let body = MiniMaxChatRequest {
             model: self.model.clone(),
-            messages: vec![
-                MiniMaxMessage {
-                    role: "system".to_string(),
-                    content: system.to_string(),
-                },
-                MiniMaxMessage {
-                    role: "user".to_string(),
-                    content: user.to_string(),
-                },
-            ],
+            messages,
             max_tokens,
             temperature: 0.1,
             stream: true,
@@ -496,6 +651,7 @@ impl MiniMaxClient {
                                 name: entry.function_name,
                                 arguments: entry.arguments,
                             },
+                            id: if entry.id.is_empty() { None } else { Some(entry.id) },
                         })
                     })
                     .collect::<Vec<_>>(),
@@ -522,10 +678,135 @@ impl MiniMaxClient {
     }
 }
 
+// ---------------------------------------------------------------------------
+// MiniMax API types
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Serialize, Deserialize)]
+struct MiniMaxMessage {
+    role: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    content: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    tool_calls: Option<Vec<MiniMaxToolCall>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    tool_call_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    name: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
+struct MiniMaxChatRequest {
+    model: String,
+    messages: Vec<MiniMaxMessage>,
+    max_tokens: u32,
+    temperature: f32,
+    stream: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    tools: Option<Vec<MiniMaxToolDefinition>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    tool_choice: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    parallel_tool_calls: Option<bool>,
+}
+
+#[derive(Debug, Deserialize)]
+struct MiniMaxChatResponse {
+    choices: Vec<MiniMaxChoice>,
+}
+
+#[derive(Debug, Deserialize)]
+struct MiniMaxChoice {
+    message: MiniMaxResponseMessage,
+}
+
+#[derive(Debug, Deserialize)]
+struct MiniMaxStreamChunk {
+    #[serde(default)]
+    choices: Vec<MiniMaxStreamChoice>,
+}
+
+#[derive(Debug, Deserialize)]
+struct MiniMaxStreamChoice {
+    #[serde(default)]
+    delta: Option<MiniMaxStreamDelta>,
+    #[serde(default)]
+    message: Option<MiniMaxResponseMessage>,
+}
+
+#[derive(Debug, Deserialize, Default)]
+struct MiniMaxStreamDelta {
+    #[serde(default)]
+    content: Option<String>,
+    #[serde(default)]
+    reasoning_content: Option<String>,
+    #[serde(default)]
+    tool_calls: Option<Vec<MiniMaxToolCallDelta>>,
+}
+
+#[derive(Debug, Deserialize)]
+struct MiniMaxToolCallDelta {
+    #[serde(default)]
+    index: Option<usize>,
+    #[serde(rename = "type", default)]
+    tool_type: Option<String>,
+    #[serde(default)]
+    id: Option<String>,
+    #[serde(default)]
+    function: Option<MiniMaxFunctionCallDelta>,
+}
+
+#[derive(Debug, Deserialize, Default)]
+struct MiniMaxFunctionCallDelta {
+    #[serde(default)]
+    name: Option<String>,
+    #[serde(default)]
+    arguments: Option<String>,
+}
+
 #[derive(Debug, Default)]
 struct MiniMaxToolCallAccumulator {
     tool_type: String,
     function_name: String,
+    arguments: String,
+    id: String,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+struct MiniMaxResponseMessage {
+    #[serde(default)]
+    content: Option<String>,
+    reasoning_content: Option<String>,
+    #[serde(default)]
+    tool_calls: Option<Vec<MiniMaxToolCall>>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+struct MiniMaxToolDefinition {
+    #[serde(rename = "type")]
+    tool_type: String,
+    function: MiniMaxFunctionDefinition,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+struct MiniMaxFunctionDefinition {
+    name: String,
+    description: String,
+    parameters: serde_json::Value,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+struct MiniMaxToolCall {
+    #[serde(rename = "type")]
+    tool_type: String,
+    function: MiniMaxFunctionCall,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    id: Option<String>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+struct MiniMaxFunctionCall {
+    name: String,
     arguments: String,
 }
 
@@ -594,6 +875,11 @@ fn process_minimax_stream_line(
                     }
 
                     let entry = &mut tool_call_accumulators[idx];
+                    if let Some(id) = call.id {
+                        if !id.is_empty() {
+                            entry.id = id;
+                        }
+                    }
                     if let Some(tool_type) = call.tool_type {
                         if !tool_type.is_empty() {
                             entry.tool_type = tool_type;
@@ -645,117 +931,4 @@ fn process_minimax_stream_line(
     }
 
     Ok(false)
-}
-
-// ---------------------------------------------------------------------------
-// MiniMax API types
-// ---------------------------------------------------------------------------
-
-#[derive(Debug, Serialize, Deserialize)]
-struct MiniMaxMessage {
-    role: String,
-    content: String,
-}
-
-#[derive(Debug, Serialize)]
-struct MiniMaxChatRequest {
-    model: String,
-    messages: Vec<MiniMaxMessage>,
-    max_tokens: u32,
-    temperature: f32,
-    stream: bool,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    tools: Option<Vec<MiniMaxToolDefinition>>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    tool_choice: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    parallel_tool_calls: Option<bool>,
-}
-
-#[derive(Debug, Deserialize)]
-struct MiniMaxChatResponse {
-    choices: Vec<MiniMaxChoice>,
-}
-
-#[derive(Debug, Deserialize)]
-struct MiniMaxChoice {
-    message: MiniMaxResponseMessage,
-}
-
-#[derive(Debug, Deserialize)]
-struct MiniMaxStreamChunk {
-    #[serde(default)]
-    choices: Vec<MiniMaxStreamChoice>,
-}
-
-#[derive(Debug, Deserialize)]
-struct MiniMaxStreamChoice {
-    #[serde(default)]
-    delta: Option<MiniMaxStreamDelta>,
-    #[serde(default)]
-    message: Option<MiniMaxResponseMessage>,
-}
-
-#[derive(Debug, Deserialize, Default)]
-struct MiniMaxStreamDelta {
-    #[serde(default)]
-    content: Option<String>,
-    #[serde(default)]
-    reasoning_content: Option<String>,
-    #[serde(default)]
-    tool_calls: Option<Vec<MiniMaxToolCallDelta>>,
-}
-
-#[derive(Debug, Deserialize)]
-struct MiniMaxToolCallDelta {
-    #[serde(default)]
-    index: Option<usize>,
-    #[serde(rename = "type", default)]
-    tool_type: Option<String>,
-    #[serde(default)]
-    function: Option<MiniMaxFunctionCallDelta>,
-}
-
-#[derive(Debug, Deserialize, Default)]
-struct MiniMaxFunctionCallDelta {
-    #[serde(default)]
-    name: Option<String>,
-    #[serde(default)]
-    arguments: Option<String>,
-}
-
-#[derive(Debug, Serialize, Deserialize)]
-struct MiniMaxResponseMessage {
-    #[serde(default)]
-    content: Option<String>,
-    reasoning_content: Option<String>,
-    #[serde(default)]
-    tool_calls: Option<Vec<MiniMaxToolCall>>,
-}
-
-#[derive(Debug, Serialize, Deserialize)]
-struct MiniMaxToolDefinition {
-    #[serde(rename = "type")]
-    tool_type: String,
-    function: MiniMaxFunctionDefinition,
-}
-
-#[derive(Debug, Serialize, Deserialize)]
-struct MiniMaxFunctionDefinition {
-    name: String,
-    description: String,
-    parameters: serde_json::Value,
-}
-
-#[derive(Debug, Serialize, Deserialize)]
-struct MiniMaxToolCall {
-    #[serde(rename = "type")]
-    tool_type: String,
-    function: MiniMaxFunctionCall,
-}
-
-#[derive(Debug, Serialize, Deserialize)]
-struct MiniMaxFunctionCall {
-    name: String,
-    arguments: String,
 }

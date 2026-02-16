@@ -1,58 +1,175 @@
-import { FormEvent, useEffect, useMemo, useState } from "react";
-import {
-  ChevronDown,
-  ChevronRight,
-  ExternalLink,
-  FileText,
-  FolderOpen,
-  RefreshCw,
-  Search,
-  Sparkles,
-  Trash2,
-} from "lucide-react";
+import { type FormEvent, useEffect, useState } from "react";
 import { openUrl } from "@tauri-apps/plugin-opener";
-import { useShallow } from "zustand/shallow";
+import { ExternalLink, Search, Trash2, Download, Package, Box } from "lucide-react";
 import { useAppStore } from "@/stores/appStore";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
-import type { SkillCatalogItem, WorkspaceSkill } from "@/types";
+import { Select } from "@/components/ui/select";
+import type {
+  AgentSkillInstallResult,
+  AgentSkillSearchItem,
+  SkillCatalogItem,
+  WorkspaceSkill,
+} from "@/types";
 
-type Tab = "workspace" | "catalog";
+type Tab = "workspace" | "catalog" | "remote";
 
 export function SkillsSection() {
-  const [
-    skills,
-    workspaceSkills,
-    searchSkills,
-    addCustomSkill,
-    importContext7Skill,
-    importVercelSkill,
-    removeSkill,
-    refreshWorkspaceSkills,
-  ] = useAppStore(
-    useShallow((state) => [
-      state.skills,
-      state.workspaceSkills,
-      state.searchSkills,
-      state.addCustomSkill,
-      state.importContext7Skill,
-      state.importVercelSkill,
-      state.removeSkill,
-      state.refreshWorkspaceSkills,
-    ])
-  );
-
-  const [tab, setTab] = useState<Tab>("workspace");
-  const [expandedSkill, setExpandedSkill] = useState<string | null>(null);
-  const [refreshing, setRefreshing] = useState(false);
-
-  const [query, setQuery] = useState("");
-  const [sourceFilter, setSourceFilter] = useState("all");
-  const [searching, setSearching] = useState(false);
-  const [searchResults, setSearchResults] = useState<SkillCatalogItem[]>([]);
+  const state = useAppStore();
+  const [activeTab, setActiveTab] = useState<Tab>("workspace");
   const [error, setError] = useState<string | null>(null);
 
+  useEffect(() => {
+    state.refreshWorkspaceSkills().catch(console.error);
+    state.refreshSkills().catch(console.error);
+  }, []);
+
+  return (
+    <div className="flex h-full flex-col gap-4">
+      <div className="flex items-center justify-between">
+        <div className="flex gap-2 rounded-lg bg-muted/50 p-1">
+          <TabButton active={activeTab === "workspace"} onClick={() => setActiveTab("workspace")}>
+            Installed ({state.workspaceSkills.length})
+          </TabButton>
+          <TabButton active={activeTab === "catalog"} onClick={() => setActiveTab("catalog")}>
+            Local Catalog
+          </TabButton>
+          <TabButton active={activeTab === "remote"} onClick={() => setActiveTab("remote")}>
+            Agent Skills Package
+          </TabButton>
+        </div>
+      </div>
+
+      {error ? (
+        <div className="rounded-md border border-destructive/50 bg-destructive/10 p-3 text-sm text-destructive">
+          {error}
+        </div>
+      ) : null}
+
+      <div className="flex-1 overflow-hidden">
+        {activeTab === "workspace" && (
+          <WorkspacePanel
+            skills={state.workspaceSkills}
+            onRemove={async (id) => {
+              try {
+                await state.removeSkill(id);
+              } catch (err: any) {
+                setError(err.message || String(err));
+              }
+            }}
+          />
+        )}
+
+        {activeTab === "catalog" && (
+          <CatalogPanel
+            skills={state.skills}
+            onAddCustom={async (skill) => {
+              try {
+                await state.addCustomSkill(skill);
+              } catch (err: any) {
+                setError(err.message || String(err));
+              }
+            }}
+          />
+        )}
+
+        {activeTab === "remote" && (
+          <RemotePackagePanel
+            search={state.searchAgentSkills}
+            install={state.installAgentSkill}
+            setError={setError}
+            importContext7={state.importContext7Skill}
+            importVercel={state.importVercelSkill}
+          />
+        )}
+      </div>
+    </div>
+  );
+}
+
+function TabButton({
+  active,
+  children,
+  onClick,
+}: {
+  active: boolean;
+  children: React.ReactNode;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      onClick={onClick}
+      className={`rounded-md px-3 py-1.5 text-sm font-medium transition-colors ${
+        active ? "bg-background text-foreground shadow-sm" : "text-muted-foreground hover:bg-background/50 hover:text-foreground"
+      }`}
+    >
+      {children}
+    </button>
+  );
+}
+
+function WorkspacePanel({
+  skills,
+  onRemove,
+}: {
+  skills: WorkspaceSkill[];
+  onRemove: (id: string) => void;
+}) {
+  if (skills.length === 0) {
+    return (
+      <div className="flex h-full flex-col items-center justify-center text-muted-foreground">
+        <Package className="mb-4 h-12 w-12 opacity-20" />
+        <p className="text-sm">No skills installed in this workspace.</p>
+        <p className="text-xs opacity-70">Check the Local Catalog or Remote Package tabs to add skills.</p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="h-full overflow-y-auto pr-2">
+      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+        {skills.map((skill) => (
+          <div key={skill.id} className="group relative flex flex-col justify-between rounded-lg border border-border bg-card p-4 transition-colors hover:border-primary/50">
+            <div>
+              <div className="mb-2 flex items-start justify-between">
+                <h3 className="font-semibold text-card-foreground">{skill.name}</h3>
+                <button
+                  onClick={() => onRemove(skill.id)}
+                  className="rounded p-1 text-muted-foreground opacity-0 transition-all hover:bg-destructive/10 hover:text-destructive group-hover:opacity-100"
+                  title="Remove skill"
+                >
+                  <Trash2 size={14} />
+                </button>
+              </div>
+              <p className="mb-3 text-xs text-muted-foreground line-clamp-2">
+                {skill.description || "No description provided."}
+              </p>
+            </div>
+            <div className="flex items-center gap-2">
+              <span className="rounded-full bg-muted px-2 py-0.5 text-[10px] font-medium text-muted-foreground">
+                {skill.skill_dir}
+              </span>
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function CatalogPanel({
+  skills,
+  onAddCustom,
+}: {
+  skills: SkillCatalogItem[];
+  onAddCustom: (skill: any) => Promise<void>;
+}) {
+  const [query, setQuery] = useState("");
+  const [sourceFilter, setSourceFilter] = useState("all");
+  
+  // Custom skill form state
+  const [showForm, setShowForm] = useState(false);
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
   const [installCommand, setInstallCommand] = useState("");
@@ -60,525 +177,305 @@ export function SkillsSection() {
   const [source, setSource] = useState("custom");
   const [tags, setTags] = useState("");
 
-  const [context7Id, setContext7Id] = useState("");
-  const [vercelSkill, setVercelSkill] = useState("");
-
-  useEffect(() => {
-    refreshWorkspaceSkills().catch(console.error);
-  }, [refreshWorkspaceSkills]);
-
-  const sourceOptions = useMemo(() => {
-    const unique = new Set(skills.map((skill) => skill.source).filter(Boolean));
-    return ["all", ...Array.from(unique).sort((a, b) => a.localeCompare(b))];
-  }, [skills]);
-
-  const list = searchResults.length > 0 || query.trim() ? searchResults : skills;
-  const filtered = list.filter((skill) => {
-    if (sourceFilter === "all") return true;
-    return skill.source === sourceFilter;
+  const filtered = skills.filter((s) => {
+    if (sourceFilter !== "all" && s.source !== sourceFilter) return false;
+    if (!query) return true;
+    const q = query.toLowerCase();
+    return (
+      s.title.toLowerCase().includes(q) ||
+      s.description.toLowerCase().includes(q) ||
+      s.id.toLowerCase().includes(q)
+    );
   });
 
-  const handleRunSearch = async (event?: FormEvent) => {
-    event?.preventDefault();
-    setError(null);
-
-    if (!query.trim()) {
-      setSearchResults([]);
-      return;
-    }
-
-    setSearching(true);
-    try {
-      const results = await searchSkills(
-        query.trim(),
-        sourceFilter === "all" ? undefined : sourceFilter,
-        50
-      );
-      setSearchResults(results);
-    } catch (searchError) {
-      console.error(searchError);
-      setError("Failed to search skills.");
-    } finally {
-      setSearching(false);
-    }
-  };
-
-  const handleAddCustomSkill = async (event: FormEvent) => {
-    event.preventDefault();
-    setError(null);
-
-    try {
-      await addCustomSkill({
-        title,
-        description,
-        install_command: installCommand,
-        url,
-        source,
-        tags: tags
-          .split(",")
-          .map((item) => item.trim())
-          .filter(Boolean),
-      });
-      setTitle("");
-      setDescription("");
-      setInstallCommand("");
-      setUrl("");
-      setSource("custom");
-      setTags("");
-    } catch (addError) {
-      console.error(addError);
-      setError("Failed to add custom skill.");
-    }
-  };
-
-  const handleImportContext7 = async () => {
-    if (!context7Id.trim()) return;
-    setError(null);
-
-    try {
-      await importContext7Skill(context7Id.trim());
-      setContext7Id("");
-    } catch (importError) {
-      console.error(importError);
-      setError("Failed to import Context7 skill.");
-    }
-  };
-
-  const handleImportVercel = async () => {
-    if (!vercelSkill.trim()) return;
-    setError(null);
-
-    try {
-      await importVercelSkill(vercelSkill.trim());
-      setVercelSkill("");
-    } catch (importError) {
-      console.error(importError);
-      setError("Failed to import Vercel skill.");
-    }
-  };
-
-  const handleRefreshWorkspace = async () => {
-    setRefreshing(true);
-    try {
-      await refreshWorkspaceSkills();
-    } catch (refreshError) {
-      console.error(refreshError);
-    } finally {
-      setRefreshing(false);
-    }
+  const handleAddSubmit = async (e: FormEvent) => {
+    e.preventDefault();
+    await onAddCustom({
+      title,
+      description,
+      install_command: installCommand,
+      url,
+      source,
+      tags: tags.split(",").map((t) => t.trim()).filter(Boolean),
+    });
+    setShowForm(false);
+    // reset form
+    setTitle(""); setDescription(""); setInstallCommand(""); setUrl(""); setTags("");
   };
 
   return (
-    <div className="space-y-4">
-      <div className="flex items-center gap-3">
-        <div className="flex items-center gap-2 text-sm font-semibold">
-          <Sparkles size={16} />
-          Skills
+    <div className="flex h-full flex-col gap-4">
+      <div className="flex gap-2">
+        <div className="relative flex-1">
+          <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
+          <Input
+            placeholder="Search local catalog..."
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            className="pl-9"
+          />
         </div>
-
-        <div className="flex items-center rounded-lg border border-border bg-muted/30 p-0.5">
-          <button
-            type="button"
-            onClick={() => setTab("workspace")}
-            className={`rounded-md px-3 py-1 text-xs font-medium transition-colors ${
-              tab === "workspace"
-                ? "bg-background text-foreground shadow-sm"
-                : "text-muted-foreground hover:text-foreground"
-            }`}
-          >
-            Workspace
-            {workspaceSkills.length > 0 && (
-              <span className="ml-1.5 rounded-full bg-primary/15 px-1.5 py-0.5 text-[10px] font-semibold text-primary">
-                {workspaceSkills.length}
-              </span>
-            )}
-          </button>
-
-          <button
-            type="button"
-            onClick={() => setTab("catalog")}
-            className={`rounded-md px-3 py-1 text-xs font-medium transition-colors ${
-              tab === "catalog"
-                ? "bg-background text-foreground shadow-sm"
-                : "text-muted-foreground hover:text-foreground"
-            }`}
-          >
-            Catalog
-          </button>
-        </div>
+        <Select 
+          value={sourceFilter} 
+          onChange={(e) => setSourceFilter(e.target.value)}
+          className="w-[140px]"
+        >
+          <option value="all">All Sources</option>
+          <option value="builtin">Built-in</option>
+          <option value="custom">Custom</option>
+          <option value="vercel">Vercel</option>
+        </Select>
+        <Button variant="outline" onClick={() => setShowForm(!showForm)}>
+          {showForm ? "Cancel" : "Add Custom"}
+        </Button>
       </div>
 
-      {tab === "workspace" ? (
-        <WorkspaceSkillsPanel
-          skills={workspaceSkills}
-          expandedSkill={expandedSkill}
-          onToggleExpand={(id) => setExpandedSkill(expandedSkill === id ? null : id)}
-          refreshing={refreshing}
-          onRefresh={handleRefreshWorkspace}
-        />
-      ) : (
-        <SkillCatalogPanel
-          filtered={filtered}
-          sourceOptions={sourceOptions}
-          query={query}
-          setQuery={setQuery}
-          sourceFilter={sourceFilter}
-          setSourceFilter={setSourceFilter}
-          searching={searching}
-          onRunSearch={handleRunSearch}
-          onRemoveSkill={removeSkill}
-          error={error}
-          title={title}
-          setTitle={setTitle}
-          description={description}
-          setDescription={setDescription}
-          installCommand={installCommand}
-          setInstallCommand={setInstallCommand}
-          url={url}
-          setUrl={setUrl}
-          source={source}
-          setSource={setSource}
-          tags={tags}
-          setTags={setTags}
-          onAddCustom={handleAddCustomSkill}
-          context7Id={context7Id}
-          setContext7Id={setContext7Id}
-          onImportContext7={handleImportContext7}
-          vercelSkill={vercelSkill}
-          setVercelSkill={setVercelSkill}
-          onImportVercel={handleImportVercel}
-        />
+      {showForm && (
+        <form onSubmit={handleAddSubmit} className="rounded-lg border border-border bg-card/50 p-4 space-y-3">
+          <div className="grid gap-3 sm:grid-cols-2">
+            <Input placeholder="Title" value={title} onChange={(e) => setTitle(e.target.value)} required />
+            <Input placeholder="URL (optional)" value={url} onChange={(e) => setUrl(e.target.value)} />
+          </div>
+          <Textarea placeholder="Description" value={description} onChange={(e) => setDescription(e.target.value)} required className="h-20" />
+          <Input placeholder="Install Command (e.g. npm install -g ...)" value={installCommand} onChange={(e) => setInstallCommand(e.target.value)} required className="font-mono" />
+          <div className="grid gap-3 sm:grid-cols-2">
+            <Input placeholder="Source (e.g. team)" value={source} onChange={(e) => setSource(e.target.value)} />
+            <Input placeholder="Tags (comma separated)" value={tags} onChange={(e) => setTags(e.target.value)} />
+          </div>
+          <div className="flex justify-end">
+            <Button type="submit" size="sm">Save Custom Skill</Button>
+          </div>
+        </form>
       )}
+
+      <div className="flex-1 overflow-y-auto pr-2">
+        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+          {filtered.map((skill) => (
+            <div key={skill.id} className="flex flex-col justify-between rounded-lg border border-border bg-card p-4">
+              <div>
+                <div className="mb-1 flex items-start justify-between">
+                  <h4 className="font-semibold">{skill.title}</h4>
+                  <a
+                    href={skill.url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-muted-foreground hover:text-primary"
+                    onClick={(e) => {
+                        e.preventDefault();
+                        openUrl(skill.url).catch(console.error);
+                    }}
+                  >
+                    <ExternalLink size={14} />
+                  </a>
+                </div>
+                <p className="mb-3 text-xs text-muted-foreground line-clamp-3">{skill.description}</p>
+              </div>
+              <div className="space-y-2">
+                <code className="block w-full rounded bg-muted px-2 py-1 text-[10px] font-mono text-muted-foreground overflow-x-auto whitespace-nowrap scrollbar-hide">
+                  {skill.install_command}
+                </code>
+                <div className="flex items-center justify-between">
+                    <span className="rounded-full bg-primary/10 px-2 py-0.5 text-[10px] font-medium text-primary capitalize">
+                        {skill.source}
+                    </span>
+                    {/* Catalog items are just references, user copies command or we could run it if we trust it */}
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
     </div>
   );
 }
 
-function WorkspaceSkillsPanel({
-  skills,
-  expandedSkill,
-  onToggleExpand,
-  refreshing,
-  onRefresh,
+function RemotePackagePanel({
+  search,
+  install,
+  setError,
+  importContext7,
+  importVercel,
 }: {
-  skills: WorkspaceSkill[];
-  expandedSkill: string | null;
-  onToggleExpand: (id: string) => void;
-  refreshing: boolean;
-  onRefresh: () => Promise<void>;
+  search: (query: string, limit?: number) => Promise<AgentSkillSearchItem[]>;
+  install: (name: string, repo?: string) => Promise<AgentSkillInstallResult>;
+  setError: (msg: string | null) => void;
+  importContext7: (id: string, title?: string) => Promise<void>;
+  importVercel: (name: string) => Promise<void>;
 }) {
+  const [query, setQuery] = useState("");
+  const [results, setResults] = useState<AgentSkillSearchItem[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [installing, setInstalling] = useState<string | null>(null);
+  const [output, setOutput] = useState<string | null>(null);
+
+  // Manual import state
+  const [c7Id, setC7Id] = useState("");
+  const [vercelName, setVercelName] = useState("");
+
+  const doSearch = async (q: string) => {
+    setLoading(true);
+    setError(null);
+    try {
+      // Empty query returns all skills from backend now
+      const items = await search(q, 50); 
+      setResults(items);
+    } catch (err: any) {
+      setError(`Search failed: ${err.message || String(err)}`);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Initial load
+  useEffect(() => {
+    doSearch("");
+  }, []);
+
+  const handleInstall = async (item: AgentSkillSearchItem) => {
+    setInstalling(item.skill_name);
+    setOutput(null);
+    setError(null);
+    try {
+      // Pass the source from search result as repo URL if it's not the default one
+      // The backend default is vercel-labs/agent-skills, but explicit is safer
+      const res = await install(item.skill_name, item.source);
+      // Strip ANSI codes for cleaner display
+      // eslint-disable-next-line no-control-regex
+      const stripAnsi = (str: string) => str.replace(/[\u001b\u009b][[()#;?]*(?:[0-9]{1,4}(?:;[0-9]{0,4})*)?[0-9A-ORZcf-nqry=><]/g, "");
+      
+      const cleanStdout = stripAnsi(res.stdout || "");
+      const cleanStderr = stripAnsi(res.stderr || "");
+      
+      const log = `$ ${res.command}\n${cleanStdout}\n${cleanStderr ? `[stderr]\n${cleanStderr}` : ""}`;
+      setOutput(log);
+    } catch (err: any) {
+        setError(`Install failed: ${err.message || String(err)}`);
+    } finally {
+      setInstalling(null);
+    }
+  };
+
+  const handleImportC7 = async () => {
+      if(!c7Id.trim()) return;
+      try { await importContext7(c7Id); setC7Id(""); } catch(e:any) { setError(e.message); }
+  }
+
+  const handleImportVercel = async () => {
+      if(!vercelName.trim()) return;
+      try { await importVercel(vercelName); setVercelName(""); } catch(e:any) { setError(e.message); }
+  }
+
   return (
-    <section className="rounded-xl border border-border bg-card/60 p-4">
-      <div className="mb-4 flex items-start justify-between gap-3">
-        <div>
-          <h3 className="text-sm font-semibold">Workspace Skills</h3>
-          <p className="mt-0.5 text-xs text-muted-foreground">
-            Skills discovered from <code className="rounded bg-muted px-1 py-0.5">.agents/skills/</code> in the active
-            workspace.
-          </p>
-        </div>
-
-        <Button
-          size="sm"
-          variant="outline"
-          className="gap-1.5"
-          onClick={() => onRefresh().catch(console.error)}
-          disabled={refreshing}
-        >
-          <RefreshCw size={12} className={refreshing ? "animate-spin" : ""} />
-          Refresh
-        </Button>
-      </div>
-
-      {skills.length === 0 ? (
-        <div className="rounded-xl border border-dashed border-border bg-muted/20 px-6 py-10 text-center">
-          <FolderOpen size={28} className="mx-auto mb-3 text-muted-foreground/40" />
-          <p className="text-sm font-medium text-muted-foreground">No workspace skills found</p>
-          <p className="mt-1.5 text-xs text-muted-foreground/70">
-            Create <code className="rounded bg-muted px-1 py-0.5">.agents/skills/&lt;name&gt;/SKILL.md</code> to add one.
-          </p>
-        </div>
-      ) : (
-        <div className="max-h-[60vh] overflow-y-auto pr-1">
-          <div className="grid gap-2">
-            {skills.map((skill) => {
-              const expanded = expandedSkill === skill.id;
-              return (
-                <article key={skill.id} className="rounded-xl border border-border bg-background/60 transition-colors">
-                  <button
-                    type="button"
-                    onClick={() => onToggleExpand(skill.id)}
-                    className="flex w-full items-start gap-3 px-4 py-3 text-left"
-                  >
-                    <span className="mt-0.5 text-muted-foreground">
-                      {expanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
-                    </span>
-                    <div className="min-w-0 flex-1">
-                      <div className="flex items-center gap-2">
-                        <h4 className="text-sm font-semibold">{skill.name}</h4>
-                        <span className="rounded border border-border px-1.5 py-0.5 text-[10px] text-muted-foreground">
-                          {skill.source}
-                        </span>
-                        {skill.enabled && (
-                          <span className="rounded-full bg-success/15 px-1.5 py-0.5 text-[10px] font-medium text-success">
-                            active
-                          </span>
-                        )}
-                      </div>
-                      {skill.description && <p className="mt-1 text-xs text-muted-foreground">{skill.description}</p>}
-                      <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
-                        {skill.tags.slice(0, 5).map((tag) => (
-                          <span key={tag} className="rounded bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground">
-                            {tag}
-                          </span>
-                        ))}
-                        {skill.files.length > 0 && (
-                          <span className="flex items-center gap-1 text-[10px] text-muted-foreground/60">
-                            <FileText size={10} />
-                            {skill.files.length} file{skill.files.length !== 1 ? "s" : ""}
-                          </span>
-                        )}
-                      </div>
-                    </div>
-                  </button>
-
-                  {expanded && (
-                    <div className="border-t border-border px-4 py-3">
-                      {skill.files.length > 0 && (
-                        <div className="mb-3">
-                          <p className="mb-1.5 text-[11px] font-medium uppercase tracking-wider text-muted-foreground/60">
-                            Files
-                          </p>
-                          <div className="flex flex-wrap gap-1.5">
-                            {skill.files.map((file) => (
-                              <span
-                                key={file}
-                                className="inline-flex items-center gap-1 rounded border border-border bg-muted/30 px-2 py-0.5 text-xs text-muted-foreground"
-                              >
-                                <FileText size={10} />
-                                {file}
-                              </span>
-                            ))}
-                          </div>
-                        </div>
-                      )}
-
-                      <div>
-                        <p className="mb-1.5 text-[11px] font-medium uppercase tracking-wider text-muted-foreground/60">
-                          SKILL.md Content
-                        </p>
-                        <div className="max-h-64 overflow-y-auto rounded-lg border border-border bg-muted/20 p-3">
-                          <pre className="whitespace-pre-wrap text-xs leading-relaxed text-muted-foreground">
-                            {skill.content.length > 2000
-                              ? `${skill.content.slice(0, 2000)}\n\n... (truncated)`
-                              : skill.content}
-                          </pre>
-                        </div>
-                      </div>
-
-                      <div className="mt-3 text-[11px] text-muted-foreground/50">
-                        <span className="font-medium">Path:</span>{" "}
-                        <code className="rounded bg-muted px-1 py-0.5">{skill.skill_dir}</code>
-                      </div>
-                    </div>
-                  )}
-                </article>
-              );
-            })}
+    <div className="flex h-full flex-col gap-4">
+      <div className="flex flex-col gap-2">
+        <div className="rounded-lg border border-border bg-card p-4">
+          <div className="mb-4">
+            <h3 className="text-sm font-semibold">Agent Skills Package</h3>
+            <p className="text-xs text-muted-foreground">
+              Discover and install skills from the <code className="rounded bg-muted px-1">vercel-labs/agent-skills</code> repository.
+            </p>
           </div>
-        </div>
-      )}
-    </section>
-  );
-}
-
-function SkillCatalogPanel({
-  filtered,
-  sourceOptions,
-  query,
-  setQuery,
-  sourceFilter,
-  setSourceFilter,
-  searching,
-  onRunSearch,
-  onRemoveSkill,
-  error,
-  title,
-  setTitle,
-  description,
-  setDescription,
-  installCommand,
-  setInstallCommand,
-  url,
-  setUrl,
-  source,
-  setSource,
-  tags,
-  setTags,
-  onAddCustom,
-  context7Id,
-  setContext7Id,
-  onImportContext7,
-  vercelSkill,
-  setVercelSkill,
-  onImportVercel,
-}: {
-  filtered: SkillCatalogItem[];
-  sourceOptions: string[];
-  query: string;
-  setQuery: (value: string) => void;
-  sourceFilter: string;
-  setSourceFilter: (value: string) => void;
-  searching: boolean;
-  onRunSearch: (event?: FormEvent) => void;
-  onRemoveSkill: (id: string) => Promise<void>;
-  error: string | null;
-  title: string;
-  setTitle: (value: string) => void;
-  description: string;
-  setDescription: (value: string) => void;
-  installCommand: string;
-  setInstallCommand: (value: string) => void;
-  url: string;
-  setUrl: (value: string) => void;
-  source: string;
-  setSource: (value: string) => void;
-  tags: string;
-  setTags: (value: string) => void;
-  onAddCustom: (event: FormEvent) => void;
-  context7Id: string;
-  setContext7Id: (value: string) => void;
-  onImportContext7: () => void;
-  vercelSkill: string;
-  setVercelSkill: (value: string) => void;
-  onImportVercel: () => void;
-}) {
-  return (
-    <section className="rounded-xl border border-border bg-card/60 p-4">
-      <div className="grid gap-4 xl:grid-cols-[1.2fr_1fr]">
-        <div className="rounded-lg border border-border bg-background/60 p-3">
-          <form className="mb-4 flex items-center gap-2" onSubmit={onRunSearch}>
-            <Input placeholder="Search skills..." value={query} onChange={(event) => setQuery(event.target.value)} />
-            <select
-              className="h-9 rounded-md border border-input bg-background px-2 text-xs"
-              value={sourceFilter}
-              onChange={(event) => setSourceFilter(event.target.value)}
-            >
-              {sourceOptions.map((value) => (
-                <option key={value} value={value}>
-                  {value}
-                </option>
-              ))}
-            </select>
-            <Button size="sm" type="submit" disabled={searching}>
-              <Search size={14} />
-              {searching ? "Searching" : "Search"}
+          
+          <form 
+            onSubmit={(e) => { e.preventDefault(); doSearch(query); }}
+            className="flex gap-2"
+          >
+            <div className="relative flex-1">
+              <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
+              <Input
+                placeholder="Search package..."
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+                className="pl-9"
+              />
+            </div>
+            <Button type="submit" disabled={loading}>
+              {loading ? "Searching..." : "Search"}
             </Button>
           </form>
-
-          {filtered.length === 0 ? (
-            <div className="py-8 text-center text-sm text-muted-foreground">No skills found.</div>
-          ) : (
-            <div className="max-h-[55vh] overflow-y-auto pr-1">
-              <div className="grid gap-3">
-                {filtered.map((skill) => (
-                  <article key={skill.id} className="rounded-xl border border-border bg-card/60 p-4">
-                    <div className="mb-2 flex items-center justify-between gap-2">
-                      <h3 className="text-sm font-semibold">{skill.title}</h3>
-                      <div className="flex items-center gap-1">
-                        <button
-                          type="button"
-                          onClick={() => openUrl(skill.url).catch(console.error)}
-                          className="rounded p-1 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
-                          title="Open skill page"
-                        >
-                          <ExternalLink size={13} />
-                        </button>
-                        {skill.is_custom ? (
-                          <button
-                            type="button"
-                            onClick={() => onRemoveSkill(skill.id).catch(console.error)}
-                            className="rounded p-1 text-muted-foreground transition-colors hover:bg-accent hover:text-destructive"
-                            title="Remove skill"
-                          >
-                            <Trash2 size={13} />
-                          </button>
-                        ) : null}
-                      </div>
-                    </div>
-                    <p className="mb-2 text-xs text-muted-foreground">{skill.description}</p>
-                    <div className="mb-2 flex items-center gap-2 text-[11px] text-muted-foreground">
-                      <span className="rounded border border-border px-1.5 py-0.5">{skill.source}</span>
-                      {skill.tags.slice(0, 3).map((tag) => (
-                        <span key={tag} className="rounded bg-muted px-1.5 py-0.5">
-                          {tag}
-                        </span>
-                      ))}
-                    </div>
-                    <code className="block rounded-lg border border-border bg-muted/30 px-2.5 py-1.5 text-xs text-muted-foreground">
-                      {skill.install_command}
-                    </code>
-                  </article>
-                ))}
-              </div>
-            </div>
-          )}
         </div>
-
-        <div className="overflow-y-auto rounded-lg border border-border bg-background/60 p-3">
-          <div className="mb-6">
-            <h3 className="mb-2 text-sm font-semibold">Import Existing Skill</h3>
-            <div className="mb-2 flex gap-2">
-              <Input
-                placeholder="/org/project (Context7 library id)"
-                value={context7Id}
-                onChange={(event) => setContext7Id(event.target.value)}
-              />
-              <Button size="sm" type="button" onClick={onImportContext7} disabled={!context7Id.trim()}>
-                Import
-              </Button>
+        
+        {output && (
+            <div className="max-h-32 overflow-y-auto rounded-lg border border-border bg-muted/30 p-3 font-mono text-xs">
+                <div className="mb-1 font-semibold text-muted-foreground">Last Install Output:</div>
+                <pre className="whitespace-pre-wrap">{output}</pre>
             </div>
-            <div className="flex gap-2">
-              <Input
-                placeholder="vercel-react-best-practices"
-                value={vercelSkill}
-                onChange={(event) => setVercelSkill(event.target.value)}
-              />
-              <Button size="sm" type="button" onClick={onImportVercel} disabled={!vercelSkill.trim()}>
-                Import
-              </Button>
-            </div>
-          </div>
-
-          <form className="space-y-3" onSubmit={onAddCustom}>
-            <h3 className="text-sm font-semibold">Add Custom Skill</h3>
-            <Input placeholder="Title" value={title} onChange={(event) => setTitle(event.target.value)} required />
-            <Textarea
-              placeholder="Description"
-              value={description}
-              onChange={(event) => setDescription(event.target.value)}
-              className="min-h-20"
-            />
-            <Input
-              placeholder="Install command"
-              value={installCommand}
-              onChange={(event) => setInstallCommand(event.target.value)}
-              required
-            />
-            <Input placeholder="URL" value={url} onChange={(event) => setUrl(event.target.value)} required />
-            <Input
-              placeholder="Source (custom, team, etc.)"
-              value={source}
-              onChange={(event) => setSource(event.target.value)}
-            />
-            <Input placeholder="Tags (comma separated)" value={tags} onChange={(event) => setTags(event.target.value)} />
-            <Button type="submit" size="sm" disabled={!title.trim() || !installCommand.trim() || !url.trim()}>
-              Add Skill
-            </Button>
-          </form>
-
-          {error ? <p className="mt-3 text-xs text-destructive">{error}</p> : null}
-        </div>
+        )}
       </div>
-    </section>
+
+      <div className="flex-1 overflow-y-auto pr-2">
+        {results.length === 0 && !loading ? (
+            <div className="flex flex-col items-center justify-center py-8 text-center text-muted-foreground opacity-60">
+                <Box className="mb-2 h-10 w-10" />
+                <p>No skills found.</p>
+            </div>
+        ) : (
+            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+            {results.map((item) => (
+                <div key={item.skill_name} className="flex flex-col justify-between rounded-lg border border-border bg-card p-4 transition-all hover:border-primary/40">
+                <div>
+                    <div className="mb-1 flex items-start justify-between">
+                    <h4 className="font-semibold">{item.title}</h4>
+                    <button
+                        onClick={() => openUrl(item.url).catch(console.error)}
+                        className="text-muted-foreground hover:text-primary"
+                    >
+                        <ExternalLink size={14} />
+                    </button>
+                    </div>
+                    <p className="mb-3 text-xs text-muted-foreground line-clamp-3">{item.description}</p>
+                </div>
+                
+                <div className="space-y-3">
+                    <div className="flex items-center justify-between text-[10px] text-muted-foreground">
+                        <span className="font-mono bg-muted px-1.5 py-0.5 rounded">{item.skill_name}</span>
+                        <span>{item.installs > 0 ? `${item.installs.toLocaleString()} installs` : 'New'}</span>
+                    </div>
+                    <Button 
+                        size="sm" 
+                        className="w-full" 
+                        onClick={() => handleInstall(item)}
+                        disabled={installing === item.skill_name}
+                    >
+                        {installing === item.skill_name ? (
+                            "Installing..."
+                        ) : (
+                            <>
+                                <Download size={14} className="mr-2" />
+                                Install Skill
+                            </>
+                        )}
+                    </Button>
+                </div>
+                </div>
+            ))}
+            </div>
+        )}
+      </div>
+
+      <div className="mt-auto border-t border-border pt-4">
+        <details className="group">
+            <summary className="cursor-pointer text-xs font-medium text-muted-foreground hover:text-foreground">
+                Advanced: Manual Import
+            </summary>
+            <div className="mt-3 grid gap-4 p-2 bg-muted/20 rounded sm:grid-cols-2">
+                <div className="space-y-2">
+                    <label className="text-[10px] font-medium uppercase text-muted-foreground">Context7 Library ID</label>
+                    <div className="flex gap-2">
+                        <Input placeholder="/org/project" value={c7Id} onChange={(e) => setC7Id(e.target.value)} className="h-8 text-xs" />
+                        <Button size="sm" variant="secondary" onClick={handleImportC7} disabled={!c7Id.trim()} className="h-8">Import</Button>
+                    </div>
+                </div>
+                <div className="space-y-2">
+                    <label className="text-[10px] font-medium uppercase text-muted-foreground">Vercel Skill Name</label>
+                    <div className="flex gap-2">
+                        <Input placeholder="skill-name" value={vercelName} onChange={(e) => setVercelName(e.target.value)} className="h-8 text-xs" />
+                        <Button size="sm" variant="secondary" onClick={handleImportVercel} disabled={!vercelName.trim()} className="h-8">Import</Button>
+                    </div>
+                </div>
+            </div>
+        </details>
+      </div>
+    </div>
   );
 }

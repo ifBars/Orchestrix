@@ -92,6 +92,14 @@ export class RuntimeEventBuffer {
       completeAgentMessageStream: (streamId, completedAt, seq) =>
         self.agentStreamState.completeStream(taskId, streamId, completedAt, seq),
       clearAgentMessageStream: () => self.agentStreamState.clearStream(taskId),
+      flushAgentMessageStream: () => {
+        const stream = self.agentStreamState.getStream(taskId);
+        if (stream) {
+          self.agentStreamState.clearStream(taskId);
+          return stream;
+        }
+        return null;
+      },
     };
   }
 

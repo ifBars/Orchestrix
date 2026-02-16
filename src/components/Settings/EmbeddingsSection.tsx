@@ -22,6 +22,7 @@ const PROVIDERS: EmbeddingConfig["provider"][] = [
 ];
 
 type FormState = {
+  enabled: boolean;
   provider: EmbeddingConfig["provider"];
   normalize_l2: boolean;
   gemini: {
@@ -72,6 +73,7 @@ export function EmbeddingsSection() {
   useEffect(() => {
     if (!embeddingConfig) return;
     setForm({
+      enabled: embeddingConfig.enabled,
       provider: embeddingConfig.provider,
       normalize_l2: embeddingConfig.normalize_l2,
       gemini: {
@@ -120,6 +122,7 @@ export function EmbeddingsSection() {
     setError(null);
     try {
       const payload: EmbeddingConfig = {
+        enabled: form.enabled,
         provider: form.provider,
         normalize_l2: form.normalize_l2,
         gemini: {
@@ -184,6 +187,17 @@ export function EmbeddingsSection() {
         </p>
 
         <div className="space-y-3">
+          <label className="flex items-center gap-2 rounded-md border border-border/70 bg-background/60 px-3 py-2 text-xs">
+            <input
+              type="checkbox"
+              checked={form.enabled}
+              onChange={(event) =>
+                setForm((current) => (current ? { ...current, enabled: event.target.checked } : current))
+              }
+            />
+            Enable semantic search (search.embeddings tool)
+          </label>
+
           <div className="space-y-1.5">
             <label className="text-xs font-medium text-muted-foreground">Active Provider</label>
             <Select

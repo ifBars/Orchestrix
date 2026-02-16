@@ -131,6 +131,8 @@ pub struct RustHfEmbeddingConfig {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct EmbeddingConfig {
     #[serde(default)]
+    pub enabled: bool,
+    #[serde(default)]
     pub provider: EmbeddingProviderId,
     #[serde(default)]
     pub normalize_l2: bool,
@@ -154,6 +156,7 @@ pub struct GeminiEmbeddingConfigView {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct EmbeddingConfigView {
+    pub enabled: bool,
     pub provider: EmbeddingProviderId,
     pub normalize_l2: bool,
     pub gemini: GeminiEmbeddingConfigView,
@@ -219,6 +222,7 @@ impl Default for EmbeddingProviderId {
 impl Default for EmbeddingConfig {
     fn default() -> Self {
         Self {
+            enabled: false,
             provider: EmbeddingProviderId::default(),
             normalize_l2: false,
             gemini: GeminiEmbeddingConfig::default(),
@@ -373,6 +377,7 @@ impl EmbeddingConfig {
 
     pub fn to_view(&self) -> EmbeddingConfigView {
         EmbeddingConfigView {
+            enabled: self.enabled,
             provider: self.provider,
             normalize_l2: self.normalize_l2,
             gemini: GeminiEmbeddingConfigView {
@@ -385,6 +390,10 @@ impl EmbeddingConfig {
             transformersjs: self.transformersjs.clone(),
             rust_hf: self.rust_hf.clone(),
         }
+    }
+
+    pub fn is_configured(&self) -> bool {
+        self.enabled && self.validate_selected_provider().is_ok()
     }
 }
 

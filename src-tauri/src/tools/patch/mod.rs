@@ -46,8 +46,9 @@ impl Tool for FsPatchTool {
                             "Operations: *** Add File: <path> (lines prefixed with +), ",
                             "*** Delete File: <path>, ",
                             "*** Update File: <path> with @@ context markers and +/- lines. ",
-                            "Context lines prefixed with space. ",
-                            "@@ can include a function/class name for scoping."
+                            "CRITICAL: Text after @@ must MATCH actual file content (used to find the change location). ",
+                            "Use @@ alone (no context) if uncertain, or use fs.read to verify file content first. ",
+                            "Context lines (prefixed with space) provide additional matching context."
                         )
                     }
                 },
@@ -250,7 +251,7 @@ fn compute_replacements(
                 line_index = idx + 1;
             } else {
                 return Err(format!(
-                    "failed to find context '{}' in {}",
+                    "failed to find context '{}' in {}. The @@ context line must match actual file content. Use fs.read to verify, or use @@ alone (no context text).",
                     ctx_line,
                     path.display()
                 ));
@@ -343,7 +344,6 @@ fn build_summary(added: &[String], modified: &[String], deleted: &[String]) -> S
 mod tests {
     use super::*;
     use crate::policy::PolicyEngine;
-    use std::path::PathBuf;
 
     fn temp_dir() -> tempfile::TempDir {
         tempfile::tempdir().unwrap()

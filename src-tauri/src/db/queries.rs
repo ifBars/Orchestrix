@@ -749,6 +749,12 @@ pub fn get_setting(db: &Database, key: &str) -> Result<Option<String>, DbError> 
     }
 }
 
+pub fn delete_setting(db: &Database, key: &str) -> Result<(), DbError> {
+    let conn = db.conn();
+    conn.execute("DELETE FROM settings WHERE key = ?1", params![key])?;
+    Ok(())
+}
+
 pub fn upsert_embedding_index(db: &Database, row: &EmbeddingIndexRow) -> Result<(), DbError> {
     let conn = db.conn();
     conn.execute(

@@ -1,6 +1,7 @@
 use crate::embeddings::config::load_embedding_config;
 use crate::embeddings::{
-    EmbedOptions, EmbeddingConfig, EmbeddingConfigView, EmbeddingIndexStatus, EmbeddingProviderInfo,
+    is_semantic_search_configured, EmbedOptions, EmbeddingConfig, EmbeddingConfigView,
+    EmbeddingIndexStatus, EmbeddingProviderInfo,
 };
 use crate::{load_workspace_root, AppError, AppState};
 
@@ -34,11 +35,13 @@ pub async fn set_embedding_config(
         .set_config(config)
         .await
         .map_err(|error| AppError::Other(error.to_string()))
-        .inspect(|_| {
-            let workspace_root = load_workspace_root(&state.db);
-            state
-                .embedding_index_service
-                .ensure_workspace_index_started(workspace_root);
+        .inspect(|view| {
+            if view.enabled {
+                let workspace_root = load_workspace_root(&state.db);
+                state
+                    .embedding_index_service
+                    .ensure_workspace_index_started(workspace_root);
+            }
         })
 }
 
@@ -79,6 +82,9 @@ pub async fn embed_texts(
 pub fn get_embedding_index_status(
     state: tauri::State<'_, AppState>,
 ) -> Result<Option<EmbeddingIndexStatus>, AppError> {
+    if !is_semantic_search_configured(&state.db) {
+        return Ok(None);
+    }
     let workspace_root = load_workspace_root(&state.db);
     Ok(state.embedding_index_service.index_status(&workspace_root))
 }

@@ -54,6 +54,8 @@ pub struct EmbeddingQualitySummary {
     pub self_similarity_pass: bool,
     pub self_similarity_rank: usize,
     pub retrieval_mrr_at_10: f64,
+    pub semantic_pair_accuracy: f64,
+    pub quality_score: f64,
 }
 
 #[derive(Clone)]
@@ -206,12 +208,41 @@ async fn run_quality_checks(
 ) -> Result<EmbeddingQualitySummary, crate::embeddings::EmbeddingError> {
     let (self_similarity_pass, self_similarity_rank) = run_self_similarity_check(provider).await?;
     let retrieval_mrr_at_10 = run_retrieval_mrr_check(provider).await?;
+    let semantic_pair_accuracy = run_semantic_pair_accuracy_check(provider).await?;
+    let quality_score = compute_quality_score(
+        self_similarity_pass,
+        self_similarity_rank,
+        retrieval_mrr_at_10,
+        semantic_pair_accuracy,
+    );
 
     Ok(EmbeddingQualitySummary {
         self_similarity_pass,
         self_similarity_rank,
         retrieval_mrr_at_10,
+        semantic_pair_accuracy,
+        quality_score,
     })
+}
+
+fn compute_quality_score(
+    self_similarity_pass: bool,
+    self_similarity_rank: usize,
+    retrieval_mrr_at_10: f64,
+    semantic_pair_accuracy: f64,
+) -> f64 {
+    let self_similarity_score = if self_similarity_pass {
+        1.0
+    } else if self_similarity_rank == usize::MAX {
+        0.0
+    } else {
+        (1.0 / self_similarity_rank as f64).clamp(0.0, 1.0)
+    };
+
+    let retrieval_score = retrieval_mrr_at_10.clamp(0.0, 1.0);
+    let pair_score = semantic_pair_accuracy.clamp(0.0, 1.0);
+
+    (self_similarity_score * 0.25) + (retrieval_score * 0.45) + (pair_score * 0.30)
 }
 
 async fn run_self_similarity_check(
@@ -328,6 +359,74 @@ async fn run_retrieval_mrr_check(
     }
 
     Ok(reciprocal_sum / corpus_size as f64)
+}
+
+async fn run_semantic_pair_accuracy_check(
+    provider: &dyn EmbeddingProvider,
+) -> Result<f64, crate::embeddings::EmbeddingError> {
+    let cases = vec![
+        (
+            "Update vending machine firmware by Friday",
+            "Schedule firmware update for vending units before Friday deadline",
+            "Draft a newsletter for seasonal snack promotions",
+        ),
+        (
+            "Escalate maintenance ticket for cooling failure",
+            "Raise an urgent repair ticket for a failed cooling system",
+            "Compare monthly supplier rebate percentages",
+        ),
+        (
+            "Monitor refill frequency in station kiosks",
+            "Track how often kiosks near stations need restocking",
+            "Design poster artwork for a coupon campaign",
+        ),
+        (
+            "Audit district C cash variance logs",
+            "Review cash variance audit records for district C",
+            "Estimate office furniture costs for Q3",
+        ),
+    ];
+
+    let queries: Vec<String> = cases
+        .iter()
+        .map(|(query, _, _)| (*query).to_string())
+        .collect();
+    let documents: Vec<String> = cases
+        .iter()
+        .flat_map(|(_, positive, negative)| [(*positive).to_string(), (*negative).to_string()])
+        .collect();
+
+    let query_vectors = provider
+        .embed(
+            &queries,
+            Some(EmbedOptions {
+                task: Some(EmbeddingTaskType::RetrievalQuery),
+            }),
+        )
+        .await?;
+    let doc_vectors = provider
+        .embed(
+            &documents,
+            Some(EmbedOptions {
+                task: Some(EmbeddingTaskType::RetrievalDocument),
+            }),
+        )
+        .await?;
+
+    let mut hits = 0usize;
+    for index in 0..cases.len() {
+        let query_vector = &query_vectors[index];
+        let positive = &doc_vectors[index * 2];
+        let negative = &doc_vectors[index * 2 + 1];
+
+        let positive_sim = cosine_similarity(query_vector, positive);
+        let negative_sim = cosine_similarity(query_vector, negative);
+        if positive_sim > negative_sim {
+            hits += 1;
+        }
+    }
+
+    Ok(hits as f64 / cases.len() as f64)
 }
 
 fn default_scenarios() -> Vec<ScenarioDefinition> {

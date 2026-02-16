@@ -120,6 +120,7 @@ export interface HandlerContext {
   }) => void;
   completeAgentMessageStream: (streamId?: string, completedAt?: string, seq?: number) => void;
   clearAgentMessageStream: () => void;
+  flushAgentMessageStream: () => AgentMessageStream | null;
 }
 
 export type EventHandler = (ctx: HandlerContext) => HandlerResult;

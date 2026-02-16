@@ -3385,6 +3385,7 @@ dependencies = [
  "headless_chrome",
  "httpmock",
  "ignore",
+ "indicatif",
  "nucleo-matcher",
  "pretty_assertions",
  "reqwest 0.12.28",

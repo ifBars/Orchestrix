@@ -45,12 +45,13 @@ async fn run_multi_turn_planning<P: AgentModelClient>(
     approval_gate: &ApprovalGate,
     workspace_root: &std::path::Path,
     max_tokens: u32,
+    include_embeddings: bool,
 ) -> Result<(String, Option<String>), String> {
     let mut observations: Vec<serde_json::Value> = Vec::new();
     let mut turn: usize = 0;
 
     let available_tools: Vec<String> = tool_descriptors.iter().map(|t| t.name.clone()).collect();
-    let tool_descriptions = tool_registry.tool_reference_for_plan_mode();
+    let tool_descriptions = tool_registry.tool_reference_for_plan_mode(include_embeddings);
 
     loop {
         turn += 1;
@@ -495,6 +496,7 @@ pub async fn generate_plan_markdown_artifact(
     plan_mode_tools: Vec<ToolDescriptor>,
     tool_registry: Arc<ToolRegistry>,
     approval_gate: Arc<ApprovalGate>,
+    include_embeddings: bool,
 ) -> Result<PlanningOutcome, String> {
     let run_id = match existing_run_id {
         Some(value) => value,
@@ -583,12 +585,13 @@ pub async fn generate_plan_markdown_artifact(
                 &prompt_with_refs,
                 &context,
                 &skills_context,
-                plan_mode_tools,
+                plan_mode_tools.clone(),
                 tool_registry.as_ref(),
                 &policy,
                 approval_gate.as_ref(),
                 &workspace_root,
                 max_tokens,
+                include_embeddings,
             )
             .await?
         }
@@ -604,12 +607,13 @@ pub async fn generate_plan_markdown_artifact(
                 &prompt_with_refs,
                 &context,
                 &skills_context,
-                plan_mode_tools,
+                plan_mode_tools.clone(),
                 tool_registry.as_ref(),
                 &policy,
                 approval_gate.as_ref(),
                 &workspace_root,
                 max_tokens,
+                include_embeddings,
             )
             .await?
         }
@@ -625,12 +629,13 @@ pub async fn generate_plan_markdown_artifact(
                 &prompt_with_refs,
                 &context,
                 &skills_context,
-                plan_mode_tools,
+                plan_mode_tools.clone(),
                 tool_registry.as_ref(),
                 &policy,
                 approval_gate.as_ref(),
                 &workspace_root,
                 max_tokens,
+                include_embeddings,
             )
             .await?
         }
@@ -652,6 +657,7 @@ pub async fn generate_plan_markdown_artifact(
                 approval_gate.as_ref(),
                 &workspace_root,
                 max_tokens,
+                include_embeddings,
             )
             .await?
         }
@@ -762,11 +768,16 @@ fn write_plan_artifact(
     std::fs::create_dir_all(&run_dir).map_err(|e| e.to_string())?;
 
     let artifact_path = run_dir.join("plan.md");
-    // Copy from the file the tool wrote so we preserve UTF-8 (e.g. box-drawing chars); fallback to writing markdown
+    // Move the file the tool wrote to avoid redundancy; fallback to writing markdown
     if let Some(src) = source_artifact_path {
         let src_path = std::path::Path::new(src);
         if src_path.exists() {
-            std::fs::copy(src_path, &artifact_path).map_err(|e| e.to_string())?;
+            // Try rename (move) first
+            if std::fs::rename(src_path, &artifact_path).is_err() {
+                // Fallback to copy + delete
+                std::fs::copy(src_path, &artifact_path).map_err(|e| e.to_string())?;
+                let _ = std::fs::remove_file(src_path);
+            }
         } else {
             std::fs::write(&artifact_path, markdown).map_err(|e| e.to_string())?;
         }

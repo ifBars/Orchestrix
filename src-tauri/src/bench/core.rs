@@ -8,6 +8,9 @@ use serde::{Deserialize, Serialize};
 pub enum WorkloadKind {
     Embeddings,
     LlmAgentLoop,
+    LlmSharedTasks,
+    LlmBusinessOps,
+    BenchmarkSuite,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
