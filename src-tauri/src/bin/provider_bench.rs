@@ -242,10 +242,13 @@ async fn run() -> Result<(), String> {
                 max_tokens: llm_max_tokens,
                 provider_configs: llm_provider_configs,
                 max_turns: business_ops_max_turns,
+                max_prompts_per_turn: 3,
                 scenario_filter,
                 diagnostics: business_ops_diagnostics,
             },
             Some(&mp),
+            None,
+            None,
         )
         .await;
 
@@ -320,6 +323,7 @@ fn build_llm_provider_configs(
                 api_key: None,
                 model,
                 base_url,
+                max_tokens: None,
             })
         })
         .collect()

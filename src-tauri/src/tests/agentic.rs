@@ -31,7 +31,7 @@ pub mod tests {
         context: &str,
         prior_observations: Vec<serde_json::Value>,
     ) -> WorkerActionRequest {
-    let registry = create_tool_registry();
+        let registry = create_tool_registry();
         let tools = registry.list_for_build_mode(false);
         WorkerActionRequest {
             task_prompt: task_prompt.to_string(),

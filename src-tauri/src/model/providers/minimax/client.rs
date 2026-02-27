@@ -14,6 +14,7 @@ use crate::runtime::plan_mode_settings::{DEFAULT_PLAN_MODE_MAX_TOKENS, WORKER_MA
 
 const DEFAULT_MINIMAX_BASE_URL: &str = "https://api.minimaxi.chat";
 const MINIMAX_CHAT_PATH: &str = "/v1/text/chatcompletion_v2";
+const MINIMAX_MAX_OUTPUT_TOKENS: u32 = 196_608;
 
 #[derive(Debug, Clone)]
 pub struct MiniMaxClient {
@@ -24,6 +25,10 @@ pub struct MiniMaxClient {
 }
 
 impl MiniMaxClient {
+    fn normalize_max_tokens(&self, requested: u32) -> u32 {
+        requested.clamp(1, MINIMAX_MAX_OUTPUT_TOKENS)
+    }
+
     #[allow(dead_code)]
     pub fn new(api_key: String, model: Option<String>) -> Self {
         Self::new_with_base_url(api_key, model, None)
@@ -459,6 +464,7 @@ impl MiniMaxClient {
         max_tokens: u32,
         tools: Option<Vec<MiniMaxToolDefinition>>,
     ) -> Result<MiniMaxResponseMessage, ModelError> {
+        let max_tokens = self.normalize_max_tokens(max_tokens);
         let endpoint = format!(
             "{}{}",
             self.base_url.trim_end_matches('/'),
@@ -536,6 +542,7 @@ impl MiniMaxClient {
         tools: Option<Vec<MiniMaxToolDefinition>>,
         on_delta: &mut (dyn FnMut(StreamDelta) -> Result<(), String> + Send),
     ) -> Result<MiniMaxResponseMessage, ModelError> {
+        let max_tokens = self.normalize_max_tokens(max_tokens);
         let endpoint = format!(
             "{}{}",
             self.base_url.trim_end_matches('/'),

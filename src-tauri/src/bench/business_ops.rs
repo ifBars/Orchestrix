@@ -173,6 +173,7 @@ pub struct BusinessOpsBenchOptions {
     pub max_tokens: u32,
     pub provider_configs: Vec<LlmProviderConfig>,
     pub max_turns: usize,
+    pub max_prompts_per_turn: usize,
     /// Filter to run only specific scenarios (if empty, runs all)
     pub scenario_filter: Vec<String>,
     /// Enable verbose diagnostics output
@@ -188,6 +189,7 @@ impl Default for BusinessOpsBenchOptions {
             max_tokens: 2048,
             provider_configs: Vec::new(),
             max_turns: 40,
+            max_prompts_per_turn: 3,
             scenario_filter: Vec::new(),
             diagnostics: false,
         }
@@ -242,6 +244,36 @@ pub struct ScenarioRunResult {
     pub error: Option<String>,
     pub sample_response: Option<String>,
     pub parsing_errors: Vec<String>,
+    pub timeline: Vec<BusinessOpsDayTrace>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BusinessOpsDayTrace {
+    pub day_index: usize,
+    pub ending_cash: f64,
+    pub profit_to_date: f64,
+    pub running_service_level: f64,
+    pub running_stockout_rate: f64,
+    pub prompt_count: usize,
+    pub prompts: Vec<BusinessOpsPromptTrace>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BusinessOpsPromptTrace {
+    pub prompt_index: usize,
+    pub latency_ms: f64,
+    pub reasoning: Option<String>,
+    pub action_kind: String,
+    pub state_snapshot: String,
+    pub tool_calls: Vec<BusinessOpsToolCallTrace>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BusinessOpsToolCallTrace {
+    pub tool_name: String,
+    pub args: serde_json::Value,
+    pub success: bool,
+    pub result: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -266,6 +298,69 @@ pub struct BusinessOpsWinner {
     pub avg_profit: f64,
 }
 
+pub trait BusinessOpsEventSink: Send + Sync {
+    fn on_event(&self, event: BusinessOpsBenchEvent);
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum BusinessOpsBenchEvent {
+    RunStarted {
+        run_id: String,
+        providers: Vec<String>,
+        scenario_count: usize,
+        measured_iterations: usize,
+    },
+    ProviderStarted {
+        run_id: String,
+        provider: String,
+        model: Option<String>,
+    },
+    ScenarioStarted {
+        run_id: String,
+        provider: String,
+        scenario_id: String,
+        iteration: usize,
+    },
+    PromptCompleted {
+        run_id: String,
+        provider: String,
+        scenario_id: String,
+        day_index: usize,
+        prompt_index: usize,
+        action_kind: String,
+        tool_calls: usize,
+    },
+    Warning {
+        run_id: String,
+        provider: String,
+        scenario_id: String,
+        day_index: usize,
+        prompt_index: usize,
+        message: String,
+    },
+    DayCompleted {
+        run_id: String,
+        provider: String,
+        scenario_id: String,
+        day_index: usize,
+        ending_cash: f64,
+        profit_to_date: f64,
+        service_level: f64,
+        stockout_rate: f64,
+    },
+    ScenarioCompleted {
+        run_id: String,
+        provider: String,
+        scenario_id: String,
+        final_score: f64,
+        raw_profit: f64,
+    },
+    RunCompleted {
+        run_id: String,
+    },
+}
+
 // ---------------------------------------------------------------------------
 // Resolved provider config
 // ---------------------------------------------------------------------------
@@ -276,11 +371,43 @@ struct ResolvedProviderConfig {
     api_key: String,
     model: Option<String>,
     base_url: Option<String>,
+    max_tokens: u32,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BusinessOpsScenarioDescriptor {
+    pub scenario_key: String,
+    pub scenario_id: String,
+    pub seed: u64,
+    pub description: String,
+}
+
+pub fn available_business_ops_scenarios() -> Vec<BusinessOpsScenarioDescriptor> {
+    let all_scenario_jsons = [
+        ("urban_growth", URBAN_GROWTH_SCENARIO),
+        ("supplier_crisis", SUPPLIER_CRISIS_SCENARIO),
+        ("premium_focus", PREMIUM_FOCUS_SCENARIO),
+    ];
+
+    let mut scenarios = Vec::with_capacity(all_scenario_jsons.len());
+    for (scenario_key, json) in all_scenario_jsons {
+        if let Ok(scenario) = load_scenario(json) {
+            scenarios.push(BusinessOpsScenarioDescriptor {
+                scenario_key: scenario_key.to_string(),
+                scenario_id: scenario.scenario_id,
+                seed: scenario.seed,
+                description: scenario.description,
+            });
+        }
+    }
+
+    scenarios
 }
 
 fn resolve_provider_config(
     provider: LlmProviderId,
     overrides: &[LlmProviderConfig],
+    default_max_tokens: u32,
 ) -> Result<ResolvedProviderConfig, String> {
     let override_cfg = overrides.iter().find(|config| config.provider == provider);
 
@@ -298,11 +425,17 @@ fn resolve_provider_config(
         .and_then(|config| normalize_optional_string(config.base_url.clone()))
         .or_else(|| first_non_empty_env(base_url_env_keys(provider)));
 
+    let max_tokens = override_cfg
+        .and_then(|config| config.max_tokens)
+        .unwrap_or(default_max_tokens)
+        .max(1);
+
     Ok(ResolvedProviderConfig {
         provider,
         api_key,
         model,
         base_url,
+        max_tokens,
     })
 }
 
@@ -322,6 +455,8 @@ fn missing_config_message(provider: LlmProviderId) -> String {
 pub async fn run_business_ops_benchmark(
     options: BusinessOpsBenchOptions,
     multi_progress: Option<&MultiProgress>,
+    run_id: Option<&str>,
+    event_sink: Option<&dyn BusinessOpsEventSink>,
 ) -> BusinessOpsBenchReport {
     let all_scenario_jsons = vec![
         ("urban_growth", URBAN_GROWTH_SCENARIO),
@@ -383,6 +518,19 @@ pub async fn run_business_ops_benchmark(
 
     let mut provider_results = Vec::new();
 
+    if let (Some(run_id), Some(sink)) = (run_id, event_sink) {
+        sink.on_event(BusinessOpsBenchEvent::RunStarted {
+            run_id: run_id.to_string(),
+            providers: options
+                .providers
+                .iter()
+                .map(|provider| provider.as_str().to_string())
+                .collect(),
+            scenario_count: scenarios.len(),
+            measured_iterations: options.measured_iterations,
+        });
+    }
+
     for provider_id in &options.providers {
         let result = run_provider_business_ops(
             *provider_id,
@@ -390,6 +538,8 @@ pub async fn run_business_ops_benchmark(
             &scenario_jsons,
             multi_progress,
             overall_pb.as_ref(),
+            run_id,
+            event_sink,
         )
         .await;
         provider_results.push(result);
@@ -401,12 +551,20 @@ pub async fn run_business_ops_benchmark(
 
     let overall_winner = determine_overall_winner(&provider_results);
 
-    BusinessOpsBenchReport {
+    let report = BusinessOpsBenchReport {
         metadata,
         scenarios,
         providers: provider_results,
         overall_winner,
+    };
+
+    if let (Some(run_id), Some(sink)) = (run_id, event_sink) {
+        sink.on_event(BusinessOpsBenchEvent::RunCompleted {
+            run_id: run_id.to_string(),
+        });
     }
+
+    report
 }
 
 async fn run_provider_business_ops(
@@ -415,34 +573,45 @@ async fn run_provider_business_ops(
     scenario_jsons: &[&'static str],
     multi_progress: Option<&MultiProgress>,
     overall_pb: Option<&ProgressBar>,
+    run_id: Option<&str>,
+    event_sink: Option<&dyn BusinessOpsEventSink>,
 ) -> BusinessOpsProviderResult {
-    let config = match resolve_provider_config(provider_id, &options.provider_configs) {
-        Ok(cfg) => cfg,
-        Err(e) => {
-            return BusinessOpsProviderResult {
-                provider: provider_id.as_str().to_string(),
-                model: None,
-                status: "error".to_string(),
-                error: Some(e),
-                scenarios: Vec::new(),
-                aggregate: BusinessOpsAggregateResult {
-                    avg_score: 0.0,
-                    avg_profit: 0.0,
-                    avg_service_level: 0.0,
-                    avg_solvency: 0.0,
-                    avg_compliance: 0.0,
-                    avg_stockout_rate: 0.0,
-                    success_rate: 0.0,
-                    bankruptcy_rate: 0.0,
-                    avg_tool_calls: 0.0,
-                    avg_latency_ms: 0.0,
-                },
-            };
-        }
-    };
+    let config =
+        match resolve_provider_config(provider_id, &options.provider_configs, options.max_tokens) {
+            Ok(cfg) => cfg,
+            Err(e) => {
+                return BusinessOpsProviderResult {
+                    provider: provider_id.as_str().to_string(),
+                    model: None,
+                    status: "error".to_string(),
+                    error: Some(e),
+                    scenarios: Vec::new(),
+                    aggregate: BusinessOpsAggregateResult {
+                        avg_score: 0.0,
+                        avg_profit: 0.0,
+                        avg_service_level: 0.0,
+                        avg_solvency: 0.0,
+                        avg_compliance: 0.0,
+                        avg_stockout_rate: 0.0,
+                        success_rate: 0.0,
+                        bankruptcy_rate: 0.0,
+                        avg_tool_calls: 0.0,
+                        avg_latency_ms: 0.0,
+                    },
+                };
+            }
+        };
 
     let client = create_business_ops_client(&config);
     let model = Some(client.model_id());
+
+    if let (Some(run_id), Some(sink)) = (run_id, event_sink) {
+        sink.on_event(BusinessOpsBenchEvent::ProviderStarted {
+            run_id: run_id.to_string(),
+            provider: provider_id.as_str().to_string(),
+            model: model.clone(),
+        });
+    }
 
     let provider_pb = multi_progress.map(|mp| {
         let pb = mp.add(ProgressBar::new(
@@ -475,10 +644,15 @@ async fn run_provider_business_ops(
             let run_result = run_single_scenario(
                 &client,
                 scenario_json,
-                options.max_tokens,
+                config.max_tokens,
                 options.max_turns,
+                options.max_prompts_per_turn,
                 provider_pb.as_ref(),
                 options.diagnostics,
+                provider_id.as_str(),
+                iteration + 1,
+                run_id,
+                event_sink,
             )
             .await;
 
@@ -532,8 +706,13 @@ async fn run_single_scenario(
     scenario_json: &str,
     max_tokens: u32,
     max_turns: usize,
+    max_prompts_per_turn: usize,
     progress_bar: Option<&ProgressBar>,
     diagnostics: bool,
+    provider_key: &str,
+    iteration: usize,
+    run_id: Option<&str>,
+    event_sink: Option<&dyn BusinessOpsEventSink>,
 ) -> ScenarioRunResult {
     let scenario = match load_scenario(scenario_json) {
         Ok(s) => s,
@@ -556,24 +735,35 @@ async fn run_single_scenario(
                 error: Some(format!("failed to load scenario: {}", e)),
                 sample_response: None,
                 parsing_errors: Vec::new(),
+                timeline: Vec::new(),
             };
         }
     };
 
     let scenario_id = scenario.scenario_id.clone();
+    if let (Some(run_id), Some(sink)) = (run_id, event_sink) {
+        sink.on_event(BusinessOpsBenchEvent::ScenarioStarted {
+            run_id: run_id.to_string(),
+            provider: provider_key.to_string(),
+            scenario_id: scenario_id.clone(),
+            iteration,
+        });
+    }
     let seed = scenario.seed;
     let mut simulator = Simulator::new(scenario);
+    if max_prompts_per_turn > simulator.scenario.constraints.max_tool_calls_per_turn {
+        simulator.scenario.constraints.max_tool_calls_per_turn = max_prompts_per_turn;
+    }
+    let initial_cash = simulator.state.cash;
     let mut latencies: Vec<std::time::Duration> = Vec::new();
     let mut tool_call_count = 0usize;
     let mut bankrupt_turn: Option<usize> = None;
     let mut sample_response: Option<String> = None;
     let mut parsing_errors: Vec<String> = Vec::new();
+    let mut timeline: Vec<BusinessOpsDayTrace> = Vec::new();
 
     let tools = business_tools();
     let available_tool_names: Vec<String> = tools.iter().map(|t| t.name.clone()).collect();
-    // Increased to 3 to give model room for: 1) initial analysis, 2) correction with tool calls, 3) end_turn
-    // With reasoning feedback loop, model should self-correct instead of forcing end_turn
-    let max_actions_per_turn = 3;
 
     if diagnostics {
         eprintln!(
@@ -582,24 +772,26 @@ async fn run_single_scenario(
         );
         eprintln!("[DIAGNOSTICS] Available tools: {:?}", available_tool_names);
         eprintln!("[DIAGNOSTICS] Max turns: {}", max_turns);
+        eprintln!("[DIAGNOSTICS] Max prompts/day: {}", max_prompts_per_turn);
     }
 
     while !simulator.is_complete() {
-        // Update progress bar with current turn
         if let Some(pb) = progress_bar {
             pb.set_message(format!("turn {}/{}", simulator.turn + 1, max_turns));
         }
 
-        // MICRO-LOOP: Within each turn, allow multiple decision-action-observation cycles
+        let day_index = simulator.turn + 1;
         let mut turn_complete = false;
         let mut action_count = 0;
         let mut turn_observations: Vec<serde_json::Value> = Vec::new();
         let mut turn_tool_calls: Vec<String> = Vec::new();
+        let mut prompt_traces: Vec<BusinessOpsPromptTrace> = Vec::new();
 
-        while !turn_complete && action_count < max_actions_per_turn {
+        while !turn_complete && action_count < max_prompts_per_turn.max(1) {
             let state_json = simulator.current_state_json();
+            let state_snapshot = truncate_text(&state_json, 1400);
+            let prompt_index = action_count + 1;
 
-            // Build context with observations from this turn
             let observations_text = if turn_observations.is_empty() {
                 String::new()
             } else {
@@ -671,14 +863,20 @@ async fn run_single_scenario(
                         error: Some(format!("model error: {}", e)),
                         sample_response: sample_response.clone(),
                         parsing_errors: parsing_errors.clone(),
+                        timeline: timeline.clone(),
                     };
                 }
             };
-            latencies.push(started.elapsed());
+            let latency = started.elapsed();
+            latencies.push(latency);
             action_count += 1;
 
-            // Execute tool calls and collect observations
-            match decision.action {
+            let reasoning = decision
+                .reasoning
+                .as_ref()
+                .map(|value| truncate_text(value, 240).to_string());
+            let mut prompt_tool_calls: Vec<BusinessOpsToolCallTrace> = Vec::new();
+            let action_kind = match decision.action {
                 WorkerAction::ToolCalls { calls } => {
                     if diagnostics && !calls.is_empty() {
                         eprintln!(
@@ -696,25 +894,51 @@ async fn run_single_scenario(
                         }
                         turn_tool_calls.push(call_desc.clone());
 
-                        if call.tool_name == "end_turn" {
+                        let is_end_turn = call.tool_name == "end_turn";
+                        if is_end_turn {
                             turn_complete = true;
-                            let result = simulator.tool_call(&call.tool_name, &call.tool_args);
+                        }
+
+                        let result = simulator.tool_call(&call.tool_name, &call.tool_args);
+                        let result_success = result.success;
+                        let result_message = result.message;
+
+                        if result_message == "exceeded max tool calls per turn" {
+                            turn_complete = true;
+                            let _ = simulator.tool_call("end_turn", &serde_json::json!({}));
+                            if let (Some(run_id), Some(sink)) = (run_id, event_sink) {
+                                sink.on_event(BusinessOpsBenchEvent::Warning {
+                                    run_id: run_id.to_string(),
+                                    provider: provider_key.to_string(),
+                                    scenario_id: scenario_id.clone(),
+                                    day_index,
+                                    prompt_index,
+                                    message: result_message.clone(),
+                                });
+                            }
+                        }
+                        if is_end_turn {
                             turn_observations.push(serde_json::json!({
                                 "tool": call.tool_name,
-                                "result": result.message
+                                "result": result_message
                             }));
-                            tool_call_count += 1;
                         } else {
-                            let result = simulator.tool_call(&call.tool_name, &call.tool_args);
                             turn_observations.push(serde_json::json!({
                                 "tool": call.tool_name,
                                 "args": call.tool_args,
-                                "success": result.success,
-                                "result": result.message
+                                "success": result_success,
+                                "result": result_message
                             }));
-                            tool_call_count += 1;
                         }
+                        prompt_tool_calls.push(BusinessOpsToolCallTrace {
+                            tool_name: call.tool_name,
+                            args: call.tool_args,
+                            success: result_success,
+                            result: result_message,
+                        });
+                        tool_call_count += 1;
                     }
+                    "tool_calls".to_string()
                 }
                 WorkerAction::ToolCall {
                     tool_name,
@@ -730,18 +954,44 @@ async fn run_single_scenario(
                     }
                     turn_tool_calls.push(call_desc.clone());
 
-                    if tool_name == "end_turn" {
+                    let is_end_turn = tool_name == "end_turn";
+                    if is_end_turn {
                         turn_complete = true;
                     }
 
                     let result = simulator.tool_call(&tool_name, &tool_args);
+                    let result_success = result.success;
+                    let result_message = result.message;
+
+                    if result_message == "exceeded max tool calls per turn" {
+                        turn_complete = true;
+                        let _ = simulator.tool_call("end_turn", &serde_json::json!({}));
+                        if let (Some(run_id), Some(sink)) = (run_id, event_sink) {
+                            sink.on_event(BusinessOpsBenchEvent::Warning {
+                                run_id: run_id.to_string(),
+                                provider: provider_key.to_string(),
+                                scenario_id: scenario_id.clone(),
+                                day_index,
+                                prompt_index,
+                                message: result_message.clone(),
+                            });
+                        }
+                    }
                     turn_observations.push(serde_json::json!({
                         "tool": tool_name,
                         "args": tool_args,
-                        "success": result.success,
-                        "result": result.message
+                        "success": result_success,
+                        "result": result_message
                     }));
+
+                    prompt_tool_calls.push(BusinessOpsToolCallTrace {
+                        tool_name,
+                        args: tool_args,
+                        success: result_success,
+                        result: result_message,
+                    });
                     tool_call_count += 1;
+                    "tool_call".to_string()
                 }
                 other => {
                     if diagnostics {
@@ -751,18 +1001,15 @@ async fn run_single_scenario(
                         );
                     }
 
-                    // Check if model provided reasoning about intended actions
                     let reasoning_hint = decision.reasoning.as_ref().map(|r| {
-                        // Extract first sentence or first 200 chars of reasoning
-                        let preview = r.chars().take(200).collect::<String>();
-                        preview
+                        let preview = truncate_text(r, 200);
+                        preview.to_string()
                     });
 
                     if let Some(ref reasoning) = reasoning_hint {
                         if diagnostics {
                             eprintln!("[DIAGNOSTICS]   Reasoning: {}", reasoning);
                         }
-                        // Add observation that model was thinking but not acting
                         turn_observations.push(serde_json::json!({
                             "system": "You thought about actions but didn't call tools. REASONING DOESN'T EXECUTE - only tool calls work!",
                             "your_thoughts": reasoning,
@@ -770,7 +1017,6 @@ async fn run_single_scenario(
                         }));
                     }
 
-                    // If model doesn't make tool calls, force end_turn after a few tries
                     if action_count >= 2 {
                         if diagnostics {
                             eprintln!(
@@ -779,30 +1025,85 @@ async fn run_single_scenario(
                             );
                         }
                         turn_complete = true;
-                        let _result = simulator.tool_call("end_turn", &serde_json::json!({}));
+                        let result = simulator.tool_call("end_turn", &serde_json::json!({}));
+                        prompt_tool_calls.push(BusinessOpsToolCallTrace {
+                            tool_name: "end_turn".to_string(),
+                            args: serde_json::json!({}),
+                            success: result.success,
+                            result: result.message,
+                        });
+                        tool_call_count += 1;
                     }
+                    "message_only".to_string()
                 }
+            };
+
+            let action_kind_for_event = action_kind.clone();
+            prompt_traces.push(BusinessOpsPromptTrace {
+                prompt_index,
+                latency_ms: latency.as_secs_f64() * 1000.0,
+                reasoning,
+                action_kind,
+                state_snapshot: state_snapshot.to_string(),
+                tool_calls: prompt_tool_calls,
+            });
+
+            if let (Some(run_id), Some(sink)) = (run_id, event_sink) {
+                sink.on_event(BusinessOpsBenchEvent::PromptCompleted {
+                    run_id: run_id.to_string(),
+                    provider: provider_key.to_string(),
+                    scenario_id: scenario_id.clone(),
+                    day_index,
+                    prompt_index,
+                    action_kind: action_kind_for_event,
+                    tool_calls: prompt_traces
+                        .last()
+                        .map(|trace| trace.tool_calls.len())
+                        .unwrap_or(0),
+                });
             }
         }
 
-        // Ensure turn always advances even if model got stuck
         if !turn_complete {
             let _result = simulator.tool_call("end_turn", &serde_json::json!({}));
         }
 
-        // Store sample of actual tool calls for debugging
         if sample_response.is_none() && !turn_tool_calls.is_empty() {
             sample_response = Some(turn_tool_calls.join(", "));
         }
 
-        // Check for bankruptcy
+        let running_service_level = simulator.running_service_level();
+        let running_stockout_rate = simulator.running_stockout_rate();
+
+        timeline.push(BusinessOpsDayTrace {
+            day_index,
+            ending_cash: simulator.state.cash,
+            profit_to_date: simulator.state.cash - initial_cash,
+            running_service_level,
+            running_stockout_rate,
+            prompt_count: prompt_traces.len(),
+            prompts: prompt_traces,
+        });
+
+        if let (Some(run_id), Some(sink)) = (run_id, event_sink) {
+            sink.on_event(BusinessOpsBenchEvent::DayCompleted {
+                run_id: run_id.to_string(),
+                provider: provider_key.to_string(),
+                scenario_id: scenario_id.clone(),
+                day_index,
+                ending_cash: simulator.state.cash,
+                profit_to_date: simulator.state.cash - initial_cash,
+                service_level: running_service_level,
+                stockout_rate: running_stockout_rate,
+            });
+        }
+
         if bankrupt_turn.is_none()
             && simulator.state.cash < simulator.scenario.constraints.min_cash_floor
         {
             bankrupt_turn = Some(simulator.turn);
         }
 
-        // Safety limit
         if simulator.turn >= max_turns {
             break;
         }
@@ -844,7 +1145,7 @@ async fn run_single_scenario(
         eprintln!("[DIAGNOSTICS] ====================================\n");
     }
 
-    ScenarioRunResult {
+    let result = ScenarioRunResult {
         scenario_id,
         seed,
         final_score: final_score.weighted_score,
@@ -862,7 +1163,35 @@ async fn run_single_scenario(
         error: None,
         sample_response,
         parsing_errors,
+        timeline,
+    };
+
+    if let (Some(run_id), Some(sink)) = (run_id, event_sink) {
+        sink.on_event(BusinessOpsBenchEvent::ScenarioCompleted {
+            run_id: run_id.to_string(),
+            provider: provider_key.to_string(),
+            scenario_id: result.scenario_id.clone(),
+            final_score: result.final_score,
+            raw_profit: result.raw_profit,
+        });
     }
+
+    result
+}
+
+fn truncate_text(input: &str, max_chars: usize) -> &str {
+    if input.chars().count() <= max_chars {
+        return input;
+    }
+
+    let mut end = 0usize;
+    for (idx, _) in input.char_indices().take(max_chars) {
+        end = idx;
+    }
+    if end == 0 {
+        return input;
+    }
+    &input[..end]
 }
 
 #[allow(dead_code)]

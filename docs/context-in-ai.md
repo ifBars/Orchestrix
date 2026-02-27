@@ -1,0 +1,31 @@
+# LukeW | Context Management UI in AI Products
+
+They say context is king and that's certainly true in AI products where the content, tools, and instructions applications provide to AI models shape their behavior and subsequent results. But if context is so critical, how do we allow people to understand and manage it when interacting with AI-driven software?
+
+In [AI products](https://lukew.com/ff/entry.asp?2107), there's a lot of stuff that could be in context (provided to an AI model as part of its instructions) at any given point, but not everything will be in context all the time because AI models have context limits. So when getting results from AI products, people aren't sure if or how much they should trust them. Was the right information used to answer my question? Did the model hallucinate or use the wrong information?
+
+When I launched my personal AI two years ago, context was much simpler than it is today. In [Ask LukeW](http://ask.lukew.com/), when people ask a question about digital product design, the system searches through my writings, finds and puts the most relevant bits into context for AI models to use and reference, then cities them in the results people see. This is pretty transparent in the interface: the articles, videos, audio, and PDFs used are shown on the right with citations within each response to where these files were used the most.
+
+[![Displaying context as file links in the Ask LukeW user interface](//static.lukew.com/context_filesused.png)](//static.lukew.com/context_filesused.png)
+
+The most complicated things get in Ask LukeW is when someone opens one of these citied articles, videos, or PDFs to view its full contents. In this case, a small "context chip" is added to the question bar to make clear questions can be asked of just this file. In other words, the file is the primary thing in context. If someone wants to ask a question of the whole corpus of my writings and talks again, they can simply click on the X that removes this context constraint and the chip disappears from the question bar. You can try this out yourself [here](https://ask.lukew.com/chat?id=7f4bbe8c-61f9-44e9-979b-d1d3be809b16).
+
+[![Displaying context as a chip in the Ask LukeW user interface](//static.lukew.com/context_single_chip.png)](//static.lukew.com/context_single_chip.png)
+
+Context chips are pretty common in AI products today because they're a relatively easy way to both give people a sense of what's influencing an AI model's replies and to add or remove it. When what's in context expands, however, they don't scale very well. For example, Augment Code uses context chips for retrieval systems, active files, selected text, and more.
+
+[![Displaying context as a multiple chips in the Augment Code user interface](//static.lukew.com/context_multiple_chips.png)](//static.lukew.com/context_multiple_chips.png)
+
+Using a context chip to display everything influencing an AI model's response begins to break down when many things (especially different things) are in context. Displaying them all eats up valuable space in the UI and requires that their names or identifiers are truncated to fit. That kind of defeats the purpose of "showing you what's in context". Also when AI products do automatic context retrieval like Augment Code's [context retrieval engine](https://www.augmentcode.com/blog/a-real-time-index-for-your-codebase-secure-personal-scalable): does that always show up as a chip? or should people not worry about it and trust the system is finding and putting the right things into context?
+
+With AI products [using agents](https://lukew.com/ff/entry.asp?2096) these issues are compounded because each tool call an agent makes can retrieve context in different ways or multiple times. So showing every bit of context found or created by tools as a context chip quickly breaks down. To account for this in earlier versions of [Bench](http://bench.io), we showed the context from tools used by agents as it was being created. But this turned out to be a jarring experience as the context would show up then go away when the next tool's context arrived (as you can see in the [video](https://static.lukew.com/Bench_contextflashing.mp4)).
+
+Since then, we've moved to showing an agent's process of creating something as condensed steps with links to the context in each step. So people can click on any given steps to see the context a tool either found or created. But that context isn't being automatically flashed in front of them as it's made. This lets people [focus on the output](https://lukew.com/ff/entry.asp?2105) and only dig into the process when they want to understand what led to the output.
+
+[![Links to context from an agent's tool use in Bench user interface](//static.lukew.com/context_agent_tools.png)](//static.lukew.com/context_agent_tools.png)
+
+This approach becomes even more relevant with [agent orchestration](https://lukew.com/ff/entry.asp?2096). When agents can make use of agents themselves, you end up with nested amounts of context. Told you things were a lot simpler two years ago! In these cases, Bench just shows the collective context combined from multiple tool calls in one link. This allows people to examine what cumulative context was created by sub agents. But importantly this combined context is treated the same way - whether it comes from a single tool or a subagent that uses multiple tools.
+
+[![Links to context from an subagent reuse in Bench user interface](//static.lukew.com/context_subagents.png)](//static.lukew.com/context_subagents.png)
+
+While making context understood and manageable feels like the right thing to provide transparency and control, increasingly people seem to focus more on the output of AI products and less on the process that created them. Only when things don't seem "right" do they dig into the kinds of process timelines and context links that [Bench](http://bench.io) provides. So if people become even more confident using AI products, we might see context management UIs with even less presence.

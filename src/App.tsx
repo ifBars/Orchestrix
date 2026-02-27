@@ -8,12 +8,39 @@ import { ChatInterface } from "@/components/Chat/ChatInterface";
 import { Composer } from "@/components/Composer";
 import { ArtifactPanel } from "@/components/Artifacts/ArtifactPanel";
 import { SettingsPage } from "@/components/Settings/SettingsPage";
+import { BenchmarkPage } from "@/components/ModelBenchmarksPage";
+import { BenchmarkWindowHeader } from "@/components/BenchmarkWindowHeader";
 import { SETTINGS_SECTIONS, type SettingsSectionId } from "@/components/Settings/types";
 import { EmptyState } from "@/components/EmptyState";
 
 const SETTINGS_SECTION_KEY = "orchestrix:last-settings-section";
 
 const EMPTY_ARTIFACTS: readonly never[] = [];
+
+type AppMode = "default" | "benchmark";
+
+function resolveAppMode(): AppMode {
+  const params = new URLSearchParams(window.location.search);
+  const mode = params.get("mode")?.trim().toLowerCase();
+  if (mode === "benchmark") {
+    return "benchmark";
+  }
+  return "default";
+}
+
+function resolveInitialView(mode: AppMode): "chat" | "settings" | "benchmarks" {
+  if (mode === "benchmark") {
+    return "benchmarks";
+  }
+
+  const params = new URLSearchParams(window.location.search);
+  const view = params.get("view")?.trim().toLowerCase();
+  if (view === "settings") return "settings";
+
+  const hash = window.location.hash.trim().toLowerCase();
+  if (hash === "#settings") return "settings";
+  return "chat";
+}
 
 function isEditableTarget(target: EventTarget | null): boolean {
   if (!(target instanceof HTMLElement)) return false;
@@ -31,11 +58,16 @@ function normalizeSettingsSection(value: string | null): SettingsSectionId | nul
 }
 
 function App() {
+  const appMode = useMemo(() => resolveAppMode(), []);
+  const benchmarkOnlyMode = appMode === "benchmark";
+
   const [tasks, selectedTaskId, bootstrap, shutdown] = useAppStore(
     useShallow((state) => [state.tasks, state.selectedTaskId, state.bootstrap, state.shutdown])
   );
 
-  const [activeView, setActiveView] = useState<"chat" | "settings">("chat");
+  const [activeView, setActiveView] = useState<"chat" | "settings" | "benchmarks">(
+    () => resolveInitialView(appMode)
+  );
   const [settingsSection, setSettingsSectionState] = useState<SettingsSectionId>(() => {
     const normalized = normalizeSettingsSection(localStorage.getItem(SETTINGS_SECTION_KEY));
     if (normalized) return normalized;
@@ -94,6 +126,13 @@ function App() {
         return;
       }
 
+      // Ctrl + 3 -> Benchmarks
+      if (!benchmarkOnlyMode && e.ctrlKey && !e.metaKey && !e.altKey && !e.shiftKey && e.code === "Digit3") {
+        e.preventDefault();
+        setActiveView("benchmarks");
+        return;
+      }
+
       // Shift + [1..N] -> Jump to settings section
       if (!e.ctrlKey && !e.metaKey && !e.altKey && e.shiftKey && e.code.startsWith("Digit")) {
         const sectionIndex = Number(e.code.slice(5));
@@ -108,7 +147,20 @@ function App() {
 
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
-  }, [setSettingsSection]);
+  }, [benchmarkOnlyMode, setSettingsSection]);
+
+  if (benchmarkOnlyMode) {
+    return (
+      <div className="flex h-screen w-screen flex-col overflow-hidden bg-background text-foreground">
+        <header className="elevation-1 h-10 shrink-0 border-b border-border/80 bg-card/75 backdrop-blur-md">
+          <BenchmarkWindowHeader />
+        </header>
+        <div className="min-h-0 flex-1">
+          <BenchmarkPage />
+        </div>
+      </div>
+    );
+  }
 
   return (
     <>
@@ -126,6 +178,7 @@ function App() {
           <Sidebar
             activeView={activeView}
             activeSettingsSection={settingsSection}
+            showBenchmarks={false}
             onOpenChat={() => setActiveView("chat")}
             onOpenSettings={(section) => {
               setActiveView("settings");
@@ -133,9 +186,12 @@ function App() {
                 setSettingsSection(section);
               }
             }}
+            onOpenBenchmarks={() => setActiveView("benchmarks")}
           />
         }
-        main={activeView === "settings" ? (
+        main={activeView === "benchmarks" ? (
+          <BenchmarkPage />
+        ) : activeView === "settings" ? (
           <SettingsPage
             section={settingsSection}
             onBackToChat={() => setActiveView("chat")}

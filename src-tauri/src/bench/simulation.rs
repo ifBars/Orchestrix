@@ -415,6 +415,22 @@ impl Simulator {
         .to_string()
     }
 
+    pub fn running_service_level(&self) -> f64 {
+        if self.total_demand == 0 {
+            1.0
+        } else {
+            self.fulfilled_demand as f64 / self.total_demand as f64
+        }
+    }
+
+    pub fn running_stockout_rate(&self) -> f64 {
+        if self.total_turns_tracked == 0 {
+            0.0
+        } else {
+            self.stockout_turns as f64 / self.total_turns_tracked as f64
+        }
+    }
+
     pub fn view_report(&self, report_type: &str) -> String {
         match report_type {
             "cashflow" => {
@@ -517,6 +533,10 @@ impl Simulator {
     }
 
     pub fn tool_call(&mut self, tool_name: &str, args: &serde_json::Value) -> ToolResult {
+        if tool_name == "end_turn" {
+            return self.handle_end_turn();
+        }
+
         self.tool_calls_this_turn += 1;
 
         if self.tool_calls_this_turn > self.scenario.constraints.max_tool_calls_per_turn {
@@ -535,7 +555,6 @@ impl Simulator {
             "set_price" => self.handle_set_price(args),
             "schedule_maintenance" => self.handle_schedule_maintenance(args),
             "view_reports" => self.handle_view_report(args),
-            "end_turn" => self.handle_end_turn(),
             _ => ToolResult {
                 success: false,
                 message: format!("unknown tool: {}", tool_name),
@@ -710,7 +729,7 @@ impl Simulator {
 
         self.state.cash -= total_cost;
 
-        let lead_time = contract.map(|c| c.lead_time_days).unwrap_or(5);
+        let lead_time = 1usize;
         let delivery_turn = self.turn + lead_time;
 
         self.pending_orders.push(PendingOrder {
@@ -926,7 +945,7 @@ impl Simulator {
                     * price_effect.max(0.1)
                     * trust_factor
                     * uptime_factor;
-                let demand = (daily_demand * 7.0).round() as usize;
+                let demand = daily_demand.round() as usize;
 
                 let stock = machine.stock.entry(sku.clone()).or_insert(0);
                 let sold = (*stock).min(demand);

@@ -84,6 +84,7 @@ pub struct LlmProviderConfig {
     pub api_key: Option<String>,
     pub model: Option<String>,
     pub base_url: Option<String>,
+    pub max_tokens: Option<u32>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
@@ -200,6 +201,7 @@ struct ResolvedProviderConfig {
     api_key: String,
     model: Option<String>,
     base_url: Option<String>,
+    max_tokens: u32,
 }
 
 #[derive(Debug, Clone)]
@@ -336,16 +338,17 @@ async fn run_provider_benchmark(
     options: &LlmBenchOptions,
     tasks: &[LlmTaskDefinition],
 ) -> Result<LlmProviderBenchmarkResult, String> {
-    let config = resolve_provider_config(provider_id, &options.provider_configs)?;
+    let config =
+        resolve_provider_config(provider_id, &options.provider_configs, options.max_tokens)?;
     let client = create_client(&config);
     let model = Some(client.model_id());
 
     let (first_completion_ms, probe_error) =
-        measure_first_completion(&client, options.max_tokens).await;
+        measure_first_completion(&client, config.max_tokens).await;
 
     let mut task_results = Vec::new();
     for task in tasks {
-        let task_result = run_task_benchmark(&client, task, options).await;
+        let task_result = run_task_benchmark(&client, task, options, config.max_tokens).await;
         task_results.push(task_result);
     }
 
@@ -397,10 +400,11 @@ async fn run_task_benchmark(
     client: &LlmBenchClient,
     task: &LlmTaskDefinition,
     options: &LlmBenchOptions,
+    max_tokens: u32,
 ) -> LlmTaskBenchmarkResult {
     for _ in 0..options.warmup_iterations {
         let _ = client
-            .complete(task.system_prompt, task.user_prompt, options.max_tokens)
+            .complete(task.system_prompt, task.user_prompt, max_tokens)
             .await;
     }
 
@@ -415,7 +419,7 @@ async fn run_task_benchmark(
     for _ in 0..options.measured_iterations {
         let started = Instant::now();
         match client
-            .complete(task.system_prompt, task.user_prompt, options.max_tokens)
+            .complete(task.system_prompt, task.user_prompt, max_tokens)
             .await
         {
             Ok(response) => {
@@ -675,6 +679,7 @@ fn create_client(config: &ResolvedProviderConfig) -> LlmBenchClient {
 fn resolve_provider_config(
     provider: LlmProviderId,
     overrides: &[LlmProviderConfig],
+    default_max_tokens: u32,
 ) -> Result<ResolvedProviderConfig, String> {
     let override_cfg = overrides.iter().find(|config| config.provider == provider);
 
@@ -692,11 +697,17 @@ fn resolve_provider_config(
         .and_then(|config| normalize_optional_string(config.base_url.clone()))
         .or_else(|| first_non_empty_env(base_url_env_keys(provider)));
 
+    let max_tokens = override_cfg
+        .and_then(|config| config.max_tokens)
+        .unwrap_or(default_max_tokens)
+        .max(1);
+
     Ok(ResolvedProviderConfig {
         provider,
         api_key,
         model,
         base_url,
+        max_tokens,
     })
 }
 

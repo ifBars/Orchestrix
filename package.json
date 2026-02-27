@@ -9,6 +9,7 @@
     "typecheck": "tsc --noEmit",
     "preview": "vite preview",
     "tauri": "tauri",
+    "benchmark_app": "tauri dev --config src-tauri/tauri.benchmark.conf.json",
     "bench:embeddings": "cargo run --manifest-path src-tauri/Cargo.toml --bin embeddings_bench --"
   },
   "dependencies": {

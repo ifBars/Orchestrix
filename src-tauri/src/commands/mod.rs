@@ -1,5 +1,6 @@
 pub mod agent_presets;
 pub mod approvals;
+pub mod benchmarks;
 pub mod context;
 pub mod embeddings;
 pub mod execution;

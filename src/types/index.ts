@@ -67,6 +67,188 @@ export interface ModelCatalogEntry {
   models: ModelInfo[];
 }
 
+export type BenchmarkWorkload = "llm" | "business_ops" | "llm_and_business_ops";
+
+export interface RunModelBenchmarkRequest {
+  run_id?: string | null;
+  workload: BenchmarkWorkload;
+  providers?: string[] | null;
+  provider_models?: Record<string, string> | null;
+  warmup_iterations?: number | null;
+  measured_iterations?: number | null;
+  business_ops_max_turns?: number | null;
+  business_ops_prompts_per_day?: number | null;
+  business_ops_scenarios?: string[] | null;
+}
+
+export type BenchmarkRealtimeEvent =
+  | {
+      kind: "run_started";
+      run_id: string;
+      providers: string[];
+      scenario_count: number;
+      measured_iterations: number;
+    }
+  | {
+      kind: "provider_started";
+      run_id: string;
+      provider: string;
+      model: string | null;
+    }
+  | {
+      kind: "scenario_started";
+      run_id: string;
+      provider: string;
+      scenario_id: string;
+      iteration: number;
+    }
+  | {
+      kind: "prompt_completed";
+      run_id: string;
+      provider: string;
+      scenario_id: string;
+      day_index: number;
+      prompt_index: number;
+      action_kind: string;
+      tool_calls: number;
+    }
+  | {
+      kind: "warning";
+      run_id: string;
+      provider: string;
+      scenario_id: string;
+      day_index: number;
+      prompt_index: number;
+      message: string;
+    }
+  | {
+      kind: "day_completed";
+      run_id: string;
+      provider: string;
+      scenario_id: string;
+      day_index: number;
+      ending_cash: number;
+      profit_to_date: number;
+      service_level: number;
+      stockout_rate: number;
+    }
+  | {
+      kind: "scenario_completed";
+      run_id: string;
+      provider: string;
+      scenario_id: string;
+      final_score: number;
+      raw_profit: number;
+    }
+  | {
+      kind: "run_completed";
+      run_id: string;
+    };
+
+export interface BusinessOpsScenarioDescriptor {
+  scenario_key: string;
+  scenario_id: string;
+  seed: number;
+  description: string;
+}
+
+export interface LlmAggregateBenchmarkResult {
+  weighted_score: number;
+  pass_rate: number;
+  success_rate: number;
+  avg_p50_latency_ms: number;
+}
+
+export interface LlmProviderBenchmarkResult {
+  provider: string;
+  model: string | null;
+  status: string;
+  error: string | null;
+  aggregate: LlmAggregateBenchmarkResult | null;
+}
+
+export interface LlmBenchReport {
+  providers: LlmProviderBenchmarkResult[];
+}
+
+export interface BusinessOpsAggregateResult {
+  avg_score: number;
+  avg_profit: number;
+  avg_service_level: number;
+  avg_solvency: number;
+  avg_compliance: number;
+  avg_stockout_rate: number;
+  success_rate: number;
+  bankruptcy_rate: number;
+  avg_tool_calls: number;
+  avg_latency_ms: number;
+}
+
+export interface BusinessOpsProviderResult {
+  provider: string;
+  model: string | null;
+  status: string;
+  error: string | null;
+  scenarios: BusinessOpsScenarioRunResult[];
+  aggregate: BusinessOpsAggregateResult;
+}
+
+export interface BusinessOpsDayTrace {
+  day_index: number;
+  ending_cash: number;
+  profit_to_date: number;
+  running_service_level: number;
+  running_stockout_rate: number;
+  prompt_count: number;
+  prompts: BusinessOpsPromptTrace[];
+}
+
+export interface BusinessOpsPromptTrace {
+  prompt_index: number;
+  latency_ms: number;
+  reasoning: string | null;
+  action_kind: string;
+  state_snapshot: string;
+  tool_calls: BusinessOpsToolCallTrace[];
+}
+
+export interface BusinessOpsToolCallTrace {
+  tool_name: string;
+  args: unknown;
+  success: boolean;
+  result: string;
+}
+
+export interface BusinessOpsScenarioRunResult {
+  scenario_id: string;
+  seed: number;
+  final_score: number;
+  raw_profit: number;
+  service_level: number;
+  solvency_score: number;
+  compliance_score: number;
+  stockout_rate: number;
+  turns_completed: number;
+  bankrupt_turn: number | null;
+  total_emails_sent: number;
+  tool_call_count: number;
+  avg_p50_latency_ms: number;
+  success_rate: number;
+  error: string | null;
+  sample_response: string | null;
+  parsing_errors: string[];
+  timeline: BusinessOpsDayTrace[];
+}
+
+export interface BusinessOpsBenchReport {
+  providers: BusinessOpsProviderResult[];
+}
+
+export interface ModelBenchmarkReport {
+  llm: LlmBenchReport | null;
+  business_ops: BusinessOpsBenchReport | null;
+}
+
 export type EmbeddingProviderKind = "remote" | "local";
 
 export type EmbeddingTaskType =

@@ -1,4 +1,4 @@
-import { GitBranch, MessageSquare, Plus, Settings2, Trash2 } from "lucide-react";
+import { ActivitySquare, GitBranch, MessageSquare, Plus, Settings2, Trash2 } from "lucide-react";
 import { useShallow } from "zustand/shallow";
 import { useAppStore } from "@/stores/appStore";
 import { Button } from "@/components/ui/button";
@@ -7,10 +7,12 @@ import { cn } from "@/lib/utils";
 import type { TaskRow, TaskStatus } from "@/types";
 
 type SidebarProps = {
-  activeView: "chat" | "settings";
+  activeView: "chat" | "settings" | "benchmarks";
   activeSettingsSection: SettingsSectionId;
+  showBenchmarks?: boolean;
   onOpenChat: () => void;
   onOpenSettings: (section?: SettingsSectionId) => void;
+  onOpenBenchmarks: () => void;
 };
 
 function taskAge(iso: string): string {
@@ -152,8 +154,10 @@ function ChatHistoryEntry({ task, isSelected, onOpenTask, onForkTask, onDeleteTa
 export function Sidebar({
   activeView,
   activeSettingsSection,
+  showBenchmarks = false,
   onOpenChat,
   onOpenSettings,
+  onOpenBenchmarks,
 }: SidebarProps) {
   const [tasks, selectedTaskId, selectTask, branchTask, deleteTask] = useAppStore(
     useShallow((state) => [
@@ -210,6 +214,24 @@ export function Sidebar({
               Ctrl+1
             </kbd>
           </button>
+
+          {showBenchmarks && (
+            <button
+              type="button"
+              className={`flex w-full items-center gap-2 rounded-md px-2.5 py-2 text-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-sidebar ${
+                activeView === "benchmarks"
+                  ? "bg-accent text-foreground"
+                  : "text-muted-foreground hover:bg-accent/70 hover:text-foreground"
+              }`}
+              onClick={onOpenBenchmarks}
+            >
+              <ActivitySquare size={14} />
+              <span className="flex-1 text-left">Benchmarks</span>
+              <kbd className="hidden rounded bg-muted px-1.5 py-0.5 font-mono text-[10px] text-muted-foreground lg:inline">
+                Ctrl+3
+              </kbd>
+            </button>
+          )}
 
           <button
             type="button"

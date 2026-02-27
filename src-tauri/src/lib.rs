@@ -454,6 +454,9 @@ pub fn run() {
             commands::plan_mode::get_plan_mode_settings,
             commands::plan_mode::set_plan_mode_settings,
             commands::plan_mode::get_plan_mode_max_tokens_command,
+            // benchmarks
+            commands::benchmarks::run_model_benchmark,
+            commands::benchmarks::list_business_ops_scenarios_command,
             // providers
             commands::providers::set_provider_config,
             commands::providers::remove_provider_config,

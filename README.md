@@ -70,6 +70,10 @@ bun install
 # Start the development server
 bun tauri dev
 
+# Start directly in the benchmark GUI
+bun run benchmark_app
+# (launches benchmark-only app mode)
+
 # Build the application
 bun tauri build
 ```
