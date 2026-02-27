@@ -642,7 +642,6 @@ async fn run_single_scenario(
                 goal_summary: "Maximize cumulative operating profit".to_string(),
                 context: enhanced_context,
                 available_tools: available_tool_names.clone(),
-                tool_descriptions: format_tool_descriptions(&tools),
                 tool_descriptors: tools.clone(),
                 prior_observations: turn_observations.clone(),
                 max_tokens: Some(max_tokens),
@@ -866,6 +865,7 @@ async fn run_single_scenario(
     }
 }
 
+#[allow(dead_code)]
 fn format_tool_descriptions(tools: &[ToolDescriptor]) -> String {
     let mut descriptions = String::new();
     for tool in tools {

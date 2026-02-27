@@ -100,6 +100,7 @@ type AppStoreState = {
   workspaceSkills: WorkspaceSkill[];
   agentPresets: AgentPreset[];
   selectedAgentPresetId: string | null;
+  workflowMode: "plan" | "build";
   mcpServers: McpServerView[];
   mcpTools: McpToolView[];
   artifactsByTask: Record<string, ArtifactRow[]>;
@@ -154,6 +155,7 @@ type AppStoreState = {
   deleteAgentPreset: (id: string) => Promise<void>;
   getAgentPresetContext: (presetId: string) => Promise<string>;
   setSelectedAgentPreset: (presetId: string | null) => void;
+  setWorkflowMode: (mode: "plan" | "build") => void;
   refreshMcpServers: () => Promise<void>;
   upsertMcpServer: (server: McpServerInput) => Promise<void>;
   removeMcpServer: (serverId: string) => Promise<void>;
@@ -198,6 +200,7 @@ export const useAppStore = create<AppStoreState>((set, get) => ({
   workspaceSkills: [],
   agentPresets: [],
   selectedAgentPresetId: null,
+  workflowMode: "build",
   mcpServers: [],
   mcpTools: [],
   artifactsByTask: {},
@@ -815,8 +818,8 @@ export const useAppStore = create<AppStoreState>((set, get) => ({
   },
 
   removeSkill: async (skillId: string) => {
-    await invoke("remove_custom_skill", { skillId });
-    await get().refreshSkills();
+    await invoke("remove_workspace_skill", { skillId });
+    await get().refreshWorkspaceSkills();
   },
 
   refreshWorkspaceSkills: async () => {
@@ -868,6 +871,10 @@ export const useAppStore = create<AppStoreState>((set, get) => ({
 
   setSelectedAgentPreset: (presetId: string | null) => {
     set({ selectedAgentPresetId: presetId });
+  },
+
+  setWorkflowMode: (mode: "plan" | "build") => {
+    set({ workflowMode: mode });
   },
 
   refreshMcpServers: async () => {

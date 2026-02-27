@@ -111,7 +111,9 @@ You have access to these read-only and planning tools:
 - `search.rg` - Search file contents (ripgrep). Use `json_output: true` for structured results.
 - `search.files` - Fuzzy file name search. Quickly find files by partial name.
 - `git.status`, `git.diff`, `git.log` - Git operations (read-only)
-- `skills.list`, `skills.load` - Load skills for context
+- `skills.list_installed`, `skills.search`, `skills.load` - Discover and load skills on demand
+- `memory.list`, `memory.read` - Inspect durable auto-memory context
+- `agent.ask_user` - Ask preference/clarification multiple-choice questions when needed
 - `agent.todo` - Track planning tasks. Use `list_id` parameter to scope todos to your agent/run (prevents conflicts with parent/sub-agents).
 - `agent.create_artifact` - **CREATE your planning artifacts here**
 - `agent.request_build_mode` - Request switch to BUILD mode
@@ -199,12 +201,16 @@ pub(super) fn worker_system_prompt() -> String {
 
 You are a worker agent in **BUILD mode** executing a continuous coding conversation loop.
 
-**CRITICAL: YOU ARE IN BUILD MODE - EXECUTE, DON'T PLAN**
-
 Your job is to implement the task by directly executing tools and writing code. You have already been given a plan (if one exists) or should implement directly from the user's request. DO NOT write planning documents or markdown artifacts in BUILD mode.
 
 Use native function/tool calling whenever tool use is needed.
-If no tools are needed and the task is complete, respond with a plain-text completion summary.
+If no tools are needed, respond in plain text using natural conversational language.
+
+## Response Style
+- Be direct, human, and concise.
+- Do not use rigid templates or headings like "Completion Summary:" unless the user explicitly asks for that format.
+- If the user asks meta questions (e.g., "Who are you?"), answer naturally in 1-3 short sentences.
+- Mention BUILD/PLAN mode only when it is relevant to the user's request.
 
 DECISION PROCESS (follow this every turn):
 1. Read the Task and Goal to understand your objective.
@@ -274,9 +280,16 @@ CRITICAL RULES:
 ## Other Rules
 - For directory discovery and existence checks, ALWAYS use "fs.list" tool. NEVER use "ls", "dir", or shell commands for directory listing.
 - For skill workflows:
-  - Use "skills.list" to discover available catalog skills.
-  - Use "skills.load" to import/load a skill when the task asks for installing or enabling a skill.
-  - Use "skills.remove" only when explicitly asked to remove a custom skill.
+  - Use "skills.list_installed" to discover installed workspace/global/built-in skills.
+  - Use "skills.search" to discover remote skills when needed.
+  - Use "skills.load" to load a skill into context after discovery (do not guess IDs).
+  - Use "skills.remove" only when explicitly asked to remove a skill.
+- When uncertain about user preferences or conventions, call `agent.ask_user` with concrete options instead of guessing.
+- For memory workflows:
+  - Use `memory.list` or `memory.read` to inspect current durable memory.
+  - Use `memory.upsert` (or `agent.memory_upsert`) to store durable preferences in auto memory (`MEMORY.md`).
+  - Use `memory.delete` only when user explicitly asks to forget/remove a preference.
+- When the user provides preference corrections, persist them to auto memory so future runs respect them.
 - Always confirm directory state before destructive or structural operations (list first, then change).
 - Keep paths within the workspace. If a task appears to require outside-workspace access, stop and complete with a summary explaining the blocker.
 - For fs.write: "path" is relative to workspace root, "content" is the full file content as a string.
@@ -293,6 +306,36 @@ If the user explicitly asks you to "go back to planning," "revise the plan," or 
 This signals intent to the user to return to planning mode for plan revisions."#,
         base, platform
     )
+}
+
+pub(super) fn worker_user_prompt(
+    task_prompt: &str,
+    goal_summary: &str,
+    context: &str,
+    available_tools: &[String],
+    history_text: Option<&str>,
+) -> String {
+    let tools_summary = if available_tools.is_empty() {
+        "(none)".to_string()
+    } else {
+        available_tools.join(", ")
+    };
+
+    let mut prompt = format!(
+        "Task:\n{}\n\nGoal:\n{}\n\nContext:\n{}\n\nAvailable Tools: {}",
+        task_prompt, goal_summary, context, tools_summary
+    );
+
+    if let Some(history) = history_text {
+        prompt.push_str("\n\nPrior Observations:\n");
+        prompt.push_str(history);
+    }
+
+    prompt.push_str(
+        "\n\nBehavior:\n- Use native function calling for tool use.\n- If no tool is needed, reply naturally in plain text.\n- Avoid rigid headings like 'Completion Summary:' unless requested.",
+    );
+
+    prompt
 }
 
 // ---------------------------------------------------------------------------

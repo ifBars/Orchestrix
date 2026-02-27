@@ -154,7 +154,6 @@ pub mod glm_tests {
             goal_summary: "Test tool calling".to_string(),
             context: "Testing GLM with tools".to_string(),
             available_tools: vec!["test_tool".to_string()],
-            tool_descriptions: "test_tool: A test tool".to_string(),
             tool_descriptors: vec![tool],
             prior_observations: vec![],
             max_tokens: Some(500),
@@ -164,65 +163,6 @@ pub mod glm_tests {
         match result {
             Ok(decision) => println!("✅ Tool request SUCCESS: {:?}", decision),
             Err(e) => println!("❌ Tool request FAILED: {}", e),
-        }
-    }
-
-    /// Test 5: Test tool schema variations
-    #[tokio::test]
-    async fn test_glm_tool_schema_variations() {
-        let api_key = load_glm_api_key();
-
-        let schema_variants = vec![
-            // Variant 1: Minimal schema
-            serde_json::json!({
-                "type": "object",
-                "properties": {},
-                "required": []
-            }),
-            // Variant 2: Schema with only type
-            serde_json::json!({
-                "type": "object"
-            }),
-            // Variant 3: Full schema with description
-            serde_json::json!({
-                "type": "object",
-                "properties": {
-                    "path": {
-                        "type": "string",
-                        "description": "File path"
-                    }
-                },
-                "required": ["path"]
-            }),
-        ];
-
-        for (i, schema) in schema_variants.iter().enumerate() {
-            println!("\n=== Schema Variant {} ===", i + 1);
-
-            let client = GlmClient::new(api_key.clone(), Some("glm-4.7".to_string()), None);
-            let tool = ToolDescriptor {
-                name: format!("test_tool_{}", i),
-                description: "Test tool".to_string(),
-                input_schema: schema.clone(),
-                output_schema: None,
-            };
-
-            let req = WorkerActionRequest {
-                task_prompt: format!("Use test_tool_{}", i),
-                goal_summary: "Test schema".to_string(),
-                context: "Testing".to_string(),
-                available_tools: vec![format!("test_tool_{}", i)],
-                tool_descriptions: "Test".to_string(),
-                tool_descriptors: vec![tool],
-                prior_observations: vec![],
-                max_tokens: Some(100),
-            };
-
-            let result = client.decide_action(req).await;
-            match result {
-                Ok(_) => println!("✅ Variant {} works", i + 1),
-                Err(e) => println!("❌ Variant {} failed: {}", i + 1, e),
-            }
         }
     }
 
@@ -349,7 +289,6 @@ pub mod glm_tests {
             goal_summary: "Simple greeting".to_string(),
             context: "Testing streaming".to_string(),
             available_tools: vec![],
-            tool_descriptions: "".to_string(),
             tool_descriptors: vec![],
             prior_observations: vec![],
             max_tokens: Some(100),
@@ -474,7 +413,6 @@ pub mod glm_tests {
             goal_summary: "Test".to_string(),
             context: "Testing".to_string(),
             available_tools: vec!["fs.read".to_string()],
-            tool_descriptions: "fs.read: Read a file".to_string(),
             tool_descriptors: vec![tool],
             prior_observations: vec![],
             max_tokens: Some(100),

@@ -9,7 +9,7 @@ import { Composer } from "@/components/Composer";
 import { ArtifactPanel } from "@/components/Artifacts/ArtifactPanel";
 import { SettingsPage } from "@/components/Settings/SettingsPage";
 import { SETTINGS_SECTIONS, type SettingsSectionId } from "@/components/Settings/types";
-import appIcon from "../src-tauri/icons/icon.png";
+import { EmptyState } from "@/components/EmptyState";
 
 const SETTINGS_SECTION_KEY = "orchestrix:last-settings-section";
 
@@ -21,6 +21,15 @@ function isEditableTarget(target: EventTarget | null): boolean {
   return target.isContentEditable || tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT";
 }
 
+function normalizeSettingsSection(value: string | null): SettingsSectionId | null {
+  if (!value) return null;
+  if (value === "compaction") return "context";
+  if (SETTINGS_SECTIONS.some((s) => s.id === value)) {
+    return value as SettingsSectionId;
+  }
+  return null;
+}
+
 function App() {
   const [tasks, selectedTaskId, bootstrap, shutdown] = useAppStore(
     useShallow((state) => [state.tasks, state.selectedTaskId, state.bootstrap, state.shutdown])
@@ -28,10 +37,8 @@ function App() {
 
   const [activeView, setActiveView] = useState<"chat" | "settings">("chat");
   const [settingsSection, setSettingsSectionState] = useState<SettingsSectionId>(() => {
-    const saved = localStorage.getItem(SETTINGS_SECTION_KEY);
-    if (saved && SETTINGS_SECTIONS.some((s) => s.id === saved)) {
-      return saved as SettingsSectionId;
-    }
+    const normalized = normalizeSettingsSection(localStorage.getItem(SETTINGS_SECTION_KEY));
+    if (normalized) return normalized;
     return "general";
   });
   const [artifactsOpen, setArtifactsOpen] = useState(false);
@@ -151,28 +158,6 @@ function App() {
         ) : null}
       />
     </>
-  );
-}
-
-function EmptyState() {
-  return (
-    <div className="flex h-full items-center justify-center">
-      <div className="max-w-xl rounded-2xl border border-border/70 bg-card/70 p-8 text-center elevation-2 backdrop-blur-sm">
-        <div className="mx-auto mb-4 h-12 w-12 rounded-xl border border-border/70 bg-background/80 p-2">
-          <img src={appIcon} alt="Orchestrix" className="h-full w-full object-contain" />
-        </div>
-        <p className="text-[11px] font-semibold uppercase tracking-widest text-muted-foreground/70">Ready</p>
-        <h1 className="mt-2 text-2xl font-semibold tracking-tight">Start an orchestrated run</h1>
-        <p className="mt-2 text-sm text-muted-foreground">
-          Describe your goal in one message. Orchestrix plans first, executes with full tool visibility, and keeps review in the loop.
-        </p>
-        <div className="mt-4 flex flex-wrap items-center justify-center gap-2 text-[11px] text-muted-foreground">
-          <span className="rounded-full border border-border/70 bg-background/70 px-2.5 py-1">Plan + Build workflow</span>
-          <span className="rounded-full border border-border/70 bg-background/70 px-2.5 py-1">Condensed timeline</span>
-          <span className="rounded-full border border-border/70 bg-background/70 px-2.5 py-1">Artifact review</span>
-        </div>
-      </div>
-    </div>
   );
 }
 

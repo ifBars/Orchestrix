@@ -31,14 +31,13 @@ pub mod tests {
         context: &str,
         prior_observations: Vec<serde_json::Value>,
     ) -> WorkerActionRequest {
-        let registry = create_tool_registry();
+    let registry = create_tool_registry();
         let tools = registry.list_for_build_mode(false);
         WorkerActionRequest {
             task_prompt: task_prompt.to_string(),
             goal_summary: goal_summary.to_string(),
             context: context.to_string(),
             available_tools: tools.iter().map(|t| t.name.clone()).collect(),
-            tool_descriptions: registry.tool_reference_for_build_mode(false),
             tool_descriptors: tools,
             prior_observations,
             max_tokens: None,
@@ -53,14 +52,12 @@ pub mod tests {
     async fn test_worker_action_request_builds_correctly() {
         let registry = create_tool_registry();
         let tools = registry.list_for_build_mode(false);
-        let tool_descriptions = registry.tool_reference_for_build_mode(false);
 
         let req = WorkerActionRequest {
             task_prompt: "Create a test file".to_string(),
             goal_summary: "File creation".to_string(),
             context: "Simple task".to_string(),
             available_tools: tools.iter().map(|t| t.name.clone()).collect(),
-            tool_descriptions,
             tool_descriptors: tools.clone(),
             prior_observations: vec![],
             max_tokens: None,
@@ -517,7 +514,6 @@ pub mod tests {
             goal_summary: "Test".to_string(),
             context: "Test".to_string(),
             available_tools: vec![],
-            tool_descriptions: "".to_string(),
             tool_descriptors: vec![],
             prior_observations: vec![],
             max_tokens: None,

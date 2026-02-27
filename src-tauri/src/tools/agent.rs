@@ -2,12 +2,188 @@
 
 use std::path::Path;
 
+use crate::core::preferences_memory;
 use crate::core::tool::ToolDescriptor;
 use crate::policy::{PolicyDecision, PolicyEngine};
+use crate::runtime::questions::{UserQuestionOption, UserQuestionRequest};
 use crate::tools::types::{Tool, ToolCallOutput, ToolError};
 
 /// Tool for managing agent todo lists.
 pub struct AgentTodoTool;
+
+/// Tool for asking the user targeted preference questions.
+pub struct AgentAskUserTool;
+
+impl Tool for AgentAskUserTool {
+    fn descriptor(&self) -> ToolDescriptor {
+        ToolDescriptor {
+            name: "agent.ask_user".into(),
+            description: "Ask the user a clarification/preference question and pause execution until answered.".into(),
+            input_schema: serde_json::json!({
+                "type": "object",
+                "properties": {
+                    "question": {"type": "string"},
+                    "options": {
+                        "type": "array",
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "id": {"type": "string"},
+                                "label": {"type": "string"},
+                                "description": {"type": "string"}
+                            },
+                            "required": ["id", "label"]
+                        }
+                    },
+                    "multiple": {"type": "boolean"},
+                    "allow_custom": {"type": "boolean"}
+                },
+                "required": ["question", "options"]
+            }),
+            output_schema: None,
+        }
+    }
+
+    fn invoke(
+        &self,
+        _policy: &PolicyEngine,
+        _cwd: &Path,
+        input: serde_json::Value,
+    ) -> Result<ToolCallOutput, ToolError> {
+        let question_text = input
+            .get("question")
+            .and_then(|v| v.as_str())
+            .map(str::trim)
+            .filter(|v| !v.is_empty())
+            .ok_or_else(|| ToolError::InvalidInput("question is required".to_string()))?;
+
+        let options = input
+            .get("options")
+            .and_then(|v| v.as_array())
+            .ok_or_else(|| ToolError::InvalidInput("options array is required".to_string()))?
+            .iter()
+            .map(|raw| {
+                let id = raw
+                    .get("id")
+                    .and_then(|v| v.as_str())
+                    .map(str::trim)
+                    .filter(|v| !v.is_empty())
+                    .ok_or_else(|| {
+                        ToolError::InvalidInput("each option requires non-empty id".to_string())
+                    })?;
+                let label = raw
+                    .get("label")
+                    .and_then(|v| v.as_str())
+                    .map(str::trim)
+                    .filter(|v| !v.is_empty())
+                    .ok_or_else(|| {
+                        ToolError::InvalidInput("each option requires non-empty label".to_string())
+                    })?;
+                let description = raw
+                    .get("description")
+                    .and_then(|v| v.as_str())
+                    .map(str::trim)
+                    .filter(|v| !v.is_empty())
+                    .map(str::to_string);
+                Ok(UserQuestionOption {
+                    id: id.to_string(),
+                    label: label.to_string(),
+                    description,
+                })
+            })
+            .collect::<Result<Vec<UserQuestionOption>, ToolError>>()?;
+
+        if options.is_empty() {
+            return Err(ToolError::InvalidInput(
+                "options array cannot be empty".to_string(),
+            ));
+        }
+
+        let multiple = input
+            .get("multiple")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false);
+        let allow_custom = input
+            .get("allow_custom")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(true);
+
+        Err(ToolError::UserQuestionRequired {
+            question: UserQuestionRequest {
+                id: String::new(),
+                task_id: String::new(),
+                run_id: String::new(),
+                sub_agent_id: String::new(),
+                tool_call_id: String::new(),
+                question: question_text.to_string(),
+                options,
+                multiple,
+                allow_custom,
+                created_at: String::new(),
+            },
+        })
+    }
+}
+
+/// Compatibility tool for persisting preferences into auto memory.
+pub struct AgentMemoryUpsertTool;
+
+impl Tool for AgentMemoryUpsertTool {
+    fn descriptor(&self) -> ToolDescriptor {
+        ToolDescriptor {
+            name: "agent.memory_upsert".into(),
+            description: "Store or update a durable user preference in auto memory (MEMORY.md) for future runs."
+                .into(),
+            input_schema: serde_json::json!({
+                "type": "object",
+                "properties": {
+                    "key": {"type": "string"},
+                    "value": {"type": "string"},
+                    "category": {"type": "string"}
+                },
+                "required": ["key", "value"]
+            }),
+            output_schema: None,
+        }
+    }
+
+    fn invoke(
+        &self,
+        _policy: &PolicyEngine,
+        cwd: &Path,
+        input: serde_json::Value,
+    ) -> Result<ToolCallOutput, ToolError> {
+        let key = input
+            .get("key")
+            .and_then(|v| v.as_str())
+            .map(str::trim)
+            .filter(|v| !v.is_empty())
+            .ok_or_else(|| ToolError::InvalidInput("key is required".to_string()))?;
+        let value = input
+            .get("value")
+            .and_then(|v| v.as_str())
+            .map(str::trim)
+            .filter(|v| !v.is_empty())
+            .ok_or_else(|| ToolError::InvalidInput("value is required".to_string()))?;
+        let category = input
+            .get("category")
+            .and_then(|v| v.as_str())
+            .map(str::trim)
+            .filter(|v| !v.is_empty());
+
+        let entry = preferences_memory::upsert_preference(cwd, key, value, category)
+            .map_err(ToolError::Execution)?;
+
+        Ok(ToolCallOutput {
+            ok: true,
+            data: serde_json::json!({
+                "stored": true,
+                "entry": entry,
+            }),
+            error: None,
+        })
+    }
+}
 
 impl Tool for AgentTodoTool {
     fn descriptor(&self) -> ToolDescriptor {

@@ -2,15 +2,17 @@ use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 
 use crate::core::agent_presets;
+use crate::core::preferences_memory;
 use crate::core::workspace_skills;
 
 const MAX_FILE_CHARS: usize = 12_000;
 const MAX_DIR_ENTRIES: usize = 80;
+const MAX_PREFERENCES_CHARS: usize = 1_000;
 
 pub fn expand_prompt_references(prompt: &str, workspace_root: &Path) -> String {
     let refs = extract_mentions(prompt);
     if refs.is_empty() {
-        return prompt.to_string();
+        return append_preferences_section(prompt.to_string(), workspace_root);
     }
 
     let mut sections: Vec<String> = Vec::new();
@@ -38,13 +40,40 @@ pub fn expand_prompt_references(prompt: &str, workspace_root: &Path) -> String {
     }
 
     if sections.is_empty() {
-        return prompt.to_string();
+        return append_preferences_section(prompt.to_string(), workspace_root);
     }
 
-    format!(
+    append_preferences_section(
+        format!(
         "{}\n\n# Workspace References\n\n{}\n\nUse these references as authoritative workspace context when relevant.",
         prompt,
         sections.join("\n\n---\n\n")
+        ),
+        workspace_root,
+    )
+}
+
+fn append_preferences_section(base: String, workspace_root: &Path) -> String {
+    let memory_context = match preferences_memory::startup_memory_context(workspace_root) {
+        Ok(values) => values,
+        Err(_) => return base,
+    };
+    let trimmed = memory_context.trim();
+    if trimmed.is_empty() {
+        return base;
+    }
+
+    let mut section = format!("# Auto Memory\n\n{}", trimmed);
+
+    if section.chars().count() > MAX_PREFERENCES_CHARS {
+        let mut clipped: String = section.chars().take(MAX_PREFERENCES_CHARS).collect();
+        clipped.push_str("\n...[truncated]");
+        section = clipped;
+    }
+
+    format!(
+        "{}\n\n{}\n\nTreat these as durable user preferences unless the user overrides them in this conversation.",
+        base, section
     )
 }
 

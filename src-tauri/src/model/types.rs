@@ -16,10 +16,8 @@ pub struct WorkerActionRequest {
     pub task_prompt: String,
     pub goal_summary: String,
     pub context: String,
+    /// Tool names available to the agent (for brief mention in prompts).
     pub available_tools: Vec<String>,
-    /// Detailed tool reference with schemas, for inclusion in the prompt.
-    /// If empty, falls back to the tool name list.
-    pub tool_descriptions: String,
     /// Structured tool descriptors for providers with native function calling.
     pub tool_descriptors: Vec<ToolDescriptor>,
     pub prior_observations: Vec<serde_json::Value>,

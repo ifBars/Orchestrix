@@ -488,16 +488,21 @@ pub async fn install_agent_skill(
         // so we'll use a basic entry.
         let id = sanitize_skill_id(&format!("{}-{}", target_repo, normalized_skill_name));
         let title = humanize_skill_title(&normalized_skill_name);
-        
+
         let skill = SkillCatalogItem {
             id,
             title: format!("External: {title}"),
             description: format!("Installed from {target_repo}"),
-            install_command: format!("bunx skills add {target_repo} --skill {normalized_skill_name} --agent opencode -y"),
+            install_command: format!(
+                "bunx skills add {target_repo} --skill {normalized_skill_name} --agent opencode -y"
+            ),
             url: if target_repo.starts_with("http") {
                 format!("{}/tree/main/skills/{}", target_repo, normalized_skill_name)
             } else {
-                format!("https://github.com/{}/tree/main/skills/{}", target_repo, normalized_skill_name)
+                format!(
+                    "https://github.com/{}/tree/main/skills/{}",
+                    target_repo, normalized_skill_name
+                )
             },
             source: "external".to_string(),
             tags: vec!["external".to_string(), "custom".to_string()],

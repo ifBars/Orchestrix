@@ -433,11 +433,23 @@ pub fn run() {
             // approvals
             commands::approvals::list_pending_approvals,
             commands::approvals::resolve_approval_request,
+            // questions
+            commands::questions::list_pending_questions,
+            commands::questions::resolve_question,
             // messages
             commands::messages::send_message_to_task,
             commands::messages::get_compaction_settings,
             commands::messages::set_compaction_settings,
             commands::messages::get_conversation_summary,
+            // context settings
+            commands::context::get_auto_memory_settings,
+            commands::context::set_auto_memory_settings,
+            commands::context::get_auto_memory_entrypoint,
+            commands::context::list_auto_memory_preferences,
+            commands::context::read_auto_memory_context,
+            commands::context::compact_auto_memory,
+            commands::context::upsert_auto_memory_preference,
+            commands::context::delete_auto_memory_preference,
             // plan mode settings
             commands::plan_mode::get_plan_mode_settings,
             commands::plan_mode::set_plan_mode_settings,
@@ -507,6 +519,7 @@ pub fn run() {
             commands::workspace_skills::get_workspace_skill_content,
             commands::workspace_skills::read_workspace_skill_file,
             commands::workspace_skills::get_active_skills_context,
+            commands::workspace_skills::remove_workspace_skill,
             // agent presets
             commands::agent_presets::list_agent_presets,
             commands::agent_presets::get_agent_preset,

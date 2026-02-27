@@ -189,14 +189,12 @@ Use modern React hooks and functional components."#;
         let registry = ToolRegistry::default();
 
         let tools = registry.list_for_build_mode(false);
-        let tool_descriptions = registry.tool_reference_for_build_mode(false);
 
         let req = WorkerActionRequest {
             task_prompt: "Write 'test' to a file called test.txt".to_string(),
             goal_summary: "Create a test file".to_string(),
             context: "Simple file creation task".to_string(),
             available_tools: tools.iter().map(|t| t.name.clone()).collect(),
-            tool_descriptions,
             tool_descriptors: tools,
             prior_observations: vec![],
             max_tokens: None,
@@ -242,7 +240,6 @@ Use modern React hooks and functional components."#;
         let registry = ToolRegistry::default();
 
         let tools = registry.list_for_build_mode(false);
-        let tool_descriptions = registry.tool_reference_for_build_mode(false);
 
         let req = WorkerActionRequest {
             task_prompt: r#"Create a React project structure:
@@ -256,7 +253,6 @@ Use fs.write and cmd.exec as needed."#
             goal_summary: "Create React project structure".to_string(),
             context: "Setting up a new React project with directories and files".to_string(),
             available_tools: tools.iter().map(|t| t.name.clone()).collect(),
-            tool_descriptions,
             tool_descriptors: tools,
             prior_observations: vec![],
             max_tokens: None,
@@ -291,7 +287,6 @@ Use fs.write and cmd.exec as needed."#
         let registry = ToolRegistry::default();
 
         let tools = registry.list_for_build_mode(false);
-        let tool_descriptions = registry.tool_reference_for_build_mode(false);
 
         // Simulate that we've already created the file
         let prior_observations = vec![serde_json::json!({
@@ -305,7 +300,6 @@ Use fs.write and cmd.exec as needed."#
             goal_summary: "Create and verify file".to_string(),
             context: "File creation task with verification".to_string(),
             available_tools: tools.iter().map(|t| t.name.clone()).collect(),
-            tool_descriptions,
             tool_descriptors: tools,
             prior_observations,
             max_tokens: None,
@@ -375,14 +369,12 @@ Use fs.write and cmd.exec as needed."#
 
         let registry = ToolRegistry::default();
         let tools = registry.list_for_build_mode(false);
-        let tool_descriptions = registry.tool_reference_for_build_mode(false);
 
         let req = WorkerActionRequest {
             task_prompt: format!("Implement this plan:\n\n{}", plan),
             goal_summary: "Implement counter app from plan".to_string(),
             context: plan,
             available_tools: tools.iter().map(|t| t.name.clone()).collect(),
-            tool_descriptions,
             tool_descriptors: tools,
             prior_observations: vec![],
             max_tokens: None,

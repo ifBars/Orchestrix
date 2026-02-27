@@ -164,6 +164,7 @@ pub async fn run_plan_mode(
         plan_mode_tools,
         state.orchestrator.tool_registry().clone(),
         state.orchestrator.approval_gate().clone(),
+        state.orchestrator.question_gate().clone(),
         include_embeddings,
     )
     .await
@@ -368,6 +369,7 @@ pub async fn submit_plan_feedback(
         plan_mode_tools,
         state.orchestrator.tool_registry().clone(),
         state.orchestrator.approval_gate().clone(),
+        state.orchestrator.question_gate().clone(),
         include_embeddings,
     )
     .await

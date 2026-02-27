@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 use crate::core::tool::ToolDescriptor;
 use crate::model::shared::{
     plan_markdown_system_prompt, preferred_response_text, strip_tool_call_markup,
-    worker_system_prompt,
+    worker_system_prompt, worker_user_prompt,
 };
 use crate::model::{
     AgentModelClient, ModelError, StreamDelta, WorkerAction, WorkerActionRequest, WorkerDecision,
@@ -660,13 +660,6 @@ impl GlmClient {
             .to_ascii_lowercase()
             .contains("draft an implementation plan");
 
-        let tools_text = if !req.tool_descriptions.is_empty() {
-            req.tool_descriptions.clone()
-        } else if req.available_tools.is_empty() {
-            "(none)".to_string()
-        } else {
-            req.available_tools.join(", ")
-        };
         let history_text = if req.prior_observations.is_empty() {
             "(none yet)".to_string()
         } else {
@@ -674,9 +667,12 @@ impl GlmClient {
                 .map_err(|e| ModelError::InvalidResponse(e.to_string()))?
         };
 
-        let user = format!(
-            "Task:\n{}\n\nGoal:\n{}\n\nContext:\n{}\n\nAvailable Tools:\n{}\n\nPrior Observations:\n{}\n\nUse native function calling for tools whenever needed. If the work is complete and no tool is needed, respond with a short plain-text completion summary.",
-            req.task_prompt, req.goal_summary, req.context, tools_text, history_text
+        let user = worker_user_prompt(
+            &req.task_prompt,
+            &req.goal_summary,
+            &req.context,
+            &req.available_tools,
+            Some(&history_text),
         );
 
         let system = worker_system_prompt();
@@ -853,18 +849,10 @@ mod unit_tests {
 
     #[test]
     fn model_name_normalized_to_lowercase() {
-        let client = GlmClient::new(
-            "test-key".to_string(),
-            Some("GLM-4.7".to_string()),
-            None,
-        );
+        let client = GlmClient::new("test-key".to_string(), Some("GLM-4.7".to_string()), None);
         assert_eq!(client.model, "glm-4.7");
 
-        let client2 = GlmClient::new(
-            "test-key".to_string(),
-            Some("GLM-5".to_string()),
-            None,
-        );
+        let client2 = GlmClient::new("test-key".to_string(), Some("GLM-5".to_string()), None);
         assert_eq!(client2.model, "glm-5");
     }
 

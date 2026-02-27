@@ -11,6 +11,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::core::tool::ToolDescriptor;
 use crate::policy::PolicyEngine;
+use crate::runtime::questions::UserQuestionRequest;
 
 /// Input to a tool invocation.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -38,6 +39,8 @@ pub enum ToolError {
     Execution(String),
     #[error("approval required for scope '{scope}': {reason}")]
     ApprovalRequired { scope: String, reason: String },
+    #[error("user question required")]
+    UserQuestionRequired { question: UserQuestionRequest },
 }
 
 /// Trait for implementing tools.

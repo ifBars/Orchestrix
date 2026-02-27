@@ -1,42 +1,35 @@
-import { type FormEvent, useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 import { openUrl } from "@tauri-apps/plugin-opener";
-import { ExternalLink, Search, Trash2, Download, Package, Box } from "lucide-react";
+import { ExternalLink, Search, Trash2, Download, Box } from "lucide-react";
 import { useAppStore } from "@/stores/appStore";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Textarea } from "@/components/ui/textarea";
-import { Select } from "@/components/ui/select";
 import type {
   AgentSkillInstallResult,
   AgentSkillSearchItem,
-  SkillCatalogItem,
   WorkspaceSkill,
 } from "@/types";
 
-type Tab = "workspace" | "catalog" | "remote";
+type Tab = "installed" | "search";
 
 export function SkillsSection() {
   const state = useAppStore();
-  const [activeTab, setActiveTab] = useState<Tab>("workspace");
+  const [activeTab, setActiveTab] = useState<Tab>("installed");
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     state.refreshWorkspaceSkills().catch(console.error);
-    state.refreshSkills().catch(console.error);
   }, []);
 
   return (
     <div className="flex h-full flex-col gap-4">
       <div className="flex items-center justify-between">
         <div className="flex gap-2 rounded-lg bg-muted/50 p-1">
-          <TabButton active={activeTab === "workspace"} onClick={() => setActiveTab("workspace")}>
+          <TabButton active={activeTab === "installed"} onClick={() => setActiveTab("installed")}>
             Installed ({state.workspaceSkills.length})
           </TabButton>
-          <TabButton active={activeTab === "catalog"} onClick={() => setActiveTab("catalog")}>
-            Local Catalog
-          </TabButton>
-          <TabButton active={activeTab === "remote"} onClick={() => setActiveTab("remote")}>
-            Agent Skills Package
+          <TabButton active={activeTab === "search"} onClick={() => setActiveTab("search")}>
+            Skills Search
           </TabButton>
         </div>
       </div>
@@ -48,8 +41,8 @@ export function SkillsSection() {
       ) : null}
 
       <div className="flex-1 overflow-hidden">
-        {activeTab === "workspace" && (
-          <WorkspacePanel
+        {activeTab === "installed" && (
+          <InstalledPanel
             skills={state.workspaceSkills}
             onRemove={async (id) => {
               try {
@@ -61,21 +54,8 @@ export function SkillsSection() {
           />
         )}
 
-        {activeTab === "catalog" && (
-          <CatalogPanel
-            skills={state.skills}
-            onAddCustom={async (skill) => {
-              try {
-                await state.addCustomSkill(skill);
-              } catch (err: any) {
-                setError(err.message || String(err));
-              }
-            }}
-          />
-        )}
-
-        {activeTab === "remote" && (
-          <RemotePackagePanel
+        {activeTab === "search" && (
+          <SkillsSearchPanel
             search={state.searchAgentSkills}
             install={state.installAgentSkill}
             setError={setError}
@@ -109,7 +89,7 @@ function TabButton({
   );
 }
 
-function WorkspacePanel({
+function InstalledPanel({
   skills,
   onRemove,
 }: {
@@ -119,9 +99,9 @@ function WorkspacePanel({
   if (skills.length === 0) {
     return (
       <div className="flex h-full flex-col items-center justify-center text-muted-foreground">
-        <Package className="mb-4 h-12 w-12 opacity-20" />
+        <Box className="mb-4 h-12 w-12 opacity-20" />
         <p className="text-sm">No skills installed in this workspace.</p>
-        <p className="text-xs opacity-70">Check the Local Catalog or Remote Package tabs to add skills.</p>
+        <p className="text-xs opacity-70">Use the Skills Search tab to discover and install skills.</p>
       </div>
     );
   }
@@ -133,14 +113,23 @@ function WorkspacePanel({
           <div key={skill.id} className="group relative flex flex-col justify-between rounded-lg border border-border bg-card p-4 transition-colors hover:border-primary/50">
             <div>
               <div className="mb-2 flex items-start justify-between">
-                <h3 className="font-semibold text-card-foreground">{skill.name}</h3>
-                <button
-                  onClick={() => onRemove(skill.id)}
-                  className="rounded p-1 text-muted-foreground opacity-0 transition-all hover:bg-destructive/10 hover:text-destructive group-hover:opacity-100"
-                  title="Remove skill"
-                >
-                  <Trash2 size={14} />
-                </button>
+                <div className="flex items-center gap-2">
+                  <h3 className="font-semibold text-card-foreground">{skill.name}</h3>
+                  {skill.is_builtin && (
+                    <span className="rounded-full bg-primary/10 px-1.5 py-0.5 text-[10px] font-medium text-primary">
+                      Built-in
+                    </span>
+                  )}
+                </div>
+                {!skill.is_builtin && (
+                  <button
+                    onClick={() => onRemove(skill.id)}
+                    className="rounded p-1 text-muted-foreground opacity-0 transition-all hover:bg-destructive/10 hover:text-destructive group-hover:opacity-100"
+                    title="Remove skill"
+                  >
+                    <Trash2 size={14} />
+                  </button>
+                )}
               </div>
               <p className="mb-3 text-xs text-muted-foreground line-clamp-2">
                 {skill.description || "No description provided."}
@@ -148,7 +137,7 @@ function WorkspacePanel({
             </div>
             <div className="flex items-center gap-2">
               <span className="rounded-full bg-muted px-2 py-0.5 text-[10px] font-medium text-muted-foreground">
-                {skill.skill_dir}
+                {skill.source === "builtin" ? "Built-in" : skill.skill_dir || skill.source}
               </span>
             </div>
           </div>
@@ -158,138 +147,7 @@ function WorkspacePanel({
   );
 }
 
-function CatalogPanel({
-  skills,
-  onAddCustom,
-}: {
-  skills: SkillCatalogItem[];
-  onAddCustom: (skill: any) => Promise<void>;
-}) {
-  const [query, setQuery] = useState("");
-  const [sourceFilter, setSourceFilter] = useState("all");
-  
-  // Custom skill form state
-  const [showForm, setShowForm] = useState(false);
-  const [title, setTitle] = useState("");
-  const [description, setDescription] = useState("");
-  const [installCommand, setInstallCommand] = useState("");
-  const [url, setUrl] = useState("");
-  const [source, setSource] = useState("custom");
-  const [tags, setTags] = useState("");
-
-  const filtered = skills.filter((s) => {
-    if (sourceFilter !== "all" && s.source !== sourceFilter) return false;
-    if (!query) return true;
-    const q = query.toLowerCase();
-    return (
-      s.title.toLowerCase().includes(q) ||
-      s.description.toLowerCase().includes(q) ||
-      s.id.toLowerCase().includes(q)
-    );
-  });
-
-  const handleAddSubmit = async (e: FormEvent) => {
-    e.preventDefault();
-    await onAddCustom({
-      title,
-      description,
-      install_command: installCommand,
-      url,
-      source,
-      tags: tags.split(",").map((t) => t.trim()).filter(Boolean),
-    });
-    setShowForm(false);
-    // reset form
-    setTitle(""); setDescription(""); setInstallCommand(""); setUrl(""); setTags("");
-  };
-
-  return (
-    <div className="flex h-full flex-col gap-4">
-      <div className="flex gap-2">
-        <div className="relative flex-1">
-          <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
-          <Input
-            placeholder="Search local catalog..."
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            className="pl-9"
-          />
-        </div>
-        <Select 
-          value={sourceFilter} 
-          onChange={(e) => setSourceFilter(e.target.value)}
-          className="w-[140px]"
-        >
-          <option value="all">All Sources</option>
-          <option value="builtin">Built-in</option>
-          <option value="custom">Custom</option>
-          <option value="vercel">Vercel</option>
-        </Select>
-        <Button variant="outline" onClick={() => setShowForm(!showForm)}>
-          {showForm ? "Cancel" : "Add Custom"}
-        </Button>
-      </div>
-
-      {showForm && (
-        <form onSubmit={handleAddSubmit} className="rounded-lg border border-border bg-card/50 p-4 space-y-3">
-          <div className="grid gap-3 sm:grid-cols-2">
-            <Input placeholder="Title" value={title} onChange={(e) => setTitle(e.target.value)} required />
-            <Input placeholder="URL (optional)" value={url} onChange={(e) => setUrl(e.target.value)} />
-          </div>
-          <Textarea placeholder="Description" value={description} onChange={(e) => setDescription(e.target.value)} required className="h-20" />
-          <Input placeholder="Install Command (e.g. npm install -g ...)" value={installCommand} onChange={(e) => setInstallCommand(e.target.value)} required className="font-mono" />
-          <div className="grid gap-3 sm:grid-cols-2">
-            <Input placeholder="Source (e.g. team)" value={source} onChange={(e) => setSource(e.target.value)} />
-            <Input placeholder="Tags (comma separated)" value={tags} onChange={(e) => setTags(e.target.value)} />
-          </div>
-          <div className="flex justify-end">
-            <Button type="submit" size="sm">Save Custom Skill</Button>
-          </div>
-        </form>
-      )}
-
-      <div className="flex-1 overflow-y-auto pr-2">
-        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-          {filtered.map((skill) => (
-            <div key={skill.id} className="flex flex-col justify-between rounded-lg border border-border bg-card p-4">
-              <div>
-                <div className="mb-1 flex items-start justify-between">
-                  <h4 className="font-semibold">{skill.title}</h4>
-                  <a
-                    href={skill.url}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="text-muted-foreground hover:text-primary"
-                    onClick={(e) => {
-                        e.preventDefault();
-                        openUrl(skill.url).catch(console.error);
-                    }}
-                  >
-                    <ExternalLink size={14} />
-                  </a>
-                </div>
-                <p className="mb-3 text-xs text-muted-foreground line-clamp-3">{skill.description}</p>
-              </div>
-              <div className="space-y-2">
-                <code className="block w-full rounded bg-muted px-2 py-1 text-[10px] font-mono text-muted-foreground overflow-x-auto whitespace-nowrap scrollbar-hide">
-                  {skill.install_command}
-                </code>
-                <div className="flex items-center justify-between">
-                    <span className="rounded-full bg-primary/10 px-2 py-0.5 text-[10px] font-medium text-primary capitalize">
-                        {skill.source}
-                    </span>
-                    {/* Catalog items are just references, user copies command or we could run it if we trust it */}
-                </div>
-              </div>
-            </div>
-          ))}
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function RemotePackagePanel({
+function SkillsSearchPanel({
   search,
   install,
   setError,
@@ -369,13 +227,6 @@ function RemotePackagePanel({
     <div className="flex h-full flex-col gap-4">
       <div className="flex flex-col gap-2">
         <div className="rounded-lg border border-border bg-card p-4">
-          <div className="mb-4">
-            <h3 className="text-sm font-semibold">Agent Skills Package</h3>
-            <p className="text-xs text-muted-foreground">
-              Discover and install skills from the <code className="rounded bg-muted px-1">vercel-labs/agent-skills</code> repository.
-            </p>
-          </div>
-          
           <form 
             onSubmit={(e) => { e.preventDefault(); doSearch(query); }}
             className="flex gap-2"
@@ -383,7 +234,7 @@ function RemotePackagePanel({
             <div className="relative flex-1">
               <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
               <Input
-                placeholder="Search package..."
+                placeholder="Search skills (e.g., react, rust, python)..."
                 value={query}
                 onChange={(e) => setQuery(e.target.value)}
                 className="pl-9"

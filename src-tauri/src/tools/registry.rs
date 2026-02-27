@@ -13,8 +13,8 @@ use crate::core::mcp::{call_mcp_tool_by_server_and_name, load_mcp_tools_cache};
 use crate::core::tool::ToolDescriptor;
 use crate::policy::PolicyEngine;
 use crate::tools::agent::{
-    AgentCompleteTool, AgentTodoTool, CreateArtifactTool, RequestBuildModeTool,
-    RequestPlanModeTool, SubAgentSpawnTool,
+    AgentAskUserTool, AgentCompleteTool, AgentMemoryUpsertTool, AgentTodoTool, CreateArtifactTool,
+    RequestBuildModeTool, RequestPlanModeTool, SubAgentSpawnTool,
 };
 use crate::tools::cmd::CommandExecTool;
 use crate::tools::dev_server::{
@@ -23,10 +23,15 @@ use crate::tools::dev_server::{
 use crate::tools::file_search::SearchFilesTool;
 use crate::tools::fs::{FsListTool, FsReadTool, FsWriteTool};
 use crate::tools::git::{GitApplyPatchTool, GitCommitTool, GitDiffTool, GitLogTool, GitStatusTool};
+use crate::tools::memory::{
+    MemoryCompactTool, MemoryDeleteTool, MemoryListTool, MemoryReadTool, MemoryUpsertTool,
+};
 use crate::tools::patch::FsPatchTool;
 use crate::tools::search::SearchRgTool;
 use crate::tools::semantic_search::SearchEmbeddingsTool;
-use crate::tools::skills::{SkillsListTool, SkillsLoadTool, SkillsRemoveTool};
+use crate::tools::skills::{
+    SkillsInstallTool, SkillsListInstalledTool, SkillsLoadTool, SkillsRemoveTool, SkillsSearchTool,
+};
 use crate::tools::types::{Tool, ToolCallInput, ToolCallOutput, ToolError};
 use crate::tools::web_snapshot::WebSnapshotTool;
 
@@ -65,12 +70,29 @@ impl ToolRegistry {
         tools.insert("git.log".to_string(), Box::new(GitLogTool));
 
         // Skills tools
-        tools.insert("skills.list".to_string(), Box::new(SkillsListTool));
+        tools.insert(
+            "skills.list_installed".to_string(),
+            Box::new(SkillsListInstalledTool),
+        );
+        tools.insert("skills.search".to_string(), Box::new(SkillsSearchTool));
         tools.insert("skills.load".to_string(), Box::new(SkillsLoadTool));
+        tools.insert("skills.install".to_string(), Box::new(SkillsInstallTool));
         tools.insert("skills.remove".to_string(), Box::new(SkillsRemoveTool));
+
+        // Memory tools
+        tools.insert("memory.list".to_string(), Box::new(MemoryListTool));
+        tools.insert("memory.read".to_string(), Box::new(MemoryReadTool));
+        tools.insert("memory.upsert".to_string(), Box::new(MemoryUpsertTool));
+        tools.insert("memory.delete".to_string(), Box::new(MemoryDeleteTool));
+        tools.insert("memory.compact".to_string(), Box::new(MemoryCompactTool));
 
         // Agent tools
         tools.insert("agent.todo".to_string(), Box::new(AgentTodoTool));
+        tools.insert("agent.ask_user".to_string(), Box::new(AgentAskUserTool));
+        tools.insert(
+            "agent.memory_upsert".to_string(),
+            Box::new(AgentMemoryUpsertTool),
+        );
         tools.insert("agent.complete".to_string(), Box::new(AgentCompleteTool));
         tools.insert("subagent.spawn".to_string(), Box::new(SubAgentSpawnTool));
         tools.insert(
@@ -117,8 +139,12 @@ impl ToolRegistry {
             "git.status",
             "git.diff",
             "git.log",
-            "skills.list",
+            "skills.list_installed",
+            "skills.search",
             "skills.load",
+            "memory.list",
+            "memory.read",
+            "agent.ask_user",
             "agent.todo",
             "agent.create_artifact",
             "agent.request_build_mode",
@@ -159,6 +185,7 @@ impl ToolRegistry {
 
     /// Generate a detailed tool reference string for PLAN mode.
     /// If `include_embeddings` is false, excludes search.embeddings.
+    #[allow(dead_code)]
     pub fn tool_reference_for_plan_mode(&self, include_embeddings: bool) -> String {
         let mut tools: Vec<_> = self.list_for_plan_mode(include_embeddings);
         tools.sort_by(|a, b| a.name.cmp(&b.name));
@@ -177,6 +204,7 @@ impl ToolRegistry {
 
     /// Generate a detailed tool reference string for BUILD mode.
     /// If `include_embeddings` is false, excludes search.embeddings.
+    #[allow(dead_code)]
     pub fn tool_reference_for_build_mode(&self, include_embeddings: bool) -> String {
         let mut tools: Vec<_> = self.list_for_build_mode(include_embeddings);
         tools.sort_by(|a, b| a.name.cmp(&b.name));

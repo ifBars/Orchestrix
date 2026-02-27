@@ -7,6 +7,8 @@ import { useArtifactReview } from "@/hooks/useArtifactReview";
 import { useExecutionSummary } from "./useExecutionSummary";
 import { usePendingApprovals } from "./usePendingApprovals";
 import { useApprovalResolver } from "./useApprovalResolver";
+import { usePendingQuestions } from "./usePendingQuestions";
+import { useQuestionResolver } from "./useQuestionResolver";
 import { ConversationTimeline } from "../ConversationTimeline";
 import { ReviewWorkspace } from "../ReviewWorkspace";
 import type { TaskRow } from "@/types";
@@ -40,6 +42,9 @@ export function ChatInterface({
   const [stopping, setStopping] = useState(false);
   const [internalActiveTab, setInternalActiveTab] = useState<"chat" | "review">("chat");
   const [resolvingApprovalId, setResolvingApprovalId] = useState<string | null>(
+    null
+  );
+  const [resolvingQuestionId, setResolvingQuestionId] = useState<string | null>(
     null
   );
 
@@ -85,10 +90,16 @@ export function ChatInterface({
   const review = useArtifactReview(task.id, task.status, artifactsByTask);
   const executionSummary = useExecutionSummary(task.id, task.status);
   const pendingApprovals = usePendingApprovals(task.id, task.status);
+  const pendingQuestions = usePendingQuestions(task.id, task.status);
   const resolveApproval = useApprovalResolver(
     task.id,
     () => {},
     setResolvingApprovalId
+  );
+  const resolveQuestion = useQuestionResolver(
+    task.id,
+    () => {},
+    setResolvingQuestionId
   );
 
   useEffect(() => {
@@ -211,11 +222,20 @@ export function ChatInterface({
       rawEvents={rawEvents}
       agentTodos={agentTodos}
       pendingApprovals={pendingApprovals}
+      pendingQuestions={pendingQuestions}
       resolvingApprovalId={resolvingApprovalId}
+      resolvingQuestionId={resolvingQuestionId}
       onResolveApproval={resolveApproval}
+      onResolveQuestion={resolveQuestion}
       onStop={stop}
     />
   );
 }
 
-export { useExecutionSummary, usePendingApprovals, useApprovalResolver };
+export {
+  useExecutionSummary,
+  usePendingApprovals,
+  useApprovalResolver,
+  usePendingQuestions,
+  useQuestionResolver,
+};

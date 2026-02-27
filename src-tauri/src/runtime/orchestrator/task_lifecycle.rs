@@ -48,6 +48,7 @@ impl Orchestrator {
 
     pub fn cancel_task(&self, task_id: &str) {
         self.approval_gate.reject_all_for_task(task_id);
+        self.question_gate.reject_all_for_task(task_id);
         let mut guard = self.active.lock().expect("orchestrator mutex poisoned");
         if let Some(handle) = guard.remove(task_id) {
             handle.abort();
@@ -466,10 +467,10 @@ impl Orchestrator {
             self.approval_gate.approved_scopes_handle(),
         );
 
-        // Load workspace skills and build context for agent injection
-        let workspace_skills =
-            crate::core::workspace_skills::scan_workspace_skills(&workspace_root);
-        let skills_context = crate::core::workspace_skills::build_skills_context(&workspace_skills);
+        // NOTE: Skills are NOT auto-loaded into context anymore.
+        // Agents must explicitly use skills.list_installed() and skills.load() to activate skills.
+        // This prevents context bloat as skill count grows.
+        let skills_context = "";
 
         let checkpoint = queries::get_checkpoint(&self.db, &run_id).map_err(|e| e.to_string())?;
         let mut failed: Vec<SubAgentResult> = Vec::new();
@@ -531,6 +532,7 @@ impl Orchestrator {
                 &self.worktree_manager,
                 &policy,
                 &self.approval_gate,
+                &self.question_gate,
                 &run_id,
                 &task_id,
                 &virtual_parent,

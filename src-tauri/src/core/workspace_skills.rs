@@ -3,6 +3,8 @@
 //! Discovers `.agents/skills/` directories in the workspace root (and
 //! optionally the global user config directory), parses `SKILL.md`
 //! frontmatter, and exposes structured skill data to the rest of the app.
+//!
+//! Also includes a built-in "Find Skills" skill that cannot be removed.
 
 use std::path::{Path, PathBuf};
 
@@ -27,7 +29,7 @@ pub struct WorkspaceSkill {
     pub skill_dir: String,
     /// Absolute path to the SKILL.md file.
     pub skill_file: String,
-    /// Where the skill was found: "workspace" or "global".
+    /// Where the skill was found: "workspace", "global", or "builtin".
     pub source: String,
     /// Extra files in the skill directory (relative to skill_dir).
     pub files: Vec<String>,
@@ -36,6 +38,8 @@ pub struct WorkspaceSkill {
     /// Whether the skill is currently enabled for agent injection.
     /// Defaults to true when discovered.
     pub enabled: bool,
+    /// Whether this is a built-in skill that cannot be removed.
+    pub is_builtin: bool,
 }
 
 /// Parsed YAML-style frontmatter from a SKILL.md file.
@@ -55,6 +59,7 @@ struct SkillFrontmatter {
 /// Looks for:
 /// 1. `<workspace_root>/.agents/skills/*/SKILL.md`
 /// 2. Global config: `~/.config/orchestrix/skills/*/SKILL.md` (or %APPDATA%\Orchestrix\skills)
+/// 3. Built-in skills (e.g., "Find Skills")
 ///
 /// Returns all discovered skills sorted alphabetically by name.
 pub fn scan_workspace_skills(workspace_root: &Path) -> Vec<WorkspaceSkill> {
@@ -73,11 +78,19 @@ pub fn scan_workspace_skills(workspace_root: &Path) -> Vec<WorkspaceSkill> {
         }
     }
 
-    // Deduplicate: workspace skills take priority over global by id
+    // 3. Built-in skills (Find Skills)
+    let mut builtin = built_in_skills();
+    skills.append(&mut builtin);
+
+    // Deduplicate: workspace skills take priority over global by id, then builtin
     let mut seen = std::collections::HashSet::new();
     skills.retain(|skill| seen.insert(skill.id.clone()));
 
     skills.sort_by(|a, b| {
+        // Built-in skills first
+        if a.is_builtin != b.is_builtin {
+            return b.is_builtin.cmp(&a.is_builtin);
+        }
         a.name
             .to_ascii_lowercase()
             .cmp(&b.name.to_ascii_lowercase())
@@ -182,6 +195,7 @@ fn collect_skills_from_dir(dir: &Path, source: &str, out: &mut Vec<WorkspaceSkil
             files,
             tags: frontmatter.tags,
             enabled: true,
+            is_builtin: false,
         };
 
         out.push(skill);
@@ -351,6 +365,53 @@ fn global_skills_dir() -> Option<PathBuf> {
     None
 }
 
+fn built_in_skills() -> Vec<WorkspaceSkill> {
+    vec![WorkspaceSkill {
+        id: "find-skills".to_string(),
+        name: "Find Skills".to_string(),
+        description: "Search and install skills from the catalog".to_string(),
+        content: r#"# Find Skills
+
+Use this skill to discover and install additional skills for the agent.
+
+## When to use
+
+Use this skill when you need to:
+- Search for skills that match a specific task or domain
+- Find documentation lookup skills (like Context7)
+- Discover specialized skills (React, Rust, Python, etc.)
+
+## How to use
+
+Invoke the `skills.find` tool with a search query to find available skills.
+
+For example:
+- `skills.find("react")` - Find React-related skills
+- `skills.find("documentation")` - Find docs lookup skills
+- `skills.find("python")` - Find Python skills
+
+## Available Sources
+
+- **Vercel Agent Skills**: `vercel-labs/agent-skills` - Official skill collection
+- **Context7**: Documentation lookup for libraries and frameworks
+
+The skill will provide installation instructions after searching.
+"#
+        .to_string(),
+        skill_dir: String::new(),
+        skill_file: String::new(),
+        source: "builtin".to_string(),
+        files: vec![],
+        tags: vec![
+            "builtin".to_string(),
+            "search".to_string(),
+            "catalog".to_string(),
+        ],
+        enabled: true,
+        is_builtin: true,
+    }]
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -408,7 +469,18 @@ This is the body."#;
             files: vec![],
             tags: vec![],
             enabled: false,
+            is_builtin: false,
         }];
         assert_eq!(build_skills_context(&skills), "");
+    }
+
+    #[test]
+    fn test_built_in_skills_included() {
+        let skills = scan_workspace_skills(Path::new("/tmp/nonexistent"));
+        let find_skills = skills.iter().find(|s| s.id == "find-skills");
+        assert!(find_skills.is_some(), "find-skills should be included");
+        let fs = find_skills.unwrap();
+        assert!(fs.is_builtin, "find-skills should be builtin");
+        assert!(fs.enabled, "find-skills should be enabled by default");
     }
 }

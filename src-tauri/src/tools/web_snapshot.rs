@@ -146,11 +146,10 @@ impl Tool for WebSnapshotTool {
             .map_err(|e| ToolError::Execution(format!("no async runtime: {}", e)))?;
 
         let cwd_owned = cwd.to_path_buf();
-        let result = std::thread::spawn(move || {
-            runtime.block_on(capture_snapshot(&cwd_owned, args))
-        })
-        .join()
-        .map_err(|_| ToolError::Execution("web snapshot thread panicked".to_string()))??;
+        let result =
+            std::thread::spawn(move || runtime.block_on(capture_snapshot(&cwd_owned, args)))
+                .join()
+                .map_err(|_| ToolError::Execution("web snapshot thread panicked".to_string()))??;
 
         Ok(ToolCallOutput {
             ok: true,
@@ -268,13 +267,13 @@ async fn capture_screenshot_with_retry(
     max_retries: u32,
 ) -> Result<Vec<u8>, ToolError> {
     let mut last_error = None;
-    
+
     for attempt in 1..=max_retries {
         // Small delay before each attempt to ensure rendering is complete
         if attempt > 1 {
             tokio::time::sleep(std::time::Duration::from_millis(500)).await;
         }
-        
+
         match if full_page {
             tab.capture_screenshot(CaptureScreenshotFormatOption::Png, None, None, true)
         } else {
@@ -284,11 +283,14 @@ async fn capture_screenshot_with_retry(
             Err(e) => {
                 let error_msg = format!("{}", e);
                 last_error = Some(error_msg.clone());
-                
+
                 // Check if the page might have crashed
                 if error_msg.contains("-32000") || error_msg.contains("Unable to capture") {
-                    eprintln!("[web.snapshot] Screenshot failed (attempt {}/{}): {}", attempt, max_retries, error_msg);
-                    
+                    eprintln!(
+                        "[web.snapshot] Screenshot failed (attempt {}/{}): {}",
+                        attempt, max_retries, error_msg
+                    );
+
                     // Try to re-activate the tab before retry
                     if attempt < max_retries {
                         if let Err(activate_err) = tab.activate() {
@@ -299,12 +301,15 @@ async fn capture_screenshot_with_retry(
                     }
                 } else {
                     // Non-retryable error
-                    return Err(ToolError::Execution(format!("failed to capture screenshot: {}", e)));
+                    return Err(ToolError::Execution(format!(
+                        "failed to capture screenshot: {}",
+                        e
+                    )));
                 }
             }
         }
     }
-    
+
     Err(ToolError::Execution(format!(
         "failed to capture screenshot after {} attempts. Last error: {}",
         max_retries,

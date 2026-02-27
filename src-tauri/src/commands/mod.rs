@@ -1,11 +1,13 @@
 pub mod agent_presets;
 pub mod approvals;
+pub mod context;
 pub mod embeddings;
 pub mod execution;
 pub mod mcp;
 pub mod messages;
 pub mod plan_mode;
 pub mod providers;
+pub mod questions;
 pub mod runs;
 pub mod skills;
 pub mod tasks;

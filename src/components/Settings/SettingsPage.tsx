@@ -1,7 +1,7 @@
 import { ArrowLeft } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { AgentsSection } from "@/components/Settings/AgentsSection";
-import { CompactionSection } from "@/components/Settings/CompactionSection";
+import { ContextSection } from "@/components/Settings/ContextSection";
 import { EmbeddingsSection } from "@/components/Settings/EmbeddingsSection";
 import { GeneralSection } from "@/components/Settings/GeneralSection";
 import { McpSection } from "@/components/Settings/McpSection";
@@ -16,20 +16,23 @@ type SettingsPageProps = {
 
 export function SettingsPage({ section, onBackToChat }: SettingsPageProps) {
   const activeSection = SETTINGS_SECTIONS.find((item) => item.id === section) ?? SETTINGS_SECTIONS[0];
+  const Icon = activeSection.icon;
 
   return (
     <section className="flex h-full min-h-0 w-full flex-col py-4">
-      <div className="flex items-start justify-between gap-3 border-b border-border/70 px-1 pb-4">
-        <div>
-          <div className="flex items-center gap-2">
-            <span className="text-[11px] font-semibold uppercase tracking-widest text-muted-foreground/70">
-              Settings
-            </span>
-            <span className="text-muted-foreground/40">/</span>
-            <span className="text-[11px] font-medium text-muted-foreground">{activeSection.label}</span>
+      <div className="flex items-start justify-between gap-3 border-b border-border-/70 px-1 pb-4">
+        <div className="flex items-center gap-2">
+          <Icon size={18} className="text-muted-foreground" />
+          <div>
+            <div className="flex items-center gap-2">
+              <span className="text-[11px] font-semibold uppercase tracking-widest text-muted-foreground/70">
+                Settings
+              </span>
+              <span className="text-muted-foreground/40">/</span>
+              <span className="text-[11px] font-medium text-muted-foreground">{activeSection.label}</span>
+            </div>
+            <p className="mt-1 text-xs text-muted-foreground">{activeSection.description}</p>
           </div>
-          <h1 className="mt-1 text-lg font-semibold tracking-tight">{activeSection.label}</h1>
-          <p className="mt-1 text-xs text-muted-foreground">{activeSection.description}</p>
         </div>
 
         <Button size="sm" variant="outline" onClick={onBackToChat}>
@@ -57,8 +60,8 @@ function renderSection(section: SettingsSectionId) {
       return <SkillsSection />;
     case "mcp":
       return <McpSection />;
-    case "compaction":
-      return <CompactionSection />;
+    case "context":
+      return <ContextSection />;
     default:
       return <GeneralSection />;
   }

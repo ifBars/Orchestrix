@@ -5,6 +5,7 @@ import * as tool from "./tool";
 import * as subagent from "./subagent";
 import * as task from "./task";
 import * as artifact from "./artifact";
+import * as question from "./question";
 
 export const eventHandlers: Record<string, EventHandler> = {
   "agent.plan_ready": planning.handlePlanReady,
@@ -22,6 +23,8 @@ export const eventHandlers: Record<string, EventHandler> = {
   "agent.deciding": agent.handleDeciding,
   "agent.tool_calls_preparing": agent.handleToolCallsPreparing,
   "agent.subagents_scheduled": agent.handleSubagentsScheduled,
+  "agent.question_required": question.handleQuestionRequired,
+  "agent.question_answered": question.handleQuestionAnswered,
 
   "tool.call_started": tool.handleToolCallStarted,
   "tool.call_finished": tool.handleToolCallFinished,

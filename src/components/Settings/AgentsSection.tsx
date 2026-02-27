@@ -1,5 +1,5 @@
 import { FormEvent, useEffect, useMemo, useState } from "react";
-import { Bot, Plus, Save, Trash2 } from "lucide-react";
+import { Plus, Save, Trash2 } from "lucide-react";
 import { useShallow } from "zustand/shallow";
 import { useAppStore } from "@/stores/appStore";
 import { Button } from "@/components/ui/button";
@@ -167,18 +167,6 @@ export function AgentsSection() {
 
   return (
     <div className="h-full min-h-0">
-      <div className="mb-4">
-        <div className="flex items-center gap-2 text-sm font-semibold">
-          <Bot size={16} />
-          Agent Presets
-        </div>
-        <p className="mt-1 text-xs text-muted-foreground">
-          Human-authored presets discovered from <code className="rounded bg-muted px-1 py-0.5">.agents/agents</code>,
-          <code className="ml-1 rounded bg-muted px-1 py-0.5">.agent/agents</code>, and
-          <code className="ml-1 rounded bg-muted px-1 py-0.5">.opencode/agents</code>.
-        </p>
-      </div>
-
       <div className="grid min-h-0 gap-4 xl:grid-cols-[320px_1fr]">
         <section className="min-h-0 rounded-xl border border-border bg-card/60 p-3 flex flex-col">
           <div className="mb-2 flex items-center gap-2">

@@ -1,6 +1,7 @@
 pub mod agent_presets;
 pub mod mcp;
 pub mod plan;
+pub mod preferences_memory;
 pub mod prompt_references;
 pub mod skills;
 pub mod tool;

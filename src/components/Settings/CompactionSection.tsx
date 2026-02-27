@@ -118,15 +118,6 @@ export function CompactionSection() {
 
   return (
     <div className="space-y-6">
-      <div className="rounded-xl border border-border bg-card/60 p-4">
-        <h3 className="text-lg font-semibold tracking-tight">Conversation Compaction</h3>
-        <p className="text-sm text-muted-foreground">
-          Configure how conversation history is summarized when context limits
-          are approached. This helps maintain context continuity in long
-          conversations.
-        </p>
-      </div>
-
       {error && (
         <div className="rounded-lg border border-destructive/30 bg-destructive/10 p-4 text-sm text-destructive">
           {error}
@@ -342,7 +333,7 @@ export function CompactionSection() {
       </div>
 
       {/* Actions */}
-      <div className="flex gap-2 border-t border-border/70 pt-2">
+      <div className="flex gap-2 border-t border-border-/70 pt-2">
         <Button onClick={saveSettings} disabled={saving}>
           {saving ? "Saving..." : "Save Settings"}
         </Button>

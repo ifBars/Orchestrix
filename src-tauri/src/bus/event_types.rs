@@ -30,6 +30,8 @@ pub const EVENT_AGENT_MESSAGE_STREAM_STARTED: &str = "agent.message_stream_start
 pub const EVENT_AGENT_MESSAGE_DELTA: &str = "agent.message_delta";
 pub const EVENT_AGENT_MESSAGE_STREAM_COMPLETED: &str = "agent.message_stream_completed";
 pub const EVENT_AGENT_MESSAGE_STREAM_CANCELLED: &str = "agent.message_stream_cancelled";
+pub const EVENT_AGENT_QUESTION_REQUIRED: &str = "agent.question_required";
+pub const EVENT_AGENT_QUESTION_ANSWERED: &str = "agent.question_answered";
 
 // ---------------------------------------------------------------------------
 // Flush policy
@@ -49,6 +51,12 @@ pub fn should_flush_immediately(event: &BusEvent) -> bool {
         return true;
     }
     if event.event_type == EVENT_AGENT_TOOL_CALLS_PREPARING {
+        return true;
+    }
+    if event.event_type == EVENT_AGENT_QUESTION_REQUIRED {
+        return true;
+    }
+    if event.event_type == EVENT_AGENT_QUESTION_ANSWERED {
         return true;
     }
     false

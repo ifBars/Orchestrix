@@ -299,6 +299,31 @@ export interface ApprovalRequestView {
   created_at: string;
 }
 
+export interface UserQuestionOption {
+  id: string;
+  label: string;
+  description?: string | null;
+}
+
+export interface UserQuestionRequestView {
+  id: string;
+  task_id: string;
+  run_id: string;
+  sub_agent_id: string;
+  tool_call_id: string;
+  question: string;
+  options: UserQuestionOption[];
+  multiple: boolean;
+  allow_custom: boolean;
+  created_at: string;
+}
+
+export interface UserQuestionAnswer {
+  selected_option_ids: string[];
+  custom_text?: string | null;
+  final_text: string;
+}
+
 export interface UserMessageRow {
   id: string;
   task_id: string;
@@ -329,6 +354,7 @@ export interface WorkspaceSkill {
   files: string[];
   tags: string[];
   enabled: boolean;
+  is_builtin: boolean;
 }
 
 export type McpTransportType = "stdio" | "http" | "sse";
@@ -537,4 +563,20 @@ export interface CompactionSettings {
 export interface PlanModeSettings {
   /** Maximum tokens for plan mode responses (content + reasoning + tool calls) */
   max_tokens: number;
+}
+
+export interface AutoMemorySettingsView {
+  enabled: boolean;
+  source: string;
+}
+
+export interface AutoMemoryPathView {
+  path: string;
+}
+
+export interface MemoryPreferenceEntry {
+  key: string;
+  value: string;
+  category: string | null;
+  updated_at: string;
 }

@@ -10,7 +10,6 @@ import type { WorkspaceReferenceCandidate } from "@/types";
 export function Composer() {
   const [prompt, setPrompt] = useState("");
   const [attachments, setAttachments] = useState<string[]>([]);
-  const [mode, setMode] = useState<"plan" | "build">("plan");
   const [stopping, setStopping] = useState(false);
   const [sending, setSending] = useState(false);
   const [mentionOpen, setMentionOpen] = useState(false);
@@ -32,6 +31,8 @@ export function Composer() {
     selectedProvider,
     selectedModel,
     selectProviderModel,
+    workflowMode,
+    setWorkflowMode,
   ] = useAppStore(
     useShallow((state) => [
       state.createTask,
@@ -44,6 +45,8 @@ export function Composer() {
       state.selectedProvider,
       state.selectedModel,
       state.selectProviderModel,
+      state.workflowMode,
+      state.setWorkflowMode,
     ])
   );
 
@@ -87,7 +90,7 @@ export function Composer() {
       }
     } else {
       // Create new task
-      await createTask(value, { mode, agentPresetId: effectivePresetId ?? undefined });
+      await createTask(value, { mode: workflowMode, agentPresetId: effectivePresetId ?? undefined });
     }
   };
 
@@ -336,9 +339,9 @@ export function Composer() {
               <div className="mr-1 inline-flex items-center rounded-md border border-border/80 bg-background/65 p-0.5">
                 <button
                   type="button"
-                  onClick={() => setMode("plan")}
+                  onClick={() => setWorkflowMode("plan")}
                   className={`rounded px-2 py-1 text-[11px] transition-colors ${
-                    mode === "plan"
+                    workflowMode === "plan"
                       ? "bg-primary/15 text-foreground"
                       : "text-muted-foreground hover:bg-accent/50"
                   }`}
@@ -347,9 +350,9 @@ export function Composer() {
                 </button>
                 <button
                   type="button"
-                  onClick={() => setMode("build")}
+                  onClick={() => setWorkflowMode("build")}
                   className={`rounded px-2 py-1 text-[11px] transition-colors ${
-                    mode === "build"
+                    workflowMode === "build"
                       ? "bg-primary/15 text-foreground"
                       : "text-muted-foreground hover:bg-accent/50"
                   }`}
@@ -432,7 +435,7 @@ export function Composer() {
               title={
                 canContinueChat
                   ? "Send follow-up message"
-                  : mode === "plan"
+                  : workflowMode === "plan"
                   ? "Run Plan mode"
                   : "Run Build mode"
               }

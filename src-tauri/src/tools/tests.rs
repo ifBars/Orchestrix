@@ -29,9 +29,16 @@ mod tests {
         assert!(names.contains(&"git.log".to_string()));
         assert!(names.contains(&"agent.todo".to_string()));
         assert!(names.contains(&"agent.complete".to_string()));
-        assert!(names.contains(&"skills.list".to_string()));
+        assert!(names.contains(&"skills.list_installed".to_string()));
+        assert!(names.contains(&"skills.search".to_string()));
         assert!(names.contains(&"skills.load".to_string()));
+        assert!(names.contains(&"skills.install".to_string()));
         assert!(names.contains(&"skills.remove".to_string()));
+        assert!(names.contains(&"memory.list".to_string()));
+        assert!(names.contains(&"memory.read".to_string()));
+        assert!(names.contains(&"memory.upsert".to_string()));
+        assert!(names.contains(&"memory.delete".to_string()));
+        assert!(names.contains(&"memory.compact".to_string()));
         assert!(names.contains(&"subagent.spawn".to_string()));
         assert!(names.contains(&"agent.request_build_mode".to_string()));
         assert!(names.contains(&"agent.request_plan_mode".to_string()));
@@ -50,15 +57,16 @@ mod tests {
                     || n.starts_with("fs.")
                     || n.starts_with("cmd.")
                     || n.starts_with("search.")
+                    || n.starts_with("memory.")
                     || n.starts_with("subagent.")
                     || n.starts_with("web.")
             })
             .collect();
-        // 27 built-in tools (19 original + fs.patch + search.files + 4 dev_server.* + web.snapshot)
+        // 37 built-in tools after skills/memory/question expansion
         assert_eq!(
             builtin_names.len(),
-            27,
-            "expected 27 built-in tools, got: {:?}",
+            37,
+            "expected 37 built-in tools, got: {:?}",
             builtin_names
         );
     }

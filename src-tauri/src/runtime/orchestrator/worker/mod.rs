@@ -32,6 +32,7 @@ use crate::model::{WorkerAction, WorkerActionRequest};
 use crate::policy::PolicyEngine;
 use crate::runtime::approval::ApprovalGate;
 use crate::runtime::planner::emit_and_record;
+use crate::runtime::questions::UserQuestionGate;
 use crate::runtime::worktree::WorktreeManager;
 use crate::tools::{infer_tool_call, ToolRegistry};
 
@@ -336,6 +337,7 @@ async fn execute_subagent_spawn_observation(
     tool_registry: &ToolRegistry,
     worktree_manager: &WorktreeManager,
     approval_gate: &ApprovalGate,
+    question_gate: &UserQuestionGate,
     run_id: &str,
     task_id: &str,
     sub_agent_id: &str,
@@ -359,6 +361,7 @@ async fn execute_subagent_spawn_observation(
         tool_registry,
         worktree_manager,
         approval_gate,
+        question_gate,
         run_id,
         task_id,
         sub_agent_id,
@@ -413,6 +416,7 @@ pub async fn execute_step_with_tools(
     worktree_manager: &WorktreeManager,
     policy: &PolicyEngine,
     approval_gate: &ApprovalGate,
+    question_gate: &UserQuestionGate,
     run_id: &str,
     task_id: &str,
     sub_agent: &queries::SubAgentRow,
@@ -449,7 +453,6 @@ pub async fn execute_step_with_tools(
         available_tools.retain(|name| contract.permissions.allowed_tools.contains(name));
     }
 
-    let tool_descriptions = tool_registry.tool_reference_for_build_mode(include_embeddings);
     let mut tool_descriptors = tool_registry.list_for_build_mode(include_embeddings);
     tool_descriptors.retain(|tool| available_tools.contains(&tool.name));
 
@@ -485,21 +488,18 @@ pub async fn execute_step_with_tools(
             let mut stream_emitter =
                 MessageStreamEmitter::new(db, bus, run_id, task_id, &sub_agent.id, step.idx, turn);
 
+            let skills_instruction = "\n\nIMPORTANT - Skills: Skills are NOT auto-loaded. To use a skill:\n1. First call skills.list_installed() to see available workspace skills, or skills.search('<query>') to find skills from remote sources.\n2. Then call skills.load() with the skill_id to load its instructions into context.\n3. Do NOT guess skill IDs - always discover them first using the tools above.";
+
             let decision = model
                 .decide_streaming(
                     WorkerActionRequest {
                         task_prompt: task_prompt.clone(),
                         goal_summary: goal_summary.clone(),
-                        context: if skills_context.is_empty() {
-                            format!("{}\n\n{}", step.title, step.description)
-                        } else {
-                            format!(
-                                "{}\n\n{}\n\n{}",
-                                step.title, step.description, skills_context
-                            )
-                        },
+                        context: format!(
+                            "{}\n\n{}{}",
+                            step.title, step.description, skills_instruction
+                        ),
                         available_tools: available_tools.clone(),
-                        tool_descriptions: tool_descriptions.clone(),
                         tool_descriptors: tool_descriptors.clone(),
                         prior_observations: observations.clone(),
                         max_tokens: None, // Worker mode uses default (180k)
@@ -675,6 +675,7 @@ pub async fn execute_step_with_tools(
                             tool_registry,
                             worktree_manager,
                             approval_gate,
+                            question_gate,
                             run_id,
                             task_id,
                             &sub_agent.id,
@@ -720,6 +721,7 @@ pub async fn execute_step_with_tools(
                                 tool_registry,
                                 worktree_manager,
                                 approval_gate,
+                                question_gate,
                                 run_id,
                                 task_id,
                                 &sub_agent.id,
@@ -747,6 +749,7 @@ pub async fn execute_step_with_tools(
                             tool_registry,
                             policy,
                             approval_gate,
+                            question_gate,
                             run_id,
                             task_id,
                             &sub_agent.id,
@@ -802,6 +805,7 @@ pub async fn execute_step_with_tools(
                         tool_registry,
                         worktree_manager,
                         approval_gate,
+                        question_gate,
                         run_id,
                         task_id,
                         &sub_agent.id,
@@ -830,6 +834,7 @@ pub async fn execute_step_with_tools(
                     tool_registry,
                     policy,
                     approval_gate,
+                    question_gate,
                     run_id,
                     task_id,
                     &sub_agent.id,

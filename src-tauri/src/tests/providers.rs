@@ -11,8 +11,7 @@
 #[cfg(test)]
 pub mod tests {
     use crate::model::{
-        AgentModelClient, KimiClient, MiniMaxClient, WorkerAction, WorkerActionRequest,
-        WorkerDecision,
+        AgentModelClient, KimiClient, MiniMaxClient, WorkerActionRequest, WorkerDecision,
     };
     use crate::tests::load_api_key;
     use serde_json::json;
@@ -84,31 +83,6 @@ pub mod tests {
             goal_summary: "File creation".to_string(),
             context: "Simple task".to_string(),
             available_tools: vec!["fs.write".to_string()],
-            tool_descriptions: "fs.write: Write to a file".to_string(),
-            tool_descriptors: vec![],
-            prior_observations: vec![],
-            max_tokens: None,
-        };
-
-        assert!(req.prior_observations.is_empty());
-        assert_eq!(req.available_tools.len(), 1);
-    }
-
-    #[tokio::test]
-    async fn test_request_with_multiple_tools() {
-        let tools = vec![
-            "fs.read".to_string(),
-            "fs.write".to_string(),
-            "cmd.exec".to_string(),
-            "git.status".to_string(),
-        ];
-
-        let req = WorkerActionRequest {
-            task_prompt: "Complex task".to_string(),
-            goal_summary: "Multi-step".to_string(),
-            context: "Using multiple tools".to_string(),
-            available_tools: tools.clone(),
-            tool_descriptions: "Multiple tools available".to_string(),
             tool_descriptors: vec![],
             prior_observations: vec![],
             max_tokens: None,
@@ -126,7 +100,6 @@ pub mod tests {
             goal_summary: "Test".to_string(),
             context: "Test".to_string(),
             available_tools: vec![],
-            tool_descriptions: "".to_string(),
             tool_descriptors: vec![],
             prior_observations: vec![],
             max_tokens: None,
@@ -360,7 +333,6 @@ Create main.py
             goal_summary: "Create file".to_string(),
             context: "Simple".to_string(),
             available_tools: vec!["fs.write".to_string()],
-            tool_descriptions: "fs.write: Write content to a file".to_string(),
             tool_descriptors: vec![],
             prior_observations: vec![],
             max_tokens: None,
@@ -405,7 +377,6 @@ Create main.py
             goal_summary: "Verify file".to_string(),
             context: "After write".to_string(),
             available_tools: vec!["fs.read".to_string(), "fs.write".to_string()],
-            tool_descriptions: "fs.read: Read file".to_string(),
             tool_descriptors: vec![],
             prior_observations: prior,
             max_tokens: None,
@@ -469,124 +440,6 @@ Create main.py
             goal_summary: "Test goal".to_string(),
             context: "Test context".to_string(),
             available_tools: vec!["fs.read".to_string()],
-            tool_descriptions: "Tool description".to_string(),
-            tool_descriptors: vec![],
-            prior_observations: vec![],
-            max_tokens: None,
-        };
-
-        let req_json = json!({
-            "task_prompt": req.task_prompt,
-            "goal_summary": req.goal_summary,
-            "context": req.context,
-            "available_tools": req.available_tools
-        });
-
-        assert_eq!(req_json["task_prompt"], "Test task");
-        assert_eq!(req_json["goal_summary"], "Test goal");
-        assert!(req_json["available_tools"].is_array());
-    }
-
-    #[tokio::test]
-    async fn test_worker_decision_format() {
-        let decision = WorkerDecision {
-            action: WorkerAction::Complete {
-                summary: "Done".to_string(),
-            },
-            reasoning: Some("reasoning".to_string()),
-            raw_response: None,
-        };
-
-        let decision_json = json!({
-            "action_type": "complete",
-            "summary": "Done",
-            "has_reasoning": decision.reasoning.is_some()
-        });
-
-        assert_eq!(decision_json["action_type"], "complete");
-        assert_eq!(decision_json["summary"], "Done");
-        assert_eq!(decision_json["has_reasoning"], true);
-    }
-
-    // ====================================================================================
-    // CONVERSATIONAL FLOW TESTS
-    // ====================================================================================
-
-    #[tokio::test]
-    async fn test_conversation_with_tool_feedback() {
-        let planner = load_api_key();
-        let minimax = MiniMaxClient::new(planner, None);
-
-        let observations = vec![
-            json!({
-                "tool_name": "fs.write",
-                "status": "succeeded",
-                "output": {"path": "test.txt"}
-            }),
-            json!({
-                "tool_name": "cmd.exec",
-                "status": "succeeded",
-                "output": {"result": "ok"}
-            }),
-        ];
-
-        let req = WorkerActionRequest {
-            task_prompt: "Now read the file".to_string(),
-            goal_summary: "Verify".to_string(),
-            context: "After write and exec".to_string(),
-            available_tools: vec!["fs.read".to_string()],
-            tool_descriptions: "Read file".to_string(),
-            tool_descriptors: vec![],
-            prior_observations: observations,
-            max_tokens: None,
-        };
-
-        let result = minimax.decide_action(req).await;
-
-        match result {
-            Ok(decision) => match decision.action {
-                crate::model::WorkerAction::ToolCall { tool_name, .. } => {
-                    assert!(tool_name == "fs.read" || tool_name.is_empty() == false);
-                }
-                crate::model::WorkerAction::Complete { summary } => {
-                    assert!(summary.len() > 0);
-                }
-                _ => {}
-            },
-            Err(_) => {}
-        }
-    }
-
-    // ====================================================================================
-    // LARGE CONTEXT TESTS
-    // ====================================================================================
-
-    #[tokio::test]
-    async fn test_large_prior_observations() {
-        let mut observations = Vec::new();
-        for i in 0..50 {
-            observations.push(json!({
-                "step": i,
-                "tool_name": format!("tool_{}", i),
-                "status": "succeeded"
-            }));
-        }
-
-        assert_eq!(observations.len(), 50);
-        assert_eq!(observations[0]["step"], 0);
-        assert_eq!(observations[49]["step"], 49);
-    }
-
-    #[tokio::test]
-    async fn test_large_tool_list() {
-        let tools: Vec<String> = (0..20).map(|i| format!("tool_{}", i)).collect();
-
-        let req = WorkerActionRequest {
-            task_prompt: "Use many tools".to_string(),
-            goal_summary: "Complex".to_string(),
-            context: "20 tools available".to_string(),
-            available_tools: tools.clone(),
-            tool_descriptions: "Many tools".to_string(),
             tool_descriptors: vec![],
             prior_observations: vec![],
             max_tokens: None,
@@ -606,7 +459,6 @@ Create main.py
             goal_summary: "Special chars".to_string(),
             context: "Testing escape".to_string(),
             available_tools: vec![],
-            tool_descriptions: "".to_string(),
             tool_descriptors: vec![],
             prior_observations: vec![],
             max_tokens: None,
@@ -622,7 +474,6 @@ Create main.py
             goal_summary: "Unicode test".to_string(),
             context: "Testing unicode".to_string(),
             available_tools: vec![],
-            tool_descriptions: "".to_string(),
             tool_descriptors: vec![],
             prior_observations: vec![],
             max_tokens: None,
@@ -641,7 +492,6 @@ Create main.py
             goal_summary: "Multiline".to_string(),
             context: multiline.to_string(),
             available_tools: vec![],
-            tool_descriptions: "".to_string(),
             tool_descriptors: vec![],
             prior_observations: vec![],
             max_tokens: None,

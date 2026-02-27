@@ -48,6 +48,7 @@ pub mod dev_server;
 mod file_search;
 mod fs;
 mod git;
+mod memory;
 pub mod patch;
 mod registry;
 mod search;

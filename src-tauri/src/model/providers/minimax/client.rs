@@ -4,6 +4,7 @@ use serde::{Deserialize, Serialize};
 use crate::core::tool::ToolDescriptor;
 use crate::model::shared::{
     plan_markdown_system_prompt, preferred_response_text, strip_tool_call_markup,
+    worker_system_prompt, worker_user_prompt,
 };
 use crate::model::{
     AgentModelClient, ModelError, StreamDelta, WorkerAction, WorkerActionRequest, WorkerDecision,
@@ -99,11 +100,7 @@ impl MiniMaxClient {
         ];
 
         let response = self
-            .run_chat_json_native(
-                messages,
-                DEFAULT_PLAN_MODE_MAX_TOKENS,
-                tools,
-            )
+            .run_chat_json_native(messages, DEFAULT_PLAN_MODE_MAX_TOKENS, tools)
             .await?;
 
         let markdown = if let Some(ref tool_calls) = response.tool_calls {
@@ -149,8 +146,8 @@ impl MiniMaxClient {
     where
         F: FnMut(StreamDelta) -> Result<(), String> + Send,
     {
-        let system = "You are an autonomous coding worker agent. Use native function calling for tools whenever tool use is needed. You may call multiple tools in one response when beneficial. If and only if the task is complete, respond with plain text summary.";
-        
+        let system = worker_system_prompt();
+
         let tools: Vec<MiniMaxToolDefinition> = req
             .tool_descriptors
             .iter()
@@ -166,7 +163,7 @@ impl MiniMaxClient {
 
         // Reconstruct conversation history from prior observations
         let mut messages = Vec::new();
-        
+
         // 1. System Message
         messages.push(MiniMaxMessage {
             role: "system".to_string(),
@@ -177,20 +174,12 @@ impl MiniMaxClient {
         });
 
         // 2. Initial User Message (Task + Context)
-        let tools_text = if !req.tool_descriptions.is_empty() {
-            req.tool_descriptions.clone()
-        } else if req.available_tools.is_empty() {
-            "(none)".to_string()
-        } else {
-            req.available_tools.join(", ")
-        };
-
-        let user_prompt = format!(
-            "Task:\n{}\n\nGoal:\n{}\n\nContext:\n{}\n\nAvailable Tools:\n{}\n\nUse native function calling when tool use is needed. If the work is complete, reply with a short plain-text completion summary.",
-            req.task_prompt,
-            req.goal_summary,
-            req.context,
-            tools_text,
+        let user_prompt = worker_user_prompt(
+            &req.task_prompt,
+            &req.goal_summary,
+            &req.context,
+            &req.available_tools,
+            None,
         );
 
         messages.push(MiniMaxMessage {
@@ -204,23 +193,34 @@ impl MiniMaxClient {
         // 3. History (Assistant Actions + Tool Observations)
         // We use a simple counter to generate stable IDs for tool calls since we don't store them in WorkerAction
         let mut tool_call_counter = 0;
-        let mut pending_tool_calls: std::collections::VecDeque<String> = std::collections::VecDeque::new();
+        let mut pending_tool_calls: std::collections::VecDeque<String> =
+            std::collections::VecDeque::new();
 
         for obs in req.prior_observations {
             // Check if this is an Assistant Turn (injected by us in worker/mod.rs)
             if let Some(role) = obs.get("role").and_then(|v| v.as_str()) {
                 if role == "assistant" {
-                    let content = obs.get("reasoning").and_then(|v| v.as_str()).unwrap_or("").to_string();
+                    let content = obs
+                        .get("reasoning")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("")
+                        .to_string();
                     let tool_calls_json = obs.get("tool_calls").and_then(|v| v.as_array());
-                    
+
                     let mut minimax_tool_calls = None;
                     if let Some(calls) = tool_calls_json {
                         if !calls.is_empty() {
                             let mut mapped_calls = Vec::new();
                             for call in calls {
-                                let tool_name = call.get("tool_name").and_then(|v| v.as_str()).unwrap_or("unknown");
-                                let tool_args = call.get("tool_args").unwrap_or(&serde_json::json!({})).to_string();
-                                
+                                let tool_name = call
+                                    .get("tool_name")
+                                    .and_then(|v| v.as_str())
+                                    .unwrap_or("unknown");
+                                let tool_args = call
+                                    .get("tool_args")
+                                    .unwrap_or(&serde_json::json!({}))
+                                    .to_string();
+
                                 // Generate ID and queue it for the next observation
                                 let call_id = format!("call_{}", tool_call_counter);
                                 tool_call_counter += 1;
@@ -241,7 +241,11 @@ impl MiniMaxClient {
 
                     messages.push(MiniMaxMessage {
                         role: "assistant".to_string(),
-                        content: if content.is_empty() && minimax_tool_calls.is_some() { None } else { Some(content) },
+                        content: if content.is_empty() && minimax_tool_calls.is_some() {
+                            None
+                        } else {
+                            Some(content)
+                        },
                         tool_calls: minimax_tool_calls,
                         tool_call_id: None,
                         name: None,
@@ -270,7 +274,7 @@ impl MiniMaxClient {
                     // Orphan case
                     let id = format!("call_orphan_{}", tool_call_counter);
                     tool_call_counter += 1;
-                    
+
                     // Fixup history
                     let needs_new_msg = if let Some(last) = messages.last() {
                         last.role != "assistant"
@@ -651,7 +655,11 @@ impl MiniMaxClient {
                                 name: entry.function_name,
                                 arguments: entry.arguments,
                             },
-                            id: if entry.id.is_empty() { None } else { Some(entry.id) },
+                            id: if entry.id.is_empty() {
+                                None
+                            } else {
+                                Some(entry.id)
+                            },
                         })
                     })
                     .collect::<Vec<_>>(),

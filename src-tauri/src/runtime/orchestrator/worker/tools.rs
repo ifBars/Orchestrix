@@ -12,6 +12,7 @@ use crate::db::{queries, Database};
 use crate::policy::PolicyEngine;
 use crate::runtime::approval::ApprovalGate;
 use crate::runtime::planner::emit_and_record;
+use crate::runtime::questions::UserQuestionGate;
 use crate::tools::{ToolCallInput, ToolError, ToolRegistry};
 
 /// Execute a single tool call with full lifecycle management.
@@ -29,6 +30,7 @@ pub async fn execute_tool_call(
     tool_registry: &ToolRegistry,
     policy: &PolicyEngine,
     approval_gate: &ApprovalGate,
+    question_gate: &UserQuestionGate,
     run_id: &str,
     task_id: &str,
     sub_agent_id: &str,
@@ -170,6 +172,79 @@ pub async fn execute_tool_call(
             invocation = Err(ToolError::PolicyDenied(format!(
                 "approval denied for scope: {scope}"
             )));
+        }
+    }
+
+    if let Err(ToolError::UserQuestionRequired { question }) = &invocation {
+        let _ = queries::update_tool_call_result(
+            db,
+            &tool_call_id,
+            "awaiting_user",
+            None,
+            None,
+            Some(&question.question),
+        );
+
+        let (request, receiver) = question_gate.request(
+            task_id,
+            run_id,
+            sub_agent_id,
+            &tool_call_id,
+            question.question.clone(),
+            question.options.clone(),
+            question.multiple,
+            question.allow_custom,
+        );
+
+        let _ = emit_and_record(
+            db,
+            bus,
+            "agent",
+            "agent.question_required",
+            Some(run_id.to_string()),
+            serde_json::to_value(&request).unwrap_or_else(|_| {
+                serde_json::json!({
+                    "task_id": task_id,
+                    "run_id": run_id,
+                    "sub_agent_id": sub_agent_id,
+                    "tool_call_id": tool_call_id,
+                    "question": question.question,
+                })
+            }),
+        );
+
+        match timeout(Duration::from_secs(300), receiver).await {
+            Ok(Ok(answer)) => {
+                let _ = emit_and_record(
+                    db,
+                    bus,
+                    "agent",
+                    "agent.question_answered",
+                    Some(run_id.to_string()),
+                    serde_json::json!({
+                        "task_id": task_id,
+                        "run_id": run_id,
+                        "sub_agent_id": sub_agent_id,
+                        "tool_call_id": tool_call_id,
+                        "question_id": request.id,
+                        "answer": answer,
+                    }),
+                );
+
+                invocation = Ok(crate::tools::ToolCallOutput {
+                    ok: true,
+                    data: serde_json::json!({
+                        "question_id": request.id,
+                        "answer": answer,
+                    }),
+                    error: None,
+                });
+            }
+            _ => {
+                invocation = Err(ToolError::Execution(
+                    "user question timed out or was cancelled".to_string(),
+                ));
+            }
         }
     }
 

@@ -5,10 +5,291 @@
     <link rel="icon" type="image/svg+xml" href="/vite.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Orchestrix</title>
+    <script>
+      window.__appLoadFailed = false;
+
+      window.onerror = function (msg, url, lineNo, columnNo, error) {
+        if (typeof msg === 'string' && msg.includes("ResizeObserver loop completed with undelivered notifications")) {
+          return true;
+        }
+
+        window.__appLoadFailed = true;
+
+        const loading = document.getElementById('initial-loading');
+        const statusText = loading && loading.querySelector('.boot-status-text');
+        const spinner = loading && loading.querySelector('.boot-spinner');
+
+        if (statusText) {
+          statusText.textContent = 'Failed to load app';
+          statusText.style.color = '#ff5555';
+        }
+        if (spinner) {
+          spinner.style.borderTopColor = '#ff5555';
+        }
+
+        const errorDiv = document.createElement('div');
+        errorDiv.style.position = 'fixed';
+        errorDiv.style.top = '0';
+        errorDiv.style.left = '0';
+        errorDiv.style.width = '100%';
+        errorDiv.style.padding = '20px';
+        errorDiv.style.background = '#ff0000';
+        errorDiv.style.color = '#ffffff';
+        errorDiv.style.zIndex = '100001';
+        errorDiv.style.fontFamily = 'monospace';
+        errorDiv.style.fontSize = '12px';
+        errorDiv.style.whiteSpace = 'pre-wrap';
+        errorDiv.style.maxHeight = '40vh';
+        errorDiv.style.overflow = 'auto';
+
+        const errorMessage = 'Orchestrix Frontend Error:\n' + msg + '\n\nFile: ' + url + '\nLine: ' + lineNo + ':' + columnNo;
+        if (error && error.stack) {
+          errorDiv.textContent = errorMessage + '\n\nStack trace:\n' + error.stack;
+        } else {
+          errorDiv.textContent = errorMessage;
+        }
+
+        document.body.appendChild(errorDiv);
+        return false;
+      };
+
+      window.onunhandledrejection = function (event) {
+        window.__appLoadFailed = true;
+
+        const loading = document.getElementById('initial-loading');
+        const statusText = loading && loading.querySelector('.boot-status-text');
+        const spinner = loading && loading.querySelector('.boot-spinner');
+
+        if (statusText) {
+          statusText.textContent = 'Failed to load app';
+          statusText.style.color = '#ff5555';
+        }
+        if (spinner) {
+          spinner.style.borderTopColor = '#ff5555';
+        }
+
+        const errorDiv = document.createElement('div');
+        errorDiv.style.position = 'fixed';
+        errorDiv.style.bottom = '0';
+        errorDiv.style.left = '0';
+        errorDiv.style.width = '100%';
+        errorDiv.style.padding = '20px';
+        errorDiv.style.background = '#aa0000';
+        errorDiv.style.color = '#ffffff';
+        errorDiv.style.zIndex = '100001';
+        errorDiv.style.fontFamily = 'monospace';
+        errorDiv.style.fontSize = '12px';
+        errorDiv.style.whiteSpace = 'pre-wrap';
+        errorDiv.style.maxHeight = '40vh';
+        errorDiv.style.overflow = 'auto';
+
+        const reason = event.reason;
+        errorDiv.textContent = 'Unhandled Promise Rejection:\n' +
+          (reason && reason.stack ? reason.stack : String(reason));
+
+        document.body.appendChild(errorDiv);
+      };
+    </script>
+    <script>
+      (function () {
+        try {
+          const raw = localStorage.getItem("orchestrix-settings");
+          const parsed = raw ? JSON.parse(raw) : null;
+          const state = parsed && typeof parsed === "object" ? parsed.state : null;
+
+          const theme = state?.theme === "light" ? "light" : "dark";
+
+          const root = document.documentElement;
+          root.setAttribute("data-theme", theme);
+
+          if (theme === "dark") root.classList.add("dark");
+          else root.classList.remove("dark");
+        } catch (_e) {}
+      })();
+    </script>
+    <style>
+      :root {
+        --background: oklch(0.948 0.004 240);
+        --foreground: oklch(0.145 0.004 255);
+        --card: oklch(0.999 0.001 240);
+        --card-foreground: oklch(0.15 0.004 255);
+        --primary: oklch(0.3 0.02 252);
+        --muted: oklch(0.912 0.004 242);
+        --muted-foreground: oklch(0.37 0.008 255);
+        --border: oklch(0.82 0.006 250);
+        --radius: 0.75rem;
+        --radius-sm: 0.5rem;
+        --radius-lg: 1rem;
+      }
+
+      [data-theme="dark"] {
+        --background: oklch(0.14 0.01 260);
+        --foreground: oklch(0.93 0.006 255);
+        --card: oklch(0.18 0.012 260);
+        --card-foreground: oklch(0.93 0.006 255);
+        --primary: oklch(0.68 0.14 235);
+        --muted: oklch(0.22 0.01 260);
+        --muted-foreground: oklch(0.65 0.008 260);
+        --border: oklch(0.28 0.008 260);
+      }
+
+      html,
+      body,
+      #root {
+        height: 100%;
+        margin: 0;
+        padding: 0;
+        background: var(--background);
+      }
+
+      body {
+        font-family: "Geist", "IBM Plex Sans", "Segoe UI", sans-serif;
+        -webkit-font-smoothing: antialiased;
+        -moz-osx-font-smoothing: grayscale;
+      }
+
+      #initial-loading {
+        position: fixed;
+        inset: 0;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        background: var(--background);
+        z-index: 9999;
+        will-change: opacity, transform;
+        transition: opacity 220ms ease, transform 220ms ease;
+      }
+
+      #initial-loading::before {
+        content: "";
+        position: absolute;
+        inset: 0;
+        background:
+          radial-gradient(circle at 50% 30%, color-mix(in oklch, var(--primary) 3%, transparent) 0%, transparent 50%);
+        pointer-events: none;
+        opacity: 0.8;
+      }
+
+      #initial-loading.is-hidden {
+        opacity: 0;
+        transform: scale(0.98);
+        pointer-events: none;
+      }
+
+      .boot-content {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 2rem;
+        z-index: 1;
+      }
+
+      .boot-branding {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 0.5rem;
+      }
+
+      .boot-title {
+        font-size: 3rem;
+        line-height: 1;
+        letter-spacing: -0.025em;
+        font-weight: 700;
+        color: var(--primary);
+        font-family: sans-serif;
+      }
+
+      .boot-tag {
+        font-size: 0.875rem;
+        font-weight: 500;
+        color: color-mix(in oklch, var(--muted-foreground) 80%, transparent);
+        letter-spacing: 0.05em;
+        text-transform: uppercase;
+      }
+
+      .boot-status-row {
+        display: flex;
+        align-items: center;
+        gap: 0.75rem;
+        margin-top: 1rem;
+        padding: 0.5rem 1rem;
+        border-radius: 999px;
+        background: color-mix(in oklch, var(--muted) 50%, transparent);
+      }
+
+      .boot-spinner {
+        width: 1rem;
+        height: 1rem;
+        border-radius: 999px;
+        border: 2px solid color-mix(in oklch, var(--primary) 22%, transparent);
+        border-top-color: var(--primary);
+        animation: bootSpin 0.85s linear infinite;
+      }
+
+      .boot-status-text {
+        font-size: 0.8rem;
+        font-weight: 500;
+        color: var(--muted-foreground);
+      }
+
+      @keyframes bootSpin {
+        to {
+          transform: rotate(360deg);
+        }
+      }
+    </style>
   </head>
 
   <body>
     <div id="root"></div>
+    <div id="initial-loading">
+      <div class="boot-content">
+        <div class="boot-branding">
+          <div class="boot-title">Orchestrix</div>
+          <div class="boot-tag">AI Agent Orchestration</div>
+        </div>
+
+        <div class="boot-status-row">
+          <div class="boot-spinner"></div>
+          <div class="boot-status-text">Loading workspace</div>
+        </div>
+      </div>
+    </div>
     <script type="module" src="/src/main.tsx"></script>
+    <script>
+      (function () {
+        const root = document.getElementById('root');
+        const loading = document.getElementById('initial-loading');
+        if (!root || !loading) return;
+
+        let hidden = false;
+        const hide = () => {
+          if (hidden || window.__appLoadFailed) return;
+          hidden = true;
+          loading.classList.add('is-hidden');
+          setTimeout(() => {
+            loading.remove();
+          }, 260);
+        };
+
+        const observer = new MutationObserver(function () {
+          if (root.hasAttribute('data-app-ready')) {
+            hide();
+            observer.disconnect();
+          }
+        });
+
+        observer.observe(root, { attributes: true, attributeFilter: ['data-app-ready'] });
+
+        setTimeout(function () {
+          if (!window.__appLoadFailed) {
+            hide();
+            observer.disconnect();
+          }
+        }, 5000);
+      })();
+    </script>
   </body>
 </html>

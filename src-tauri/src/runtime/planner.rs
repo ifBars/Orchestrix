@@ -16,6 +16,7 @@ use crate::model::{
 use crate::policy::PolicyEngine;
 use crate::runtime::approval::ApprovalGate;
 use crate::runtime::plan_mode_settings::get_plan_mode_max_tokens;
+use crate::runtime::questions::UserQuestionGate;
 use crate::tools::ToolRegistry;
 
 /// Returned from plan generation; run_id and artifact_path are for future API/UI use.
@@ -43,15 +44,15 @@ async fn run_multi_turn_planning<P: AgentModelClient>(
     tool_registry: &ToolRegistry,
     policy: &PolicyEngine,
     approval_gate: &ApprovalGate,
+    question_gate: &UserQuestionGate,
     workspace_root: &std::path::Path,
     max_tokens: u32,
-    include_embeddings: bool,
+    _include_embeddings: bool,
 ) -> Result<(String, Option<String>), String> {
     let mut observations: Vec<serde_json::Value> = Vec::new();
     let mut turn: usize = 0;
 
     let available_tools: Vec<String> = tool_descriptors.iter().map(|t| t.name.clone()).collect();
-    let tool_descriptions = tool_registry.tool_reference_for_plan_mode(include_embeddings);
 
     loop {
         turn += 1;
@@ -75,7 +76,7 @@ async fn run_multi_turn_planning<P: AgentModelClient>(
             }),
         );
 
-        let plan_mode_instruction = "You are in PLAN mode. Use tools (e.g. fs.list, fs.read, search.rg) to explore the workspace if needed. When ready, submit your plan by calling agent.create_artifact with filename (e.g. plan.md), kind \"plan\", and content set to your full markdown plan. Do not reply with a plain-text completion summary until you have called agent.create_artifact.";
+        let plan_mode_instruction = "You are in PLAN mode. Use tools (e.g. fs.list, fs.read, search.rg) to explore the workspace if needed. When ready, submit your plan by calling agent.create_artifact with filename (e.g. plan.md), kind \"plan\", and content set to your full markdown plan. Do not reply with a plain-text completion summary until you have called agent.create_artifact.\n\nIMPORTANT - Skills: Skills are NOT auto-loaded. To use a skill:\n1. First call skills.list_installed() to see available workspace skills, or skills.search('<query>') to find skills from remote sources.\n2. Then call skills.load() with the skill_id to load its instructions into context.\n3. Do NOT guess skill IDs - always discover them first using the tools above.";
         let full_context = if skills_context.is_empty() {
             format!("{}\n\n{}", plan_mode_instruction, context)
         } else {
@@ -94,7 +95,6 @@ async fn run_multi_turn_planning<P: AgentModelClient>(
                         .to_string(),
                 context: full_context.to_string(),
                 available_tools: available_tools.clone(),
-                tool_descriptions: tool_descriptions.clone(),
                 tool_descriptors: tool_descriptors.clone(),
                 prior_observations: observations.clone(),
                 max_tokens: Some(max_tokens),
@@ -161,6 +161,7 @@ async fn run_multi_turn_planning<P: AgentModelClient>(
                     tool_registry,
                     policy,
                     approval_gate,
+                    question_gate,
                     workspace_root,
                     turn,
                 )
@@ -177,6 +178,7 @@ async fn run_multi_turn_planning<P: AgentModelClient>(
                     tool_registry,
                     policy,
                     approval_gate,
+                    question_gate,
                     workspace_root,
                     turn,
                 )
@@ -210,6 +212,7 @@ async fn handle_planning_tool_calls(
     tool_registry: &ToolRegistry,
     policy: &PolicyEngine,
     approval_gate: &ApprovalGate,
+    question_gate: &UserQuestionGate,
     workspace_root: &std::path::Path,
     turn: usize,
 ) -> Result<(), String> {
@@ -356,6 +359,78 @@ async fn handle_planning_tool_calls(
             }
         }
 
+        if let Err(ToolError::UserQuestionRequired { question }) = &invocation {
+            queries::update_tool_call_result(
+                db,
+                &tool_call_id,
+                "awaiting_user",
+                None,
+                None,
+                Some(&question.question),
+            )
+            .map_err(|e| e.to_string())?;
+
+            let (request, receiver) = question_gate.request(
+                task_id,
+                run_id,
+                "",
+                &tool_call_id,
+                question.question.clone(),
+                question.options.clone(),
+                question.multiple,
+                question.allow_custom,
+            );
+
+            let _ = emit_and_record(
+                db,
+                bus,
+                "agent",
+                "agent.question_required",
+                Some(run_id.to_string()),
+                serde_json::to_value(&request).unwrap_or_else(|_| {
+                    serde_json::json!({
+                        "task_id": task_id,
+                        "run_id": run_id,
+                        "tool_call_id": tool_call_id,
+                        "question": question.question,
+                    })
+                }),
+            );
+
+            match timeout(Duration::from_secs(300), receiver).await {
+                Ok(Ok(answer)) => {
+                    let _ = emit_and_record(
+                        db,
+                        bus,
+                        "agent",
+                        "agent.question_answered",
+                        Some(run_id.to_string()),
+                        serde_json::json!({
+                            "task_id": task_id,
+                            "run_id": run_id,
+                            "tool_call_id": tool_call_id,
+                            "question_id": request.id,
+                            "answer": answer,
+                        }),
+                    );
+
+                    invocation = Ok(crate::tools::ToolCallOutput {
+                        ok: true,
+                        data: serde_json::json!({
+                            "question_id": request.id,
+                            "answer": answer,
+                        }),
+                        error: None,
+                    });
+                }
+                _ => {
+                    invocation = Err(ToolError::Execution(
+                        "user question timed out or was cancelled".to_string(),
+                    ));
+                }
+            }
+        }
+
         match invocation {
             Ok(output) => {
                 let output_json = output.data.to_string();
@@ -496,6 +571,7 @@ pub async fn generate_plan_markdown_artifact(
     plan_mode_tools: Vec<ToolDescriptor>,
     tool_registry: Arc<ToolRegistry>,
     approval_gate: Arc<ApprovalGate>,
+    question_gate: Arc<UserQuestionGate>,
     include_embeddings: bool,
 ) -> Result<PlanningOutcome, String> {
     let run_id = match existing_run_id {
@@ -547,9 +623,10 @@ pub async fn generate_plan_markdown_artifact(
 
     let existing_markdown = collect_existing_markdown(&db, &task_id);
 
-    // Load workspace skills and append their context to the planner input
-    let workspace_skills = crate::core::workspace_skills::scan_workspace_skills(&workspace_root);
-    let skills_context = crate::core::workspace_skills::build_skills_context(&workspace_skills);
+    // NOTE: Skills are NOT auto-loaded into context anymore.
+    // Agents must explicitly use skills.list_installed() and skills.load() to activate skills.
+    // This prevents context bloat as skill count grows.
+    let skills_context = "";
 
     let context = {
         let mut ctx = if let Some(note) = revision_note.as_ref() {
@@ -589,6 +666,7 @@ pub async fn generate_plan_markdown_artifact(
                 tool_registry.as_ref(),
                 &policy,
                 approval_gate.as_ref(),
+                question_gate.as_ref(),
                 &workspace_root,
                 max_tokens,
                 include_embeddings,
@@ -611,6 +689,7 @@ pub async fn generate_plan_markdown_artifact(
                 tool_registry.as_ref(),
                 &policy,
                 approval_gate.as_ref(),
+                question_gate.as_ref(),
                 &workspace_root,
                 max_tokens,
                 include_embeddings,
@@ -633,6 +712,7 @@ pub async fn generate_plan_markdown_artifact(
                 tool_registry.as_ref(),
                 &policy,
                 approval_gate.as_ref(),
+                question_gate.as_ref(),
                 &workspace_root,
                 max_tokens,
                 include_embeddings,
@@ -655,6 +735,7 @@ pub async fn generate_plan_markdown_artifact(
                 tool_registry.as_ref(),
                 &policy,
                 approval_gate.as_ref(),
+                question_gate.as_ref(),
                 &workspace_root,
                 max_tokens,
                 include_embeddings,

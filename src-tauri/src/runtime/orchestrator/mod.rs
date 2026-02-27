@@ -39,6 +39,7 @@ use crate::tools::ToolRegistry;
 
 use super::approval::{ApprovalGate, ApprovalRequest};
 use super::planner::emit_and_record;
+use super::questions::{UserQuestionAnswer, UserQuestionGate, UserQuestionRequest};
 use super::worktree::{WorktreeManager, WorktreeStrategy};
 
 mod sub_agent;
@@ -53,6 +54,7 @@ pub struct Orchestrator {
     tool_registry: Arc<ToolRegistry>,
     worktree_manager: Arc<WorktreeManager>,
     approval_gate: Arc<ApprovalGate>,
+    question_gate: Arc<UserQuestionGate>,
     active: Arc<Mutex<HashMap<String, tauri::async_runtime::JoinHandle<()>>>>,
 }
 
@@ -165,6 +167,7 @@ impl Orchestrator {
             tool_registry: Arc::new(ToolRegistry::default()),
             worktree_manager: Arc::new(WorktreeManager::new()),
             approval_gate: Arc::new(ApprovalGate::default()),
+            question_gate: Arc::new(UserQuestionGate::default()),
             active: Arc::new(Mutex::new(HashMap::new())),
         }
     }
@@ -179,6 +182,10 @@ impl Orchestrator {
 
     pub fn approval_gate(&self) -> &Arc<ApprovalGate> {
         &self.approval_gate
+    }
+
+    pub fn question_gate(&self) -> &Arc<UserQuestionGate> {
+        &self.question_gate
     }
 
     pub fn set_workspace_root(&self, workspace_root: PathBuf) {
@@ -199,6 +206,18 @@ impl Orchestrator {
         approve: bool,
     ) -> Result<ApprovalRequest, String> {
         self.approval_gate.resolve(approval_id, approve)
+    }
+
+    pub fn list_pending_questions(&self, task_id: Option<&str>) -> Vec<UserQuestionRequest> {
+        self.question_gate.list_pending(task_id)
+    }
+
+    pub fn resolve_question(
+        &self,
+        question_id: &str,
+        answer: UserQuestionAnswer,
+    ) -> Result<UserQuestionRequest, String> {
+        self.question_gate.resolve(question_id, answer)
     }
 
     fn current_workspace_root(&self) -> PathBuf {

@@ -1,8 +1,14 @@
-import { memo, useEffect, useMemo, useRef } from "react";
+import { memo, useEffect, useMemo, useRef, useState } from "react";
 import { AlertTriangle } from "lucide-react";
 import { runtimeEventBuffer, type ConversationItem } from "@/runtime/eventBuffer";
 import type { AgentMessageStream } from "@/runtime/eventBuffer";
-import type { ApprovalRequestView, BusEvent, TaskRow } from "@/types";
+import type {
+  ApprovalRequestView,
+  BusEvent,
+  TaskRow,
+  UserQuestionAnswer,
+  UserQuestionRequestView,
+} from "@/types";
 import { groupConversationItems } from "@/lib/groupConversationItems";
 import { AgentTodoPanel } from "./AgentTodoPanel";
 import { DebugEvents } from "./DebugEvents";
@@ -36,8 +42,11 @@ type ConversationTimelineProps = {
   rawEvents: BusEvent[];
   agentTodos: ReturnType<typeof runtimeEventBuffer.getAgentTodos>;
   pendingApprovals: ApprovalRequestView[];
+  pendingQuestions: UserQuestionRequestView[];
   resolvingApprovalId: string | null;
+  resolvingQuestionId: string | null;
   onResolveApproval: (approvalId: string, approve: boolean) => Promise<void>;
+  onResolveQuestion: (questionId: string, answer: UserQuestionAnswer) => Promise<void>;
 };
 
 type TimelineBlocksViewProps = {
@@ -82,6 +91,10 @@ export function ConversationTimeline(props: ConversationTimelineProps) {
   const isBranchPrompt = props.task.prompt.startsWith("Branch:");
   const introPrompt = hasUserMessagesInTimeline || isBranchPrompt ? null : props.task.prompt;
   const bottomRef = useRef<HTMLDivElement>(null);
+  const [selectedOptionIdsByQuestion, setSelectedOptionIdsByQuestion] = useState<
+    Record<string, string[]>
+  >({});
+  const [customTextByQuestion, setCustomTextByQuestion] = useState<Record<string, string>>({});
 
   // Auto-scroll to bottom when new content arrives
   useEffect(() => {
@@ -176,6 +189,107 @@ export function ConversationTimeline(props: ConversationTimelineProps) {
                 </div>
               </div>
             ))}
+          </div>
+        </div>
+      )}
+
+      {props.pendingQuestions.length > 0 && (
+        <div className="rounded-xl border border-primary/30 bg-primary/5 p-4">
+          <div className="mb-2 flex items-center gap-2 text-sm font-medium text-primary">
+            <AlertTriangle size={14} />
+            Question for you
+          </div>
+          <div className="space-y-3">
+            {props.pendingQuestions.map((question) => {
+              const selected = selectedOptionIdsByQuestion[question.id] ?? [];
+              const customText = customTextByQuestion[question.id] ?? "";
+              return (
+                <div
+                  key={question.id}
+                  className="rounded-lg border border-primary/25 bg-background/60 p-3"
+                >
+                  <p className="text-sm text-foreground">{question.question}</p>
+                  <div className="mt-2 space-y-2">
+                    {question.options.map((option) => {
+                      const checked = selected.includes(option.id);
+                      return (
+                        <label key={option.id} className="flex items-start gap-2 text-xs">
+                          <input
+                            type={question.multiple ? "checkbox" : "radio"}
+                            name={`question-${question.id}`}
+                            checked={checked}
+                            onChange={() => {
+                              setSelectedOptionIdsByQuestion((prev) => {
+                                if (question.multiple) {
+                                  const current = prev[question.id] ?? [];
+                                  const next = current.includes(option.id)
+                                    ? current.filter((id) => id !== option.id)
+                                    : [...current, option.id];
+                                  return { ...prev, [question.id]: next };
+                                }
+                                return { ...prev, [question.id]: [option.id] };
+                              });
+                            }}
+                            className="mt-0.5"
+                          />
+                          <span>
+                            <span className="font-medium text-foreground">{option.label}</span>
+                            {option.description ? (
+                              <span className="ml-1 text-muted-foreground">
+                                {option.description}
+                              </span>
+                            ) : null}
+                          </span>
+                        </label>
+                      );
+                    })}
+                  </div>
+                  <textarea
+                    value={customText}
+                    onChange={(event) => {
+                      const value = event.target.value;
+                      setCustomTextByQuestion((prev) => ({
+                        ...prev,
+                        [question.id]: value,
+                      }));
+                    }}
+                    className="mt-3 w-full rounded-md border border-input bg-background px-2 py-1.5 text-xs"
+                    rows={3}
+                    placeholder={
+                      question.allow_custom
+                        ? "Optional custom answer"
+                        : "Add optional notes"
+                    }
+                  />
+                  <div className="mt-2 flex justify-end">
+                    <button
+                      type="button"
+                      disabled={props.resolvingQuestionId === question.id}
+                      onClick={() => {
+                        const pickedLabels = question.options
+                          .filter((option) => selected.includes(option.id))
+                          .map((option) => option.label);
+                        const finalText =
+                          customText.trim() ||
+                          (pickedLabels.length > 0
+                            ? pickedLabels.join(question.multiple ? ", " : "")
+                            : "");
+                        props
+                          .onResolveQuestion(question.id, {
+                            selected_option_ids: selected,
+                            custom_text: customText.trim() ? customText.trim() : null,
+                            final_text: finalText,
+                          })
+                          .catch(console.error);
+                      }}
+                      className="inline-flex items-center gap-1 rounded-lg bg-primary px-2.5 py-1 text-xs font-medium text-primary-foreground transition-colors hover:bg-primary/90 disabled:opacity-60"
+                    >
+                      Submit
+                    </button>
+                  </div>
+                </div>
+              );
+            })}
           </div>
         </div>
       )}
