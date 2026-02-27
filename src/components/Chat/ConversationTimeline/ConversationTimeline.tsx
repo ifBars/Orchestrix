@@ -1,11 +1,5 @@
 import { memo, useEffect, useMemo, useRef } from "react";
-import {
-  AlertTriangle,
-  CheckCircle2,
-  Clock3,
-  Loader2,
-  XCircle,
-} from "lucide-react";
+import { AlertTriangle } from "lucide-react";
 import { runtimeEventBuffer, type ConversationItem } from "@/runtime/eventBuffer";
 import type { AgentMessageStream } from "@/runtime/eventBuffer";
 import type { ApprovalRequestView, BusEvent, TaskRow } from "@/types";
@@ -15,47 +9,6 @@ import { DebugEvents } from "./DebugEvents";
 import { SubAgentActivityPanel } from "./SubAgentActivityPanel";
 import { AgentStreamItem, PlanMessage, UserMessage } from "./messages";
 import { ConversationItemView, ToolCallBatchItem } from "./items";
-
-const phaseVisual: Record<
-  string,
-  { label: string; tone: string; badgeTone: string }
-> = {
-  pending: {
-    label: "Pending",
-    tone: "border-border/70 bg-background/70 text-muted-foreground",
-    badgeTone: "bg-muted text-muted-foreground",
-  },
-  planning: {
-    label: "Planning",
-    tone: "border-info/35 bg-info/8 text-info",
-    badgeTone: "bg-info/15 text-info",
-  },
-  awaiting_review: {
-    label: "Awaiting review",
-    tone: "border-warning/35 bg-warning/8 text-warning",
-    badgeTone: "bg-warning/15 text-warning",
-  },
-  executing: {
-    label: "Executing",
-    tone: "border-info/35 bg-info/8 text-info",
-    badgeTone: "bg-info/15 text-info",
-  },
-  completed: {
-    label: "Completed",
-    tone: "border-success/35 bg-success/8 text-success",
-    badgeTone: "bg-success/15 text-success",
-  },
-  failed: {
-    label: "Failed",
-    tone: "border-destructive/35 bg-destructive/8 text-destructive",
-    badgeTone: "bg-destructive/15 text-destructive",
-  },
-  cancelled: {
-    label: "Cancelled",
-    tone: "border-warning/35 bg-warning/8 text-warning",
-    badgeTone: "bg-warning/15 text-warning",
-  },
-};
 
 type ConversationTimelineProps = {
   task: TaskRow;
@@ -128,10 +81,6 @@ export function ConversationTimeline(props: ConversationTimelineProps) {
   );
   const isBranchPrompt = props.task.prompt.startsWith("Branch:");
   const introPrompt = hasUserMessagesInTimeline || isBranchPrompt ? null : props.task.prompt;
-  const phase = phaseVisual[props.task.status] ?? phaseVisual.pending;
-  const isRunning = props.task.status === "planning" || props.task.status === "executing";
-  const hasExecutionProgress =
-    props.executionSummary && props.executionSummary.totalSteps > 0 && props.task.status === "executing";
   const bottomRef = useRef<HTMLDivElement>(null);
 
   // Auto-scroll to bottom when new content arrives
@@ -148,65 +97,6 @@ export function ConversationTimeline(props: ConversationTimelineProps) {
 
   return (
     <div className="mr-auto flex w-full max-w-[1180px] flex-col gap-3 pb-4">
-      <div className={`rounded-xl border px-3.5 py-2.5 ${phase.tone}`}>
-        <div className="flex flex-wrap items-center gap-2">
-          <div className="inline-flex items-center gap-2">
-            {isRunning ? (
-              <Loader2 size={13} className="animate-spin" />
-            ) : props.task.status === "completed" ? (
-              <CheckCircle2 size={13} />
-            ) : props.task.status === "failed" ? (
-              <XCircle size={13} />
-            ) : props.task.status === "awaiting_review" ? (
-              <Clock3 size={13} />
-            ) : (
-              <Clock3 size={13} />
-            )}
-            <span className="text-xs font-semibold">{phase.label}</span>
-          </div>
-
-          <span className={`rounded-full px-1.5 py-0.5 text-[10px] font-medium ${phase.badgeTone}`}>
-            {props.task.status.replace(/_/g, " ")}
-          </span>
-
-          {hasExecutionProgress && props.executionSummary && (
-            <span className="text-[11px] text-muted-foreground">
-              Step {props.executionSummary.completedSteps + 1}/{props.executionSummary.totalSteps}
-              {props.executionSummary.runningTool ? ` - ${props.executionSummary.runningTool}` : ""}
-            </span>
-          )}
-
-          {props.markdownArtifactCount > 0 && (
-            <span className="text-[11px] text-muted-foreground">
-              {props.markdownArtifactCount} review artifact{props.markdownArtifactCount === 1 ? "" : "s"}
-            </span>
-          )}
-
-          {props.task.status === "awaiting_review" && (
-            <button
-              type="button"
-              disabled={props.approving}
-              onClick={() => props.onBuild().catch(console.error)}
-              className="ml-auto inline-flex items-center gap-1.5 rounded-md bg-primary px-2.5 py-1 text-xs font-medium text-primary-foreground transition-colors hover:bg-primary/90 disabled:opacity-60"
-            >
-              {props.approving ? <Loader2 size={11} className="animate-spin" /> : <CheckCircle2 size={11} />}
-              Build
-            </button>
-          )}
-
-          {isRunning && (
-            <button
-              type="button"
-              disabled={props.stopping}
-              onClick={() => props.onStop().catch(console.error)}
-              className="ml-auto inline-flex items-center gap-1.5 rounded-md border border-destructive/40 bg-destructive/10 px-2.5 py-1 text-xs font-medium text-destructive transition-colors hover:bg-destructive/20 disabled:opacity-60"
-            >
-              {props.stopping ? <Loader2 size={11} className="animate-spin" /> : <XCircle size={11} />}
-              Stop
-            </button>
-          )}
-        </div>
-      </div>
 
       {(introPrompt || props.relatedTasks.length > 0) && (
         <UserMessage
@@ -244,8 +134,8 @@ export function ConversationTimeline(props: ConversationTimelineProps) {
         (!props.activeAgentStream.subAgentId ||
           !delegatedSubAgentIds.has(props.activeAgentStream.subAgentId)) &&
         props.activeAgentStream.content.length > 0 && (
-        <AgentStreamItem stream={props.activeAgentStream} />
-      )}
+          <AgentStreamItem stream={props.activeAgentStream} />
+        )}
 
       {props.pendingApprovals.length > 0 && (
         <div className="rounded-xl border border-warning/40 bg-warning/5 p-4">
@@ -262,7 +152,7 @@ export function ConversationTimeline(props: ConversationTimelineProps) {
                 <p className="text-xs text-foreground">
                   Tool <span className="font-medium">{approval.tool_name}</span> requested access to:
                 </p>
-                <p className="mt-1 text-xs font-mono text-muted-foreground">
+                <p className="mt-1 font-mono text-xs text-muted-foreground">
                   {approval.scope}
                 </p>
                 <p className="mt-1 text-xs text-muted-foreground">{approval.reason}</p>

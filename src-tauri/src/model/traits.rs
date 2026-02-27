@@ -6,6 +6,7 @@ use crate::model::types::{ModelError, WorkerActionRequest, WorkerDecision};
 /// Implemented by provider-specific clients (MiniMaxClient, KimiClient, etc.).
 #[allow(async_fn_in_trait)]
 pub trait AgentModelClient: Send + Sync {
+    #[allow(dead_code)]
     fn model_id(&self) -> String;
     async fn decide_action(&self, req: WorkerActionRequest) -> Result<WorkerDecision, ModelError>;
 }

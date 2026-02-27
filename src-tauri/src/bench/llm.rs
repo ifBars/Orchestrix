@@ -270,6 +270,7 @@ impl LlmBenchClient {
     }
 
     /// Check if the client supports tool calling by attempting a simple tool call
+    #[allow(dead_code)]
     async fn supports_tool_calling(&self) -> bool {
         // All our providers support tool calling, but some models may not
         match self {
