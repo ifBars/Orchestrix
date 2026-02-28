@@ -443,6 +443,7 @@ pub fn run() {
             commands::messages::get_conversation_summary,
             // context settings
             commands::context::get_auto_memory_settings,
+            commands::context::get_task_context_snapshot,
             commands::context::set_auto_memory_settings,
             commands::context::get_auto_memory_entrypoint,
             commands::context::list_auto_memory_preferences,

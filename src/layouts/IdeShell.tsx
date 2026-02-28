@@ -28,8 +28,8 @@ export function IdeShell({ header, sidebar, main, composer, artifacts, isArtifac
 
         <div className="relative flex min-w-0 flex-1 flex-col">
           {/* Main scrollable content */}
-          <div className="min-h-0 flex-1 overflow-y-auto scroll-smooth px-6 pt-6 pb-6">
-            <div className="w-full">{main}</div>
+          <div className="flex-1 overflow-y-auto scroll-smooth px-6 pt-6">
+            <div className="w-full pb-40">{main}</div>
           </div>
 
           {/* Composer - no longer absolute, part of flex layout */}

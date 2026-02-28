@@ -32,7 +32,7 @@ pub mod tests {
         prior_observations: Vec<serde_json::Value>,
     ) -> WorkerActionRequest {
         let registry = create_tool_registry();
-        let tools = registry.list_for_build_mode(false);
+        let tools = registry.list_all(false);
         WorkerActionRequest {
             task_prompt: task_prompt.to_string(),
             goal_summary: goal_summary.to_string(),
@@ -51,7 +51,7 @@ pub mod tests {
     #[tokio::test]
     async fn test_worker_action_request_builds_correctly() {
         let registry = create_tool_registry();
-        let tools = registry.list_for_build_mode(false);
+        let tools = registry.list_all(false);
 
         let req = WorkerActionRequest {
             task_prompt: "Create a test file".to_string(),
@@ -445,7 +445,7 @@ pub mod tests {
     #[tokio::test]
     async fn test_file_write_task_selects_fs_write() {
         let registry = create_tool_registry();
-        let tools = registry.list_for_build_mode(false);
+        let tools = registry.list_all(false);
         let has_fs_write = tools.iter().any(|t| t.name == "fs.write");
         assert!(has_fs_write);
     }
@@ -453,7 +453,7 @@ pub mod tests {
     #[tokio::test]
     async fn test_command_execution_task_selects_cmd_exec() {
         let registry = create_tool_registry();
-        let tools = registry.list_for_build_mode(false);
+        let tools = registry.list_all(false);
         let has_cmd_exec = tools.iter().any(|t| t.name == "cmd.exec");
         assert!(has_cmd_exec);
     }
@@ -461,7 +461,7 @@ pub mod tests {
     #[tokio::test]
     async fn test_git_operations_available() {
         let registry = create_tool_registry();
-        let tools = registry.list_for_build_mode(false);
+        let tools = registry.list_all(false);
         let git_tools: Vec<&str> = tools
             .iter()
             .filter(|t| t.name.starts_with("git."))
@@ -476,7 +476,7 @@ pub mod tests {
     #[tokio::test]
     async fn test_agent_tools_available() {
         let registry = create_tool_registry();
-        let tools = registry.list_for_build_mode(false);
+        let tools = registry.list_all(false);
         let agent_tools: Vec<&str> = tools
             .iter()
             .filter(|t| t.name.starts_with("agent."))
@@ -883,7 +883,7 @@ pub mod tests {
     #[tokio::test]
     async fn test_grep_tool_available() {
         let registry = create_tool_registry();
-        let tools = registry.list_for_build_mode(false);
+        let tools = registry.list_all(false);
         let has_grep = tools.iter().any(|t| t.name == "search.rg");
         assert!(has_grep, "search.rg should be available for file searching");
     }

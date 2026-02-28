@@ -3,6 +3,8 @@ import { invoke } from "@tauri-apps/api/core";
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useShallow } from "zustand/shallow";
+import { ContextUsageChip, ContextUsagePopover } from "@/components/Chat/ContextUsage";
+import { useTaskContextSnapshot } from "@/components/Chat/ChatInterface/useTaskContextSnapshot";
 import { useAppStore } from "@/stores/appStore";
 import { firstModelForProvider, providerOptionsFromCatalog } from "@/lib/providers";
 import type { WorkspaceReferenceCandidate } from "@/types";
@@ -17,7 +19,9 @@ export function Composer() {
   const [mentionStart, setMentionStart] = useState<number | null>(null);
   const [mentionItems, setMentionItems] = useState<WorkspaceReferenceCandidate[]>([]);
   const [mentionIndex, setMentionIndex] = useState(0);
+  const [contextOpen, setContextOpen] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const contextPopoverRef = useRef<HTMLDivElement>(null);
   const mentionRequestSeq = useRef(0);
 
   const [
@@ -60,6 +64,7 @@ export function Composer() {
       selectedTask.status === "failed" ||
       selectedTask.status === "cancelled");
   const isWorking = selectedTask && (selectedTask.status === "planning" || selectedTask.status === "executing");
+  const contextSnapshot = useTaskContextSnapshot(selectedTask?.id ?? null);
 
   const pickFiles = async () => {
     const result = await openDialog({ multiple: true, title: "Attach files" });
@@ -138,6 +143,23 @@ export function Composer() {
 
     return () => clearTimeout(timer);
   }, [mentionOpen, mentionQuery]);
+
+  useEffect(() => {
+    setContextOpen(false);
+  }, [selectedTask?.id]);
+
+  useEffect(() => {
+    if (!contextOpen) return;
+    const handlePointerDown = (event: MouseEvent) => {
+      const target = event.target as Node;
+      if (!contextPopoverRef.current?.contains(target)) {
+        setContextOpen(false);
+      }
+    };
+
+    document.addEventListener("mousedown", handlePointerDown);
+    return () => document.removeEventListener("mousedown", handlePointerDown);
+  }, [contextOpen]);
 
   const insertMention = (item: WorkspaceReferenceCandidate) => {
     if (mentionStart == null) return;
@@ -405,48 +427,64 @@ export function Composer() {
             </div>
           </div>
 
-          <span className="hidden pr-1 text-[10px] text-muted-foreground/75 md:inline">
-            Use @ to reference files, folders, skills, and agents
-          </span>
+          <div className="flex items-center gap-2">
+            {contextSnapshot && (
+              <div ref={contextPopoverRef} className="relative">
+                <ContextUsageChip
+                  snapshot={contextSnapshot}
+                  active={contextOpen}
+                  onClick={() => setContextOpen((prev) => !prev)}
+                />
+                {contextOpen && (
+                  <ContextUsagePopover
+                    snapshot={contextSnapshot}
+                    className="absolute right-0 bottom-9 z-30"
+                  />
+                )}
+              </div>
+            )}
 
-          {/* Stop button - shown when a task is running */}
-          {isWorking ? (
-            <button
-              type="button"
-              onClick={() => handleStop().catch(console.error)}
-              disabled={stopping}
-              className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-destructive/40 bg-destructive/10 px-3 text-xs font-medium text-destructive transition-colors hover:bg-destructive/20 disabled:cursor-not-allowed disabled:opacity-60"
-              title="Stop current task"
-            >
-              {stopping ? <Loader2 size={14} className="animate-spin" /> : <XCircle size={14} />}
-              <span>Stop</span>
-            </button>
-          ) : (
-            /* Submit button */
-            <button
-              type="button"
-              onClick={() => submit().catch(console.error)}
-              disabled={!canSubmit}
-              className={`flex h-8 w-8 items-center justify-center rounded-lg transition-all ${
-                canSubmit
-                  ? "bg-primary text-primary-foreground hover:bg-primary/90"
-                  : "bg-muted text-muted-foreground/40"
-              }`}
-              title={
-                canContinueChat
-                  ? "Send follow-up message"
-                  : workflowMode === "plan"
-                  ? "Run Plan mode"
-                  : "Run Build mode"
-              }
-            >
-              {sending ? (
-                <Loader2 size={16} className="animate-spin" />
-              ) : (
-                <ArrowUp size={16} />
-              )}
-            </button>
-          )}
+            <span className="hidden pr-1 text-[10px] text-muted-foreground/75 lg:inline">
+              Use @ to reference files, folders, skills, and agents
+            </span>
+
+            {isWorking ? (
+              <button
+                type="button"
+                onClick={() => handleStop().catch(console.error)}
+                disabled={stopping}
+                className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-destructive/40 bg-destructive/10 px-3 text-xs font-medium text-destructive transition-colors hover:bg-destructive/20 disabled:cursor-not-allowed disabled:opacity-60"
+                title="Stop current task"
+              >
+                {stopping ? <Loader2 size={14} className="animate-spin" /> : <XCircle size={14} />}
+                <span>Stop</span>
+              </button>
+            ) : (
+              <button
+                type="button"
+                onClick={() => submit().catch(console.error)}
+                disabled={!canSubmit}
+                className={`flex h-8 w-8 items-center justify-center rounded-lg transition-all ${
+                  canSubmit
+                    ? "bg-primary text-primary-foreground hover:bg-primary/90"
+                    : "bg-muted text-muted-foreground/40"
+                }`}
+                title={
+                  canContinueChat
+                    ? "Send follow-up message"
+                    : workflowMode === "plan"
+                    ? "Run Plan mode"
+                    : "Run Build mode"
+                }
+              >
+                {sending ? (
+                  <Loader2 size={16} className="animate-spin" />
+                ) : (
+                  <ArrowUp size={16} />
+                )}
+              </button>
+            )}
+          </div>
         </div>
       </div>
     </div>

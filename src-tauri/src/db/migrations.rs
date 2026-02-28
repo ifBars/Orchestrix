@@ -237,6 +237,46 @@ CREATE INDEX idx_embedding_chunks_workspace ON embedding_chunks(workspace_root);
 CREATE INDEX idx_embedding_chunks_workspace_path ON embedding_chunks(workspace_root, path);
 "#,
     },
+    // Migration 9: Add prompt cache tracking for API usage analytics
+    // This enables monitoring of cache hit rates and token usage patterns
+    Migration {
+        version: 9,
+        sql: r#"
+-- Add usage tracking to runs table
+ALTER TABLE runs ADD COLUMN total_tokens_in INTEGER DEFAULT 0;
+ALTER TABLE runs ADD COLUMN total_tokens_out INTEGER DEFAULT 0;
+ALTER TABLE runs ADD COLUMN total_tokens_cached INTEGER DEFAULT 0;
+ALTER TABLE runs ADD COLUMN api_request_count INTEGER DEFAULT 0;
+ALTER TABLE runs ADD COLUMN cache_hit_count INTEGER DEFAULT 0;
+ALTER TABLE runs ADD COLUMN cache_hit_rate REAL DEFAULT 0.0;
+
+-- New table for per-API-request tracking
+CREATE TABLE api_requests (
+    id              TEXT PRIMARY KEY,
+    run_id          TEXT NOT NULL REFERENCES runs(id),
+    step_idx        INTEGER,
+    provider        TEXT NOT NULL,
+    model           TEXT NOT NULL,
+    tokens_in       INTEGER DEFAULT 0,
+    tokens_out      INTEGER DEFAULT 0,
+    tokens_cached   INTEGER DEFAULT 0,
+    cache_hit       INTEGER DEFAULT 0,  -- 0 = miss, 1 = hit
+    latency_ms      INTEGER,
+    created_at      TEXT NOT NULL
+);
+
+CREATE INDEX idx_api_requests_run ON api_requests(run_id);
+CREATE INDEX idx_api_requests_run_step ON api_requests(run_id, step_idx);
+CREATE INDEX idx_api_requests_provider ON api_requests(provider, created_at);
+
+-- Update agent_messages table to include usage details
+ALTER TABLE agent_messages ADD COLUMN tokens_cached INTEGER DEFAULT 0;
+ALTER TABLE agent_messages ADD COLUMN cache_hit INTEGER DEFAULT 0;
+
+-- Index for cache tracking queries
+CREATE INDEX idx_runs_cache_stats ON runs(cache_hit_rate, total_tokens_cached);
+"#,
+    },
 ];
 
 pub(super) fn run_migrations(conn: &Connection) -> Result<(), DbError> {

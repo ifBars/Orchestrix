@@ -123,13 +123,34 @@ impl ToolRegistry {
         Self { tools }
     }
 
+    /// List ALL available tools (unified list for cache-safe execution).
+    ///
+    /// This returns all tools regardless of mode. Mode-specific restrictions
+    /// are enforced at execution time, not at prompt construction time.
+    /// This ensures maximum cache reuse across plan/build mode transitions.
+    pub fn list_all(&self, include_embeddings: bool) -> Vec<ToolDescriptor> {
+        self.list()
+            .into_iter()
+            .filter(|t| {
+                if !include_embeddings && t.name == "search.embeddings" {
+                    return false;
+                }
+                true
+            })
+            .collect()
+    }
+
     /// Get tools available for PLAN mode.
+    ///
+    /// DEPRECATED: Use list_all() instead for-safe execution cache.
+    /// Mode-specific restrictions are enforced at execution time.
     ///
     /// Only includes read-only tools and plan-specific agent tools:
     /// fs.read, fs.list, search.rg, git.*, skills.*, agent.todo,
     /// agent.create_artifact, agent.request_build_mode
     ///
     /// If `include_embeddings` is false, excludes search.embeddings.
+    #[deprecated(since = "0.1.0", note = "Use list_all() for cache-safe execution")]
     pub fn list_for_plan_mode(&self, include_embeddings: bool) -> Vec<ToolDescriptor> {
         let mut allowed_tools: std::collections::HashSet<&str> = [
             "fs.read",
@@ -165,10 +186,14 @@ impl ToolRegistry {
 
     /// Get tools available for BUILD mode.
     ///
+    /// DEPRECATED: Use list_all() instead for cache-safe execution.
+    /// Mode-specific restrictions are enforced at execution time.
+    ///
     /// Includes all tools except request_build_mode, create_artifact, and agent.complete.
     /// Note: agent.complete is exclusive to subagents spawned via subagent.spawn.
     ///
     /// If `include_embeddings` is false, excludes search.embeddings.
+    #[deprecated(since = "0.1.0", note = "Use list_all() for cache-safe execution")]
     pub fn list_for_build_mode(&self, include_embeddings: bool) -> Vec<ToolDescriptor> {
         self.list()
             .into_iter()

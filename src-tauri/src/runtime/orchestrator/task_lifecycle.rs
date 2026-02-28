@@ -491,12 +491,13 @@ impl Orchestrator {
                 worktree_path: Some(workspace_root.to_string_lossy().to_string()),
                 context_json: Some(
                     serde_json::json!({
+                        "mode": "build",
                         "task_prompt": resolved_task_prompt.clone(),
                         "goal_summary": &plan.goal_summary,
                         "step": step,
                         "contract": {
                             "permissions": {
-                                "allowed_tools": self.tool_registry.list_for_build_mode(embeddings::is_semantic_search_configured(&self.db)).into_iter().map(|tool| tool.name).collect::<Vec<String>>(),
+                                "allowed_tools": self.tool_registry.list_all(embeddings::is_semantic_search_configured(&self.db)).into_iter().map(|tool| tool.name).collect::<Vec<String>>(),
                                 "can_spawn_children": true,
                                 "max_delegation_depth": 1,
                             },

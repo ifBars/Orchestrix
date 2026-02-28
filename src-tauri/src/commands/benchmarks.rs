@@ -5,8 +5,8 @@ use serde::{Deserialize, Serialize};
 use tauri::Emitter;
 
 use crate::bench::business_ops::{
-    available_business_ops_scenarios, run_business_ops_benchmark, BusinessOpsBenchOptions,
-    BusinessOpsBenchEvent, BusinessOpsBenchReport, BusinessOpsEventSink,
+    available_business_ops_scenarios, run_business_ops_benchmark, BusinessOpsBenchEvent,
+    BusinessOpsBenchOptions, BusinessOpsBenchReport, BusinessOpsEventSink,
     BusinessOpsScenarioDescriptor,
 };
 use crate::bench::llm::{

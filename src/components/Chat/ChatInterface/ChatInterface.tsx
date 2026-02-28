@@ -9,6 +9,7 @@ import { usePendingApprovals } from "./usePendingApprovals";
 import { useApprovalResolver } from "./useApprovalResolver";
 import { usePendingQuestions } from "./usePendingQuestions";
 import { useQuestionResolver } from "./useQuestionResolver";
+import { useTaskContextSnapshot } from "./useTaskContextSnapshot";
 import { ConversationTimeline } from "../ConversationTimeline";
 import { ReviewWorkspace } from "../ReviewWorkspace";
 import type { TaskRow } from "@/types";
@@ -89,6 +90,7 @@ export function ChatInterface({
 
   const review = useArtifactReview(task.id, task.status, artifactsByTask);
   const executionSummary = useExecutionSummary(task.id, task.status);
+  const contextSnapshot = useTaskContextSnapshot(task.id);
   const pendingApprovals = usePendingApprovals(task.id, task.status);
   const pendingQuestions = usePendingQuestions(task.id, task.status);
   const resolveApproval = useApprovalResolver(
@@ -219,6 +221,7 @@ export function ChatInterface({
       stopping={stopping}
       markdownArtifactCount={review.markdownArtifacts.length}
       executionSummary={executionSummary}
+      contextSnapshot={contextSnapshot}
       rawEvents={rawEvents}
       agentTodos={agentTodos}
       pendingApprovals={pendingApprovals}

@@ -5,11 +5,13 @@ import type { AgentMessageStream } from "@/runtime/eventBuffer";
 import type {
   ApprovalRequestView,
   BusEvent,
+  TaskContextSnapshotView,
   TaskRow,
   UserQuestionAnswer,
   UserQuestionRequestView,
 } from "@/types";
 import { groupConversationItems } from "@/lib/groupConversationItems";
+import { ContextUsageInline } from "@/components/Chat/ContextUsage";
 import { AgentTodoPanel } from "./AgentTodoPanel";
 import { DebugEvents } from "./DebugEvents";
 import { SubAgentActivityPanel } from "./SubAgentActivityPanel";
@@ -39,6 +41,7 @@ type ConversationTimelineProps = {
     runningStep: number | null;
     runningTool: string | null;
   } | null;
+  contextSnapshot: TaskContextSnapshotView | null;
   rawEvents: BusEvent[];
   agentTodos: ReturnType<typeof runtimeEventBuffer.getAgentTodos>;
   pendingApprovals: ApprovalRequestView[];
@@ -149,6 +152,12 @@ export function ConversationTimeline(props: ConversationTimelineProps) {
         props.activeAgentStream.content.length > 0 && (
           <AgentStreamItem stream={props.activeAgentStream} />
         )}
+
+      {props.contextSnapshot && (
+        <div className="ml-11">
+          <ContextUsageInline snapshot={props.contextSnapshot} />
+        </div>
+      )}
 
       {props.pendingApprovals.length > 0 && (
         <div className="rounded-xl border border-warning/40 bg-warning/5 p-4">

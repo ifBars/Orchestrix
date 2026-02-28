@@ -143,12 +143,13 @@ pub async fn run_plan_mode(
     .map_err(AppError::Other)?;
 
     // Generate the plan markdown artifact for user review.
-    // Plan mode uses its own tool set (read-only + agent.create_artifact + agent.request_build_mode).
+    // Using unified tool list (list_all) for cache-safe execution.
+    // Mode-specific restrictions are enforced at tool execution time.
     let include_embeddings = embeddings::is_semantic_search_configured(&state.db);
-    let plan_mode_tools = state
+    let tools = state
         .orchestrator
         .tool_registry()
-        .list_for_plan_mode(include_embeddings);
+        .list_all(include_embeddings);
     let _ = generate_plan_markdown_artifact(
         state.db.clone(),
         state.bus.clone(),
@@ -161,7 +162,7 @@ pub async fn run_plan_mode(
         workspace_root.clone(),
         Some(run_id.clone()),
         None,
-        plan_mode_tools,
+        tools,
         state.orchestrator.tool_registry().clone(),
         state.orchestrator.approval_gate().clone(),
         state.orchestrator.question_gate().clone(),
@@ -350,10 +351,10 @@ pub async fn submit_plan_feedback(
     );
 
     let include_embeddings = embeddings::is_semantic_search_configured(&state.db);
-    let plan_mode_tools = state
+    let tools = state
         .orchestrator
         .tool_registry()
-        .list_for_plan_mode(include_embeddings);
+        .list_all(include_embeddings);
     let _ = generate_plan_markdown_artifact(
         state.db.clone(),
         state.bus.clone(),
@@ -366,7 +367,7 @@ pub async fn submit_plan_feedback(
         workspace_root.clone(),
         Some(run.id.clone()),
         Some(note.to_string()),
-        plan_mode_tools,
+        tools,
         state.orchestrator.tool_registry().clone(),
         state.orchestrator.approval_gate().clone(),
         state.orchestrator.question_gate().clone(),

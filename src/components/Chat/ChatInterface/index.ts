@@ -4,3 +4,4 @@ export { usePendingApprovals } from "./usePendingApprovals";
 export { useApprovalResolver } from "./useApprovalResolver";
 export { usePendingQuestions } from "./usePendingQuestions";
 export { useQuestionResolver } from "./useQuestionResolver";
+export { useTaskContextSnapshot } from "./useTaskContextSnapshot";

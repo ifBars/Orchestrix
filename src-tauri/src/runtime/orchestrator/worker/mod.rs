@@ -443,8 +443,10 @@ pub async fn execute_step_with_tools(
     }
 
     // Filter available tools by contract
+    // Using unified tool list (list_all) for cache-safe execution.
+    // Mode-specific restrictions are enforced at tool execution time.
     let mut available_tools: Vec<String> = tool_registry
-        .list_for_build_mode(include_embeddings)
+        .list_all(include_embeddings)
         .into_iter()
         .map(|v| v.name)
         .collect();
@@ -453,7 +455,7 @@ pub async fn execute_step_with_tools(
         available_tools.retain(|name| contract.permissions.allowed_tools.contains(name));
     }
 
-    let mut tool_descriptors = tool_registry.list_for_build_mode(include_embeddings);
+    let mut tool_descriptors = tool_registry.list_all(include_embeddings);
     tool_descriptors.retain(|tool| available_tools.contains(&tool.name));
 
     // Create model client if config provided

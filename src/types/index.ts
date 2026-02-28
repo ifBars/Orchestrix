@@ -752,6 +752,27 @@ export interface AutoMemorySettingsView {
   source: string;
 }
 
+export interface ContextUsageSegmentView {
+  key: string;
+  label: string;
+  tokens: number;
+  percentage: number;
+}
+
+export interface TaskContextSnapshotView {
+  task_id: string;
+  provider: string | null;
+  model: string | null;
+  mode: string | null;
+  context_window: number;
+  used_tokens: number;
+  free_tokens: number;
+  usage_percentage: number;
+  segments: ContextUsageSegmentView[];
+  updated_at: string;
+  estimated: boolean;
+}
+
 export interface AutoMemoryPathView {
   path: string;
 }
