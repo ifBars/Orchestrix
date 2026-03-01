@@ -275,14 +275,20 @@ async fn handle_planning_tool_calls(
             }),
         );
 
-        let mut invocation = tool_registry.invoke(
-            policy,
-            workspace_root,
-            ToolCallInput {
-                name: tool_name.clone(),
-                args: tool_args.clone(),
-            },
-        );
+        let mut invocation = if tool_name == "diagram.read_graph" {
+            crate::tools::canvas::handle_read_graph(db, task_id)
+        } else if tool_name == "diagram.mutate_graph" {
+            crate::tools::canvas::handle_mutate_graph(db, bus, task_id, &tool_args)
+        } else {
+            tool_registry.invoke(
+                policy,
+                workspace_root,
+                ToolCallInput {
+                    name: tool_name.clone(),
+                    args: tool_args.clone(),
+                },
+            )
+        };
 
         // Handle approval if required
         if let Err(ToolError::ApprovalRequired { scope, reason }) = &invocation {
@@ -344,14 +350,20 @@ async fn handle_planning_tool_calls(
 
             if approved {
                 policy.allow_scope(scope);
-                invocation = tool_registry.invoke(
-                    policy,
-                    workspace_root,
-                    ToolCallInput {
-                        name: tool_name.clone(),
-                        args: tool_args.clone(),
-                    },
-                );
+                invocation = if tool_name == "diagram.read_graph" {
+                    crate::tools::canvas::handle_read_graph(db, task_id)
+                } else if tool_name == "diagram.mutate_graph" {
+                    crate::tools::canvas::handle_mutate_graph(db, bus, task_id, &tool_args)
+                } else {
+                    tool_registry.invoke(
+                        policy,
+                        workspace_root,
+                        ToolCallInput {
+                            name: tool_name.clone(),
+                            args: tool_args.clone(),
+                        },
+                    )
+                };
             } else {
                 invocation = Err(ToolError::PolicyDenied(format!(
                     "approval denied for scope: {scope}"

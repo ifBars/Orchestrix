@@ -133,9 +133,14 @@ impl Tool for SkillsSearchTool {
 
         let limit = input.get("limit").and_then(|v| v.as_u64()).unwrap_or(10) as usize;
 
-        // Use blocking async
-        let rt = tokio::runtime::Handle::current();
-        let results = rt.block_on(async { search_agent_skills(query, limit).await });
+        // Use spawn_blocking to run async code from sync context
+        // This avoids "Cannot start a runtime from within a runtime" panic
+        let query = query.to_string();
+        let results = tokio::task::block_in_place(|| {
+            tokio::runtime::Handle::current().block_on(async {
+                search_agent_skills(&query, limit).await
+            })
+        });
 
         match results {
             Ok(items) => {

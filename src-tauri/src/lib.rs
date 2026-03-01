@@ -416,6 +416,8 @@ pub fn run() {
             commands::tasks::get_task,
             commands::tasks::start_task,
             commands::tasks::cancel_task,
+            commands::tasks::get_task_canvas,
+            commands::tasks::update_task_canvas,
             // runs
             commands::runs::get_latest_run,
             commands::runs::get_run,
@@ -458,6 +460,7 @@ pub fn run() {
             // benchmarks
             commands::benchmarks::run_model_benchmark,
             commands::benchmarks::list_business_ops_scenarios_command,
+            commands::benchmarks::list_agentic_coding_scenarios_command,
             // providers
             commands::providers::set_provider_config,
             commands::providers::remove_provider_config,

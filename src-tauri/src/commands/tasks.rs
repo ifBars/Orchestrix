@@ -359,3 +359,36 @@ pub async fn start_task(
 ) -> Result<(), AppError> {
     super::execution::run_plan_mode(state, task_id, provider, model).await
 }
+
+#[tauri::command]
+pub fn get_task_canvas(
+    state: tauri::State<'_, AppState>,
+    task_id: String,
+) -> Result<Option<queries::TaskCanvasRow>, AppError> {
+    Ok(queries::get_task_canvas(&state.db, &task_id)?)
+}
+
+#[tauri::command]
+pub fn update_task_canvas(
+    state: tauri::State<'_, AppState>,
+    task_id: String,
+    state_json: String,
+) -> Result<(), AppError> {
+    let now = Utc::now().to_rfc3339();
+    queries::upsert_task_canvas(&state.db, &task_id, &state_json, &now)?;
+    
+    emit_and_record(
+        &state.db,
+        &state.bus,
+        "canvas",
+        "canvas.updated",
+        None,
+        serde_json::json!({
+            "task_id": task_id,
+            "state_json": state_json,
+        }),
+    )
+    .map_err(AppError::Other)?;
+    
+    Ok(())
+}

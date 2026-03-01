@@ -10,6 +10,7 @@ pub enum WorkloadKind {
     LlmAgentLoop,
     LlmSharedTasks,
     LlmBusinessOps,
+    LlmAgenticCoding,
     BenchmarkSuite,
 }
 

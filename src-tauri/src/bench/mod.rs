@@ -1,3 +1,4 @@
+pub mod agentic_coding;
 pub mod business_ops;
 pub mod core;
 pub mod embeddings;

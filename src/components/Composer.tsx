@@ -1,4 +1,4 @@
-import { ArrowUp, Bot, FileText, Folder, Loader2, Paperclip, Sparkles, XCircle } from "lucide-react";
+import { ArrowUp, Bot, FileText, Folder, Loader2, Paperclip, Sparkles, X, XCircle } from "lucide-react";
 import { invoke } from "@tauri-apps/api/core";
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
 import { useEffect, useMemo, useRef, useState } from "react";
@@ -6,8 +6,9 @@ import { useShallow } from "zustand/shallow";
 import { ContextUsageChip, ContextUsagePopover } from "@/components/Chat/ContextUsage";
 import { useTaskContextSnapshot } from "@/components/Chat/ChatInterface/useTaskContextSnapshot";
 import { useAppStore } from "@/stores/appStore";
+import { useCanvasStore } from "@/stores/canvasStore";
 import { firstModelForProvider, providerOptionsFromCatalog } from "@/lib/providers";
-import type { WorkspaceReferenceCandidate } from "@/types";
+import type { CanvasNode, WorkspaceReferenceCandidate } from "@/types";
 
 export function Composer() {
   const [prompt, setPrompt] = useState("");
@@ -54,6 +55,15 @@ export function Composer() {
     ])
   );
 
+  // ── Canvas node context (Phase 4) ──────────────────────────────────────────
+  const { activeTaskId: canvasActiveTaskId, selectedNodes: canvasSelectedNodes, clearSelection: clearCanvasSelection } = useCanvasStore();
+  // Only expose canvas context if the selection belongs to the currently selected task
+  const activeCanvasNodes: CanvasNode[] =
+    canvasActiveTaskId && selectedTask && canvasActiveTaskId === selectedTask.id
+      ? canvasSelectedNodes
+      : [];
+  // ──────────────────────────────────────────────────────────────────────────
+
   const models = modelCatalog.find((item) => item.provider === selectedProvider)?.models ?? [];
   const providerOptions = providerOptionsFromCatalog(modelCatalog);
 
@@ -85,17 +95,22 @@ export function Composer() {
       setSelectedAgentPreset(presetIdFromPrompt);
     }
 
+    // Prepend canvas node context block if nodes are selected
+    const messageWithContext = activeCanvasNodes.length > 0
+      ? `${buildNodeContextBlock(activeCanvasNodes)}\n\n${value}`
+      : value;
+
     if (canContinueChat && selectedTask) {
       // Send as follow-up message to existing task
       setSending(true);
       try {
-        await sendMessageToTask(selectedTask.id, value);
+        await sendMessageToTask(selectedTask.id, messageWithContext);
       } finally {
         setSending(false);
       }
     } else {
       // Create new task
-      await createTask(value, { mode: workflowMode, agentPresetId: effectivePresetId ?? undefined });
+      await createTask(messageWithContext, { mode: workflowMode, agentPresetId: effectivePresetId ?? undefined });
     }
   };
 
@@ -251,6 +266,34 @@ export function Composer() {
             className="rounded px-1.5 py-0.5 text-[10px] text-muted-foreground/80 hover:bg-accent/70 hover:text-foreground"
           >
             Clear
+          </button>
+        </div>
+      )}
+
+      {/* Canvas node context chip — shown when nodes are selected on the canvas */}
+      {activeCanvasNodes.length > 0 && (
+        <div className="mb-2 flex flex-wrap items-center gap-1.5">
+          <span className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground/60">
+            Canvas context
+          </span>
+          {activeCanvasNodes.map((node) => (
+            <span
+              key={node.id}
+              className="inline-flex items-center gap-1 rounded-full border border-primary/30 bg-primary/8 px-2 py-0.5 text-[11px] font-medium text-primary"
+            >
+              {node.label}
+              {node.kind && (
+                <span className="text-[9px] text-primary/70">{node.kind}</span>
+              )}
+            </span>
+          ))}
+          <button
+            type="button"
+            onClick={clearCanvasSelection}
+            className="ml-auto rounded p-0.5 text-muted-foreground/60 transition-colors hover:text-muted-foreground"
+            title="Clear canvas context"
+          >
+            <X size={11} />
           </button>
         </div>
       )}
@@ -509,4 +552,24 @@ function getMentionContext(text: string, cursor: number): { start: number; query
 function extractAgentPresetId(content: string): string | null {
   const match = content.match(/(?:^|\s)@agent:([A-Za-z0-9._-]+)/);
   return match?.[1] ?? null;
+}
+
+/**
+ * Builds a structured context block from selected canvas nodes.
+ * Prepended to the user's message so the AI has spatial/architectural context.
+ *
+ * Example output:
+ * ---
+ * ## Selected Architecture Nodes
+ * - **Player** (component): The main player entity
+ * - **Inventory** (component)
+ * ---
+ */
+function buildNodeContextBlock(nodes: CanvasNode[]): string {
+  const lines = nodes.map((n) => {
+    const kind = n.kind ? ` (${n.kind})` : "";
+    const desc = n.description ? `: ${n.description}` : "";
+    return `- **${n.label}**${kind}${desc}`;
+  });
+  return `---\n## Selected Architecture Nodes\n${lines.join("\n")}\n---`;
 }

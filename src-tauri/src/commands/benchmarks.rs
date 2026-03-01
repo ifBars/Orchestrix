@@ -4,6 +4,10 @@ use std::str::FromStr;
 use serde::{Deserialize, Serialize};
 use tauri::Emitter;
 
+use crate::bench::agentic_coding::{
+    available_agentic_coding_scenarios, run_agentic_coding_benchmark, AgenticCodingBenchOptions,
+    AgenticCodingBenchReport, AgenticCodingScenarioDescriptor,
+};
 use crate::bench::business_ops::{
     available_business_ops_scenarios, run_business_ops_benchmark, BusinessOpsBenchEvent,
     BusinessOpsBenchOptions, BusinessOpsBenchReport, BusinessOpsEventSink,
@@ -35,17 +39,24 @@ pub enum BenchmarkWorkload {
     Llm,
     BusinessOps,
     LlmAndBusinessOps,
+    AgenticCoding,
 }
 
 #[derive(Debug, Clone, Serialize)]
 pub struct ModelBenchmarkReport {
     pub llm: Option<LlmBenchReport>,
     pub business_ops: Option<BusinessOpsBenchReport>,
+    pub agentic_coding: Option<AgenticCodingBenchReport>,
 }
 
 #[tauri::command]
 pub fn list_business_ops_scenarios_command() -> Vec<BusinessOpsScenarioDescriptor> {
     available_business_ops_scenarios()
+}
+
+#[tauri::command]
+pub fn list_agentic_coding_scenarios_command() -> Vec<AgenticCodingScenarioDescriptor> {
+    available_agentic_coding_scenarios()
 }
 
 #[tauri::command]
@@ -119,7 +130,17 @@ pub async fn run_model_benchmark(
         None
     };
 
-    Ok(ModelBenchmarkReport { llm, business_ops })
+    let agentic_coding = if matches!(request.workload, BenchmarkWorkload::AgenticCoding) {
+        Some(run_agentic_coding_benchmark(AgenticCodingBenchOptions::default()).await)
+    } else {
+        None
+    };
+
+    Ok(ModelBenchmarkReport {
+        llm,
+        business_ops,
+        agentic_coding,
+    })
 }
 
 struct TauriBenchEventSink {

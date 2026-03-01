@@ -7,9 +7,13 @@ type IdeShellProps = {
   composer?: ReactNode;
   artifacts?: ReactNode;
   isArtifactsOpen: boolean;
+  /** When true, the main area fills height without scroll/padding (e.g. canvas) */
+  fillMain?: boolean;
+  /** Optional strip rendered between the header and the main scroll area (e.g. tab bar) */
+  subheader?: ReactNode;
 };
 
-export function IdeShell({ header, sidebar, main, composer, artifacts, isArtifactsOpen }: IdeShellProps) {
+export function IdeShell({ header, sidebar, main, composer, artifacts, isArtifactsOpen, fillMain, subheader }: IdeShellProps) {
   const hasComposer = composer != null;
 
   return (
@@ -27,10 +31,23 @@ export function IdeShell({ header, sidebar, main, composer, artifacts, isArtifac
         </aside>
 
         <div className="relative flex min-w-0 flex-1 flex-col">
+          {/* Optional subheader (e.g. tab strip) */}
+          {subheader && (
+            <div className="shrink-0">
+              {subheader}
+            </div>
+          )}
+
           {/* Main scrollable content */}
-          <div className="flex-1 overflow-y-auto scroll-smooth px-6 pt-6">
-            <div className="w-full pb-40">{main}</div>
-          </div>
+          {fillMain ? (
+            <div className="min-h-0 flex-1 overflow-hidden">
+              {main}
+            </div>
+          ) : (
+            <div className="flex-1 overflow-y-auto scroll-smooth px-6 pt-6">
+              <div className="w-full pb-40">{main}</div>
+            </div>
+          )}
 
           {/* Composer - no longer absolute, part of flex layout */}
           {hasComposer && (

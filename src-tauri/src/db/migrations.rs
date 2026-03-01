@@ -277,6 +277,16 @@ ALTER TABLE agent_messages ADD COLUMN cache_hit INTEGER DEFAULT 0;
 CREATE INDEX idx_runs_cache_stats ON runs(cache_hit_rate, total_tokens_cached);
 "#,
     },
+    Migration {
+        version: 10,
+        sql: r#"
+CREATE TABLE task_canvases (
+    task_id     TEXT PRIMARY KEY REFERENCES tasks(id) ON DELETE CASCADE,
+    state_json  TEXT NOT NULL,
+    updated_at  TEXT NOT NULL
+);
+"#,
+    },
 ];
 
 pub(super) fn run_migrations(conn: &Connection) -> Result<(), DbError> {

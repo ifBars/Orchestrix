@@ -18,6 +18,13 @@ pub struct TaskRow {
 }
 
 #[derive(Debug, Clone, Serialize)]
+pub struct TaskCanvasRow {
+    pub task_id: String,
+    pub state_json: String,
+    pub updated_at: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
 pub struct TaskLinkRow {
     pub source_task_id: String,
     pub target_task_id: String,
@@ -198,6 +205,41 @@ pub fn get_task(db: &Database, id: &str) -> Result<Option<TaskRow>, DbError> {
             status: row.get(3)?,
             created_at: row.get(4)?,
             updated_at: row.get(5)?,
+        })
+    })?;
+    match rows.next() {
+        Some(row) => Ok(Some(row?)),
+        None => Ok(None),
+    }
+}
+
+pub fn upsert_task_canvas(
+    db: &Database,
+    task_id: &str,
+    state_json: &str,
+    updated_at: &str,
+) -> Result<(), DbError> {
+    let conn = db.conn();
+    conn.execute(
+        "INSERT INTO task_canvases (task_id, state_json, updated_at)
+         VALUES (?1, ?2, ?3)
+         ON CONFLICT(task_id) DO UPDATE SET
+             state_json = excluded.state_json,
+             updated_at = excluded.updated_at",
+        params![task_id, state_json, updated_at],
+    )?;
+    Ok(())
+}
+
+pub fn get_task_canvas(db: &Database, task_id: &str) -> Result<Option<TaskCanvasRow>, DbError> {
+    let conn = db.conn();
+    let mut stmt = conn
+        .prepare("SELECT task_id, state_json, updated_at FROM task_canvases WHERE task_id = ?1")?;
+    let mut rows = stmt.query_map(params![task_id], |row| {
+        Ok(TaskCanvasRow {
+            task_id: row.get(0)?,
+            state_json: row.get(1)?,
+            updated_at: row.get(2)?,
         })
     })?;
     match rows.next() {
@@ -422,6 +464,10 @@ pub fn delete_task_cascade(db: &Database, task_id: &str) -> Result<(), DbError> 
     )?;
     tx.execute(
         "DELETE FROM task_links WHERE source_task_id = ?1 OR target_task_id = ?1",
+        params![task_id],
+    )?;
+    tx.execute(
+        "DELETE FROM task_canvases WHERE task_id = ?1",
         params![task_id],
     )?;
     tx.execute(

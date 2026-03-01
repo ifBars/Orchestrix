@@ -16,6 +16,7 @@ use crate::tools::agent::{
     AgentAskUserTool, AgentCompleteTool, AgentMemoryUpsertTool, AgentTodoTool, CreateArtifactTool,
     RequestBuildModeTool, RequestPlanModeTool, SubAgentSpawnTool,
 };
+use crate::tools::canvas::{CanvasMutateTool, CanvasReadStateTool};
 use crate::tools::cmd::CommandExecTool;
 use crate::tools::dev_server::{
     DevServerLogsTool, DevServerStartTool, DevServerStatusTool, DevServerStopTool,
@@ -61,6 +62,16 @@ impl ToolRegistry {
 
         // Command execution
         tools.insert("cmd.exec".to_string(), Box::new(CommandExecTool));
+
+        // Canvas tools
+        tools.insert(
+            "diagram.read_graph".to_string(),
+            Box::new(CanvasReadStateTool),
+        );
+        tools.insert(
+            "diagram.mutate_graph".to_string(),
+            Box::new(CanvasMutateTool),
+        );
 
         // Git tools
         tools.insert("git.status".to_string(), Box::new(GitStatusTool));
@@ -169,6 +180,8 @@ impl ToolRegistry {
             "agent.todo",
             "agent.create_artifact",
             "agent.request_build_mode",
+            "diagram.read_graph",
+            "diagram.mutate_graph",
         ]
         .iter()
         .cloned()
@@ -212,7 +225,7 @@ impl ToolRegistry {
     /// If `include_embeddings` is false, excludes search.embeddings.
     #[allow(dead_code)]
     pub fn tool_reference_for_plan_mode(&self, include_embeddings: bool) -> String {
-        let mut tools: Vec<_> = self.list_for_plan_mode(include_embeddings);
+        let mut tools: Vec<_> = self.list_all(include_embeddings);
         tools.sort_by(|a, b| a.name.cmp(&b.name));
 
         let mut out = String::new();
@@ -231,7 +244,7 @@ impl ToolRegistry {
     /// If `include_embeddings` is false, excludes search.embeddings.
     #[allow(dead_code)]
     pub fn tool_reference_for_build_mode(&self, include_embeddings: bool) -> String {
-        let mut tools: Vec<_> = self.list_for_build_mode(include_embeddings);
+        let mut tools: Vec<_> = self.list_all(include_embeddings);
         tools.sort_by(|a, b| a.name.cmp(&b.name));
 
         let mut out = String::new();

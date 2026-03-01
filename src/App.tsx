@@ -12,6 +12,7 @@ import { BenchmarkPage } from "@/components/ModelBenchmarksPage";
 import { BenchmarkWindowHeader } from "@/components/BenchmarkWindowHeader";
 import { SETTINGS_SECTIONS, type SettingsSectionId } from "@/components/Settings/types";
 import { EmptyState } from "@/components/EmptyState";
+import { ArchitectureCanvas } from "@/components/Canvas";
 
 const SETTINGS_SECTION_KEY = "orchestrix:last-settings-section";
 
@@ -75,7 +76,12 @@ function App() {
   });
   const [artifactsOpen, setArtifactsOpen] = useState(false);
   const [darkMode, setDarkMode] = useState(true);
-  const [chatActiveTab, setChatActiveTab] = useState<"chat" | "review">("chat");
+  const [chatActiveTab, setChatActiveTab] = useState<"chat" | "review" | "canvas">("chat");
+
+  // Derive a view-safe tab for ChatInterface (it only understands "chat" | "review")
+  const chatInterfaceTab: "chat" | "review" =
+    chatActiveTab === "canvas" ? "chat" : chatActiveTab;
+  const setChatInterfaceTab = (tab: "chat" | "review") => setChatActiveTab(tab);
 
   const setSettingsSection = useCallback((section: SettingsSectionId) => {
     setSettingsSectionState(section);
@@ -165,7 +171,27 @@ function App() {
   return (
     <>
       <IdeShell
-        isArtifactsOpen={activeView === "chat" && artifactsOpen}
+        isArtifactsOpen={activeView === "chat" && artifactsOpen && chatActiveTab !== "canvas"}
+        fillMain={activeView === "chat" && chatActiveTab === "canvas" && selectedTask != null}
+        subheader={activeView === "chat" && selectedTask ? (
+          <div className="flex items-center gap-0 border-b border-border/70 bg-card/60 px-4 backdrop-blur-md">
+            {(["chat", "review", "canvas"] as const).map((tab) => (
+              <button
+                key={tab}
+                type="button"
+                onClick={() => setChatActiveTab(tab)}
+                className={[
+                  "relative px-3 py-2 text-xs font-medium transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring",
+                  chatActiveTab === tab
+                    ? "text-foreground after:absolute after:inset-x-0 after:bottom-0 after:h-0.5 after:bg-primary"
+                    : "text-muted-foreground hover:text-foreground",
+                ].join(" ")}
+              >
+                {tab.charAt(0).toUpperCase() + tab.slice(1)}
+              </button>
+            ))}
+          </div>
+        ) : null}
         header={
           <Header
             darkMode={darkMode}
@@ -197,16 +223,22 @@ function App() {
             onBackToChat={() => setActiveView("chat")}
           />
         ) : selectedTask ? (
-          <ChatInterface
-            task={selectedTask}
-            activeTab={chatActiveTab}
-            onActiveTabChange={setChatActiveTab}
-          />
+          chatActiveTab === "canvas" ? (
+            <div className="h-full p-4">
+              <ArchitectureCanvas taskId={selectedTask.id} />
+            </div>
+          ) : (
+            <ChatInterface
+              task={selectedTask}
+              activeTab={chatInterfaceTab}
+              onActiveTabChange={setChatInterfaceTab}
+            />
+          )
         ) : (
           <EmptyState />
         )}
-        composer={activeView === "chat" ? <Composer /> : null}
-        artifacts={activeView === "chat" && selectedTask ? (
+        composer={activeView === "chat" && chatActiveTab !== "canvas" ? <Composer /> : null}
+        artifacts={activeView === "chat" && selectedTask && chatActiveTab !== "canvas" ? (
           <ArtifactPanel 
             taskId={selectedTask.id} 
             onOpenReview={() => setChatActiveTab("review")}

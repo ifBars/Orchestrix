@@ -783,3 +783,48 @@ export interface MemoryPreferenceEntry {
   category: string | null;
   updated_at: string;
 }
+
+// ──────────────────────────────────────────────
+// Architecture Canvas types
+// ──────────────────────────────────────────────
+
+/** A node in the architecture canvas. x/y are optional — AI-added nodes
+ *  without position will be auto-laid out by dagre on the frontend. */
+export interface CanvasNode {
+  id: string;
+  label: string;
+  kind?: string;         // e.g. "component", "service", "concept" — used for styling
+  description?: string;
+  x?: number;
+  y?: number;
+  width?: number;
+  height?: number;
+  metadata?: Record<string, unknown>;
+}
+
+/** A directed edge between two canvas nodes. */
+export interface CanvasEdge {
+  id: string;
+  source: string;
+  target: string;
+  label?: string;
+}
+
+/** Full canvas state stored in SQLite and transferred over IPC. */
+export interface CanvasState {
+  nodes: CanvasNode[];
+  edges: CanvasEdge[];
+}
+
+/** Mirrors `TaskCanvasRow` from Rust. */
+export interface TaskCanvasRow {
+  task_id: string;
+  state_json: string;
+  updated_at: string;
+}
+
+/** Payload of the `canvas.updated` Tauri event. */
+export interface CanvasUpdatedPayload {
+  task_id: string;
+  state_json: string;
+}
