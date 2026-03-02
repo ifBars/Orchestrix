@@ -32,6 +32,8 @@ export interface TaskRow {
   status: TaskStatus;
   created_at: string;
   updated_at: string;
+  /** The workspace root path this task was created in. Null for legacy tasks. */
+  workspace_root: string | null;
 }
 
 export interface TaskLinkRow {

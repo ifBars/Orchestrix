@@ -1,4 +1,4 @@
-import { ActivitySquare, GitBranch, MessageSquare, Plus, Settings2, Trash2 } from "lucide-react";
+import { ActivitySquare, FolderOpen, GitBranch, MessageSquare, Plus, Settings2, Trash2 } from "lucide-react";
 import { useShallow } from "zustand/shallow";
 import { useAppStore } from "@/stores/appStore";
 import { Button } from "@/components/ui/button";
@@ -159,15 +159,21 @@ export function Sidebar({
   onOpenSettings,
   onOpenBenchmarks,
 }: SidebarProps) {
-  const [tasks, selectedTaskId, selectTask, branchTask, deleteTask] = useAppStore(
+  const [tasks, selectedTaskId, workspaceRoot, selectTask, branchTask, deleteTask] = useAppStore(
     useShallow((state) => [
       state.tasks,
       state.selectedTaskId,
+      state.workspaceRoot,
       state.selectTask,
       state.branchTask,
       state.deleteTask,
     ])
   );
+
+  // Derive a short display name for the current workspace folder.
+  const workspaceName = workspaceRoot
+    ? workspaceRoot.replace(/\\/g, "/").split("/").filter(Boolean).pop() ?? workspaceRoot
+    : null;
 
   const handleCreateConversation = () => {
     selectTask(null);
@@ -283,16 +289,21 @@ export function Sidebar({
       )}
 
       <div className="mt-1 flex items-center justify-between px-2 pb-1.5 pt-1">
-        <span className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground/70">
-          History
-        </span>
+        <div className="flex min-w-0 items-center gap-1.5">
+          {workspaceName && <FolderOpen size={11} className="shrink-0 text-muted-foreground/60" />}
+          <span className="truncate text-[10px] font-semibold uppercase tracking-widest text-muted-foreground/70">
+            {workspaceName ?? "History"}
+          </span>
+        </div>
         <span className="text-[10px] font-medium text-muted-foreground/60">{tasks.length}</span>
       </div>
 
       <div className="min-h-0 flex-1 overflow-y-auto px-1 pb-1">
         {tasks.length === 0 ? (
           <div className="rounded-lg border border-dashed border-sidebar-border/80 bg-sidebar/55 p-4 text-center text-xs text-muted-foreground/70">
-            No conversation history
+            {workspaceName
+              ? `No conversations in ${workspaceName}`
+              : "No conversation history"}
           </div>
         ) : (
           <div className="space-y-1">

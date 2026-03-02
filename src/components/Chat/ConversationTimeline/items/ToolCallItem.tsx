@@ -2,6 +2,7 @@ import { useState } from "react";
 import { CheckCircle2, ChevronDown, ChevronRight, Loader2, Terminal, XCircle } from "lucide-react";
 import type { ConversationItem } from "@/runtime/eventBuffer";
 import { toDisplay } from "../utils";
+import { detectCodeContent, ToolCodeDisplay } from "./ToolCodeDisplay";
 
 type ToolCallItemProps = {
   item: ConversationItem;
@@ -19,6 +20,13 @@ export function ToolCallItem({ item, compact = false }: ToolCallItemProps) {
     <XCircle size={12} className="text-destructive" />
   ) : (
     <CheckCircle2 size={12} className="text-success" />
+  );
+
+  // Detect if this tool call contains code content to display
+  const codeContent = detectCodeContent(
+    item.toolName || "",
+    item.toolArgs,
+    item.toolResult
   );
 
   return (
@@ -54,7 +62,9 @@ export function ToolCallItem({ item, compact = false }: ToolCallItemProps) {
               </pre>
             </div>
           )}
-          {item.toolResult && (
+          {codeContent ? (
+            <ToolCodeDisplay codeContent={codeContent} className="mb-2" />
+          ) : item.toolResult && (
             <div className="mb-2">
               <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Result</span>
               <pre className="mt-1 max-h-40 overflow-auto rounded-md border border-border/50 bg-background/70 p-2 text-xs text-muted-foreground">

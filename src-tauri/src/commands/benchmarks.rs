@@ -13,6 +13,10 @@ use crate::bench::business_ops::{
     BusinessOpsBenchOptions, BusinessOpsBenchReport, BusinessOpsEventSink,
     BusinessOpsScenarioDescriptor,
 };
+use crate::bench::diagram::{
+    available_diagram_scenarios, run_diagram_benchmark, DiagramBenchOptions,
+    DiagramBenchReport, DiagramScenarioDescriptor,
+};
 use crate::bench::llm::{
     run_llm_benchmark, LlmBenchOptions, LlmBenchReport, LlmProviderConfig, LlmProviderId,
 };
@@ -270,4 +274,64 @@ fn cap_provider_max_tokens(provider: &str, requested: u32) -> u32 {
         _ => requested,
     };
     capped.max(1)
+}
+
+#[tauri::command]
+pub fn list_diagram_scenarios_command() -> Vec<DiagramScenarioDescriptor> {
+    available_diagram_scenarios()
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct RunDiagramBenchmarkRequest {
+    pub run_id: Option<String>,
+    pub provider: Option<String>,
+    pub provider_model: Option<String>,
+    pub max_tokens: Option<u32>,
+    pub timeout_seconds: Option<u64>,
+    pub enable_diagram_tools: Option<bool>,
+}
+
+#[tauri::command]
+pub async fn run_diagram_benchmark_command(
+    state: tauri::State<'_, AppState>,
+    request: RunDiagramBenchmarkRequest,
+) -> Result<DiagramBenchReport, AppError> {
+    let provider_id = if let Some(p) = &request.provider {
+        LlmProviderId::from_str(p)
+            .map_err(|e| AppError::Other(format!("invalid provider: {}", e)))?
+    } else {
+        LlmProviderId::MiniMax
+    };
+
+    let provider_key = provider_id.as_str();
+    let cfg = load_provider_config(&state.db, provider_key)?;
+
+    let config = if let Some(cfg) = cfg {
+        let model = request.provider_model.clone().or(cfg.default_model);
+        LlmProviderConfig {
+            provider: provider_id,
+            api_key: Some(cfg.api_key),
+            model,
+            base_url: cfg.base_url,
+            max_tokens: request.max_tokens,
+        }
+    } else {
+        LlmProviderConfig {
+            provider: provider_id,
+            api_key: None,
+            model: request.provider_model.clone(),
+            base_url: None,
+            max_tokens: request.max_tokens,
+        }
+    };
+
+    let options = DiagramBenchOptions {
+        providers: vec![provider_id],
+        provider_configs: vec![config],
+        max_tokens: request.max_tokens.unwrap_or(4096),
+        timeout_seconds: request.timeout_seconds.unwrap_or(180),
+        enable_diagram_tools: request.enable_diagram_tools.unwrap_or(true),
+    };
+
+    Ok(run_diagram_benchmark(options).await)
 }

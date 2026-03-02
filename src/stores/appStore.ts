@@ -210,19 +210,23 @@ export const useAppStore = create<AppStoreState>((set, get) => ({
   bootstrap: async () => {
     if (get().bootstrapped) return;
 
-    const [tasks, providerConfigs, embeddingConfig, embeddingIndexStatus, modelCatalog, workspaceRoot, skills, workspaceSkills, agentPresets, mcpServers, mcpTools] = await Promise.all([
-      invoke<TaskRow[]>("list_tasks"),
+    // Fetch workspace root first so we can scope the task list to the current workspace.
+    const workspaceRootView = await invoke<WorkspaceRootView>("get_workspace_root");
+    const currentWorkspaceRoot = workspaceRootView.workspace_root;
+
+    const [tasks, providerConfigs, embeddingConfig, embeddingIndexStatus, modelCatalog, skills, workspaceSkills, agentPresets, mcpServers, mcpTools] = await Promise.all([
+      invoke<TaskRow[]>("list_tasks", { workspaceRoot: currentWorkspaceRoot || null }),
       invoke<ProviderConfigView[]>("get_provider_configs"),
       invoke<EmbeddingConfigView>("get_embedding_config"),
       invoke<EmbeddingIndexStatus | null>("get_embedding_index_status"),
       invoke<ModelCatalogEntry[]>("get_model_catalog"),
-      invoke<WorkspaceRootView>("get_workspace_root"),
       invoke<SkillCatalogItem[]>("list_available_skills"),
       invoke<WorkspaceSkill[]>("list_workspace_skills"),
       invoke<AgentPreset[]>("list_agent_presets"),
       invoke<McpServerView[]>("list_mcp_servers"),
       invoke<McpToolView[]>("list_mcp_tools"),
     ]);
+    const workspaceRoot = workspaceRootView;
 
     const linkResults = await Promise.all(
       tasks.map(async (task) => {
@@ -509,7 +513,7 @@ export const useAppStore = create<AppStoreState>((set, get) => ({
       console.error("Auto-run failed", error);
     }
     const [tasks, links] = await Promise.all([
-      invoke<TaskRow[]>("list_tasks"),
+      invoke<TaskRow[]>("list_tasks", { workspaceRoot: get().workspaceRoot || null }),
       invoke<TaskLinkRow[]>("list_task_links", { taskId: created.id }),
     ]);
     set((prev) => ({
@@ -726,11 +730,21 @@ export const useAppStore = create<AppStoreState>((set, get) => ({
   setWorkspaceRoot: async (workspaceRoot: string) => {
     await invoke("set_workspace_root", { workspaceRoot });
     set({ workspaceRoot });
-    await Promise.all([
+    // Re-scope the task list to the newly opened workspace, then reload
+    // supporting data. Clear the selected task so we don't show a chat from
+    // a different workspace.
+    const [tasks] = await Promise.all([
+      invoke<TaskRow[]>("list_tasks", { workspaceRoot: workspaceRoot || null }),
       get().refreshWorkspaceSkills(),
       get().refreshAgentPresets(),
       get().refreshEmbeddingIndexStatus(),
     ]);
+    set((state) => ({
+      tasks,
+      selectedTaskId: tasks.some((t) => t.id === state.selectedTaskId)
+        ? state.selectedTaskId
+        : null,
+    }));
   },
 
   refreshWorkspaceRoot: async () => {

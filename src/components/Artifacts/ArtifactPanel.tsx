@@ -1,10 +1,11 @@
-import { useEffect, useState } from "react";
-import { ExternalLink, FileText, X } from "lucide-react";
+import { useEffect, useState, useCallback } from "react";
+import { ExternalLink, FileText, X, Edit3, Check } from "lucide-react";
 import { invoke } from "@tauri-apps/api/core";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { Streamdown } from "streamdown";
 import { code } from "@streamdown/code";
 import { useAppStore } from "@/stores/appStore";
+import { CodeEditor } from "@/components/ui/CodeEditor";
 import type { ArtifactContentView, ArtifactRow } from "@/types";
 
 const EMPTY: ArtifactRow[] = [];
@@ -18,14 +19,22 @@ export function ArtifactPanel({ taskId, onOpenReview }: ArtifactPanelProps) {
   const artifacts = useAppStore((state) => state.artifactsByTask[taskId] ?? EMPTY);
   const [active, setActive] = useState<ArtifactRow | null>(null);
   const [preview, setPreview] = useState<ArtifactContentView | null>(null);
+  const [isEditing, setIsEditing] = useState(false);
+  const [editedContent, setEditedContent] = useState("");
+  const [saveStatus, setSaveStatus] = useState<"idle" | "saving" | "saved">("idle");
 
   useEffect(() => {
     if (!active) {
       setPreview(null);
+      setIsEditing(false);
+      setEditedContent("");
       return;
     }
     invoke<ArtifactContentView>("read_artifact_content", { path: active.uri_or_content })
-      .then(setPreview)
+      .then((data) => {
+        setPreview(data);
+        setEditedContent(data.content);
+      })
       .catch(() =>
         setPreview({
           path: active.uri_or_content,
@@ -33,7 +42,43 @@ export function ArtifactPanel({ taskId, onOpenReview }: ArtifactPanelProps) {
           is_markdown: false,
         })
       );
+    setIsEditing(false);
   }, [active]);
+
+  // Auto-save when content changes (debounced)
+  const saveContent = useCallback(async (content: string) => {
+    if (!preview || !active) return;
+    
+    setSaveStatus("saving");
+    try {
+      await invoke("write_file_content", {
+        path: preview.path,
+        content,
+      });
+      setSaveStatus("saved");
+      setTimeout(() => setSaveStatus("idle"), 2000);
+    } catch (error) {
+      console.error("Failed to save artifact:", error);
+      setSaveStatus("idle");
+    }
+  }, [preview, active]);
+
+  const handleContentChange = useCallback((content: string) => {
+    setEditedContent(content);
+    // Debounced auto-save
+    const timeoutId = setTimeout(() => {
+      saveContent(content);
+    }, 1000);
+    return () => clearTimeout(timeoutId);
+  }, [saveContent]);
+
+  const handleClose = () => {
+    setActive(null);
+    setPreview(null);
+    setIsEditing(false);
+    setEditedContent("");
+    setSaveStatus("idle");
+  };
 
   return (
     <div className="flex h-full w-full flex-col bg-card/40">
@@ -58,7 +103,6 @@ export function ArtifactPanel({ taskId, onOpenReview }: ArtifactPanelProps) {
               const fileName = artifact.uri_or_content.split(/[/\\]/).pop() ?? artifact.uri_or_content;
               const isMarkdown = artifact.uri_or_content.toLowerCase().endsWith('.md') ||
                 artifact.uri_or_content.toLowerCase().endsWith('.markdown');
-              // Clicking a markdown artifact opens the full review workspace if handler is provided
               const shouldOpenReview = isMarkdown && onOpenReview;
 
               return (
@@ -97,6 +141,27 @@ export function ArtifactPanel({ taskId, onOpenReview }: ArtifactPanelProps) {
               {preview.path.split(/[/\\]/).pop()}
             </span>
             <div className="flex items-center gap-1">
+              {!preview.is_markdown && (
+                <>
+                  <button
+                    type="button"
+                    onClick={() => setIsEditing(!isEditing)}
+                    className={`rounded p-1 transition-colors ${
+                      isEditing
+                        ? "bg-accent text-foreground"
+                        : "text-muted-foreground hover:bg-accent hover:text-foreground"
+                    }`}
+                    title={isEditing ? "View mode" : "Edit mode"}
+                  >
+                    <Edit3 size={12} />
+                  </button>
+                  {saveStatus === "saved" && (
+                    <span className="text-[10px] text-success">
+                      <Check size={12} />
+                    </span>
+                  )}
+                </>
+              )}
               <button
                 type="button"
                 onClick={() => {
@@ -113,25 +178,36 @@ export function ArtifactPanel({ taskId, onOpenReview }: ArtifactPanelProps) {
               </button>
               <button
                 type="button"
-                onClick={() => {
-                  setActive(null);
-                  setPreview(null);
-                }}
+                onClick={handleClose}
                 className="rounded p-1 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
               >
                 <X size={12} />
               </button>
             </div>
           </div>
-          <div className="max-h-64 overflow-auto border-t border-border/40 p-3 text-xs text-muted-foreground">
+          <div className="max-h-64 overflow-auto border-t border-border/40">
             {preview.is_markdown ? (
-              <div className="prose prose-sm max-w-none text-foreground dark:prose-invert prose-p:my-2 prose-headings:my-2">
+              <div className="prose prose-sm max-w-none p-3 text-foreground dark:prose-invert prose-p:my-2 prose-headings:my-2">
                 <Streamdown plugins={{ code }}>{preview.content}</Streamdown>
               </div>
+            ) : isEditing ? (
+              <CodeEditor
+                value={editedContent}
+                onChange={handleContentChange}
+                filename={preview.path}
+                className="border-0"
+                minHeight="200px"
+                maxHeight="400px"
+              />
             ) : (
-              <pre>
-                <code>{preview.content}</code>
-              </pre>
+              <CodeEditor
+                value={preview.content}
+                filename={preview.path}
+                readOnly
+                className="border-0"
+                minHeight="200px"
+                maxHeight="400px"
+              />
             )}
           </div>
         </div>

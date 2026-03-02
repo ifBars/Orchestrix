@@ -515,6 +515,8 @@ pub fn run() {
             commands::benchmarks::run_model_benchmark,
             commands::benchmarks::list_business_ops_scenarios_command,
             commands::benchmarks::list_agentic_coding_scenarios_command,
+            commands::benchmarks::list_diagram_scenarios_command,
+            commands::benchmarks::run_diagram_benchmark_command,
             // providers
             commands::providers::set_provider_config,
             commands::providers::remove_provider_config,
@@ -573,6 +575,7 @@ pub fn run() {
             commands::workspace::get_workspace_root,
             commands::workspace::search_workspace_references,
             commands::workspace::read_artifact_content,
+            commands::workspace::write_file_content,
             commands::workspace::open_local_path,
             // worktrees
             commands::worktrees::list_active_worktrees,

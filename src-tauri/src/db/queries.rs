@@ -15,6 +15,9 @@ pub struct TaskRow {
     pub status: String,
     pub created_at: String,
     pub updated_at: String,
+    /// The workspace root directory this task belongs to.
+    /// NULL for tasks created before migration 11.
+    pub workspace_root: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -22,6 +25,7 @@ pub struct TaskCanvasRow {
     pub task_id: String,
     pub state_json: String,
     pub updated_at: String,
+    pub version: u64,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -160,23 +164,45 @@ pub struct EmbeddingChunkRow {
 pub fn insert_task(db: &Database, row: &TaskRow) -> Result<(), DbError> {
     let conn = db.conn();
     conn.execute(
-        "INSERT INTO tasks (id, prompt, parent_task_id, status, created_at, updated_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+        "INSERT INTO tasks (id, prompt, parent_task_id, status, created_at, updated_at, workspace_root) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
         params![
             row.id,
             row.prompt,
             row.parent_task_id,
             row.status,
             row.created_at,
-            row.updated_at
+            row.updated_at,
+            row.workspace_root,
         ],
     )?;
     Ok(())
 }
 
-pub fn list_tasks(db: &Database) -> Result<Vec<TaskRow>, DbError> {
+pub fn list_tasks(db: &Database, workspace_root: Option<&str>) -> Result<Vec<TaskRow>, DbError> {
     let conn = db.conn();
+    if let Some(ws) = workspace_root {
+        let mut stmt = conn.prepare(
+            "SELECT id, prompt, parent_task_id, status, created_at, updated_at, workspace_root \
+             FROM tasks WHERE workspace_root = ?1 ORDER BY updated_at DESC",
+        )?;
+        let rows = stmt
+            .query_map(params![ws], |row| {
+                Ok(TaskRow {
+                    id: row.get(0)?,
+                    prompt: row.get(1)?,
+                    parent_task_id: row.get(2)?,
+                    status: row.get(3)?,
+                    created_at: row.get(4)?,
+                    updated_at: row.get(5)?,
+                    workspace_root: row.get(6)?,
+                })
+            })?
+            .collect::<Result<Vec<_>, _>>()?;
+        return Ok(rows);
+    }
     let mut stmt = conn.prepare(
-        "SELECT id, prompt, parent_task_id, status, created_at, updated_at FROM tasks ORDER BY updated_at DESC",
+        "SELECT id, prompt, parent_task_id, status, created_at, updated_at, workspace_root \
+         FROM tasks ORDER BY updated_at DESC",
     )?;
     let rows = stmt
         .query_map([], |row| {
@@ -187,6 +213,7 @@ pub fn list_tasks(db: &Database) -> Result<Vec<TaskRow>, DbError> {
                 status: row.get(3)?,
                 created_at: row.get(4)?,
                 updated_at: row.get(5)?,
+                workspace_root: row.get(6)?,
             })
         })?
         .collect::<Result<Vec<_>, _>>()?;
@@ -196,7 +223,7 @@ pub fn list_tasks(db: &Database) -> Result<Vec<TaskRow>, DbError> {
 pub fn get_task(db: &Database, id: &str) -> Result<Option<TaskRow>, DbError> {
     let conn = db.conn();
     let mut stmt =
-        conn.prepare("SELECT id, prompt, parent_task_id, status, created_at, updated_at FROM tasks WHERE id = ?1")?;
+        conn.prepare("SELECT id, prompt, parent_task_id, status, created_at, updated_at, workspace_root FROM tasks WHERE id = ?1")?;
     let mut rows = stmt.query_map(params![id], |row| {
         Ok(TaskRow {
             id: row.get(0)?,
@@ -205,6 +232,7 @@ pub fn get_task(db: &Database, id: &str) -> Result<Option<TaskRow>, DbError> {
             status: row.get(3)?,
             created_at: row.get(4)?,
             updated_at: row.get(5)?,
+            workspace_root: row.get(6)?,
         })
     })?;
     match rows.next() {
@@ -221,11 +249,12 @@ pub fn upsert_task_canvas(
 ) -> Result<(), DbError> {
     let conn = db.conn();
     conn.execute(
-        "INSERT INTO task_canvases (task_id, state_json, updated_at)
-         VALUES (?1, ?2, ?3)
+        "INSERT INTO task_canvases (task_id, state_json, updated_at, version)
+         VALUES (?1, ?2, ?3, 1)
          ON CONFLICT(task_id) DO UPDATE SET
              state_json = excluded.state_json,
-             updated_at = excluded.updated_at",
+             updated_at = excluded.updated_at,
+             version = version + 1",
         params![task_id, state_json, updated_at],
     )?;
     Ok(())
@@ -234,12 +263,13 @@ pub fn upsert_task_canvas(
 pub fn get_task_canvas(db: &Database, task_id: &str) -> Result<Option<TaskCanvasRow>, DbError> {
     let conn = db.conn();
     let mut stmt = conn
-        .prepare("SELECT task_id, state_json, updated_at FROM task_canvases WHERE task_id = ?1")?;
+        .prepare("SELECT task_id, state_json, updated_at, COALESCE(version, 0) as version FROM task_canvases WHERE task_id = ?1")?;
     let mut rows = stmt.query_map(params![task_id], |row| {
         Ok(TaskCanvasRow {
             task_id: row.get(0)?,
             state_json: row.get(1)?,
             updated_at: row.get(2)?,
+            version: row.get(3)?,
         })
     })?;
     match rows.next() {

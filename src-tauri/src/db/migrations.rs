@@ -287,6 +287,19 @@ CREATE TABLE task_canvases (
 );
 "#,
     },
+    Migration {
+        version: 11,
+        sql: r#"
+ALTER TABLE tasks ADD COLUMN workspace_root TEXT;
+CREATE INDEX idx_tasks_workspace_root ON tasks(workspace_root, updated_at);
+"#,
+    },
+    Migration {
+        version: 12,
+        sql: r#"
+ALTER TABLE task_canvases ADD COLUMN version INTEGER DEFAULT 0;
+"#,
+    },
 ];
 
 pub(super) fn run_migrations(conn: &Connection) -> Result<(), DbError> {

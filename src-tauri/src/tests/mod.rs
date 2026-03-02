@@ -7,6 +7,9 @@ use std::sync::Mutex;
 use uuid::Uuid;
 
 #[cfg(test)]
+mod diagram;
+
+#[cfg(test)]
 mod integration;
 
 #[cfg(test)]

@@ -219,6 +219,22 @@ pub fn read_artifact_content(path: String) -> Result<ArtifactContentView, AppErr
 }
 
 #[tauri::command]
+pub fn write_file_content(path: String, content: String) -> Result<(), AppError> {
+    let file_path = PathBuf::from(&path);
+
+    // Ensure parent directory exists
+    if let Some(parent) = file_path.parent() {
+        std::fs::create_dir_all(parent)
+            .map_err(|e| AppError::Other(format!("failed to create parent directories: {e}")))?;
+    }
+
+    std::fs::write(&file_path, content)
+        .map_err(|e| AppError::Other(format!("failed to write file: {e}")))?;
+
+    Ok(())
+}
+
+#[tauri::command]
 pub fn open_local_path(path: String) -> Result<(), AppError> {
     let file_path = PathBuf::from(&path);
     if !file_path.exists() {

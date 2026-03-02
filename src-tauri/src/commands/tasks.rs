@@ -4,7 +4,7 @@ use uuid::Uuid;
 
 use crate::db::queries;
 use crate::runtime::planner::emit_and_record;
-use crate::{AppError, AppState, CreateTaskOptions};
+use crate::{load_workspace_root, AppError, AppState, CreateTaskOptions};
 
 #[tauri::command]
 pub fn create_task(
@@ -26,6 +26,12 @@ pub fn create_task(
         }
     }
 
+    let workspace_root = {
+        let path = load_workspace_root(&state.db);
+        let s = path.to_string_lossy().to_string();
+        if s.is_empty() { None } else { Some(s) }
+    };
+
     let row = queries::TaskRow {
         id: Uuid::new_v4().to_string(),
         prompt,
@@ -33,6 +39,7 @@ pub fn create_task(
         status: "pending".to_string(),
         created_at: now.clone(),
         updated_at: now,
+        workspace_root,
     };
     queries::insert_task(&state.db, &row)?;
 
@@ -148,6 +155,7 @@ pub fn fork_task(
         status: "completed".to_string(),
         created_at: now.clone(),
         updated_at: now,
+        workspace_root: source.workspace_root.clone(),
     };
 
     queries::insert_task(&state.db, &row)?;
@@ -235,8 +243,11 @@ pub fn fork_task(
 }
 
 #[tauri::command]
-pub fn list_tasks(state: tauri::State<'_, AppState>) -> Result<Vec<queries::TaskRow>, AppError> {
-    Ok(queries::list_tasks(&state.db)?)
+pub fn list_tasks(
+    state: tauri::State<'_, AppState>,
+    workspace_root: Option<String>,
+) -> Result<Vec<queries::TaskRow>, AppError> {
+    Ok(queries::list_tasks(&state.db, workspace_root.as_deref())?)
 }
 
 #[tauri::command]

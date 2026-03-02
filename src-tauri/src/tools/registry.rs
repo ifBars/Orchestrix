@@ -16,7 +16,7 @@ use crate::tools::agent::{
     AgentAskUserTool, AgentCompleteTool, AgentMemoryUpsertTool, AgentTaskTool, CreateArtifactTool,
     RequestBuildModeTool, RequestPlanModeTool, SubAgentSpawnTool,
 };
-use crate::tools::canvas::{CanvasMutateTool, CanvasReadStateTool};
+use crate::tools::canvas::{CanvasApplyOpsTool, CanvasReadStateTool};
 use crate::tools::cmd::CommandExecTool;
 use crate::tools::dev_server::{
     DevServerLogsTool, DevServerStartTool, DevServerStatusTool, DevServerStopTool,
@@ -69,8 +69,8 @@ impl ToolRegistry {
             Box::new(CanvasReadStateTool),
         );
         tools.insert(
-            "diagram.mutate_graph".to_string(),
-            Box::new(CanvasMutateTool),
+            "diagram.apply_ops".to_string(),
+            Box::new(CanvasApplyOpsTool),
         );
 
         // Git tools
@@ -181,7 +181,7 @@ impl ToolRegistry {
             "agent.create_artifact",
             "agent.request_build_mode",
             "diagram.read_graph",
-            "diagram.mutate_graph",
+            "diagram.apply_ops",
         ]
         .iter()
         .cloned()

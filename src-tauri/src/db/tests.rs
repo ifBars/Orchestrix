@@ -24,6 +24,7 @@ mod tests {
                 status: "completed".to_string(),
                 created_at: now.clone(),
                 updated_at: now.clone(),
+                workspace_root: None,
             },
         )
         .unwrap();
@@ -156,6 +157,7 @@ mod tests {
                 status: "executing".to_string(),
                 created_at: now.clone(),
                 updated_at: now.clone(),
+                workspace_root: None,
             },
         )
         .unwrap();
@@ -236,6 +238,7 @@ mod tests {
                 status: "executing".to_string(),
                 created_at: now.clone(),
                 updated_at: now.clone(),
+                workspace_root: None,
             },
         )
         .unwrap();
@@ -307,6 +310,7 @@ mod tests {
                 status: "executing".to_string(),
                 created_at: now.clone(),
                 updated_at: now.clone(),
+                workspace_root: None,
             },
         )
         .unwrap();
