@@ -204,3 +204,44 @@ export function handleSubagentsScheduled(ctx: HandlerContext): HandlerResult {
   });
   return { planChanged: false, timelineChanged: true };
 }
+
+export function handleCompactionStarted(ctx: HandlerContext): HandlerResult {
+  // Show a transient "Compacting conversation…" indicator while compaction runs.
+  // This replaces the previous transient (e.g. "Thinking…") so the user sees
+  // activity rather than a frozen spinner.
+  ctx.removeLastTransient();
+  const msgCount = ctx.event.payload?.message_count as number | undefined;
+  const content = msgCount
+    ? `Compacting conversation (${msgCount} messages)…`
+    : "Compacting conversation…";
+  const id = `compaction-${ctx.taskId}`;
+  ctx.setLastTransientId(id);
+  ctx.items.push({
+    id,
+    type: "statusChange",
+    timestamp: ctx.event.created_at,
+    seq: ctx.event.seq,
+    status: "compacting",
+    content,
+  });
+  return { planChanged: false, timelineChanged: true };
+}
+
+export function handleCompactionCompleted(ctx: HandlerContext): HandlerResult {
+  // Replace the transient "Compacting…" indicator with a permanent summary row
+  // so the user can see that context was condensed.
+  ctx.removeLastTransient();
+  const summarized = ctx.event.payload?.messages_summarized as number | undefined;
+  const content = summarized
+    ? `Conversation compacted (${summarized} messages summarized)`
+    : "Conversation compacted";
+  ctx.items.push({
+    id: ctx.event.id,
+    type: "statusChange",
+    timestamp: ctx.event.created_at,
+    seq: ctx.event.seq,
+    status: "compacted",
+    content,
+  });
+  return { planChanged: false, timelineChanged: true };
+}

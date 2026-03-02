@@ -38,7 +38,7 @@ use crate::tools::{infer_tool_call, ToolRegistry};
 
 use crate::tools::dev_server::stop_all_dev_servers_for_run;
 use delegation::spawn_and_execute_delegated_sub_agent;
-use helpers::{open_todos_in_latest_todo_observation, parse_sub_agent_contract};
+use helpers::{open_tasks_in_latest_task_observation, parse_sub_agent_contract};
 use model::{RuntimeModelConfig, StreamDelta, WorkerModelClient};
 use tools::execute_tool_call;
 
@@ -599,14 +599,14 @@ pub async fn execute_step_with_tools(
 
         match action {
             WorkerAction::Complete { summary } => {
-                // Check for incomplete todos
-                if let Some(open_todos) = open_todos_in_latest_todo_observation(&observations) {
-                    if open_todos > 0 {
+                // Check for incomplete tasks
+                if let Some(open_tasks) = open_tasks_in_latest_task_observation(&observations) {
+                    if open_tasks > 0 {
                         observations.push(serde_json::json!({
-                            "system": "todo_guard",
+                            "system": "task_guard",
                             "status": "incomplete",
-                            "open_todos": open_todos,
-                            "instruction": "agent.todo still has pending or in_progress items; continue with next tool call",
+                            "open_tasks": open_tasks,
+                            "instruction": "agent.task still has pending or in_progress items; continue with next tool call",
                         }));
                         continue;
                     }

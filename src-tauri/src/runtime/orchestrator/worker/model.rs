@@ -5,7 +5,8 @@
 
 pub use crate::model::StreamDelta;
 use crate::model::{
-    GlmClient, KimiClient, MiniMaxClient, ModalClient, WorkerActionRequest, WorkerDecision,
+    ChatGPTClient, GeminiClient, GlmClient, KimiClient, MiniMaxClient, ModalClient,
+    WorkerActionRequest, WorkerDecision,
 };
 
 /// Runtime model configuration for worker execution.
@@ -34,6 +35,8 @@ pub enum WorkerModelClient {
     Kimi(KimiClient),
     Glm(GlmClient),
     Modal(ModalClient),
+    Gemini(GeminiClient),
+    ChatGPT(ChatGPTClient),
 }
 
 impl WorkerModelClient {
@@ -55,6 +58,52 @@ impl WorkerModelClient {
                 config.model.clone(),
                 config.base_url.clone(),
             )),
+            "gemini" => Self::Gemini(GeminiClient::new(
+                config.api_key.clone(),
+                config.model.clone(),
+                config.base_url.clone(),
+            )),
+            "openai-chatgpt" | "chatgpt" => {
+                // api_key field carries JSON-encoded OAuth data: {access_token, refresh_token, expires_at, account_id}
+                if let Ok(auth) =
+                    serde_json::from_str::<serde_json::Value>(&config.api_key)
+                {
+                    let access_token = auth
+                        .get("access_token")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("")
+                        .to_string();
+                    let refresh_token = auth
+                        .get("refresh_token")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("")
+                        .to_string();
+                    let expires_at = auth
+                        .get("expires_at")
+                        .and_then(|v| v.as_i64())
+                        .unwrap_or(0);
+                    let account_id = auth
+                        .get("account_id")
+                        .and_then(|v| v.as_str())
+                        .map(str::to_string);
+                    Self::ChatGPT(ChatGPTClient::new(
+                        access_token,
+                        refresh_token,
+                        expires_at,
+                        account_id,
+                        config.model.clone(),
+                    ))
+                } else {
+                    // Fallback: treat api_key as a direct Bearer token (no refresh)
+                    Self::ChatGPT(ChatGPTClient::new(
+                        config.api_key.clone(),
+                        String::new(),
+                        i64::MAX,
+                        None,
+                        config.model.clone(),
+                    ))
+                }
+            }
             _ => Self::MiniMax(MiniMaxClient::new_with_base_url(
                 config.api_key.clone(),
                 config.model.clone(),
@@ -86,6 +135,14 @@ impl WorkerModelClient {
                 .await
                 .map_err(|e| e.to_string()),
             Self::Modal(model) => model
+                .decide_action_streaming(req, |delta| on_delta(delta))
+                .await
+                .map_err(|e| e.to_string()),
+            Self::Gemini(model) => model
+                .decide_action_streaming(req, |delta| on_delta(delta))
+                .await
+                .map_err(|e| e.to_string()),
+            Self::ChatGPT(model) => model
                 .decide_action_streaming(req, |delta| on_delta(delta))
                 .await
                 .map_err(|e| e.to_string()),

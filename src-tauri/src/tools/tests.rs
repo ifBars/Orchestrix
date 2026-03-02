@@ -27,7 +27,7 @@ mod tests {
         assert!(names.contains(&"git.apply_patch".to_string()));
         assert!(names.contains(&"git.commit".to_string()));
         assert!(names.contains(&"git.log".to_string()));
-        assert!(names.contains(&"agent.todo".to_string()));
+        assert!(names.contains(&"agent.task".to_string()));
         assert!(names.contains(&"agent.complete".to_string()));
         assert!(names.contains(&"skills.list_installed".to_string()));
         assert!(names.contains(&"skills.search".to_string()));
@@ -45,7 +45,7 @@ mod tests {
         assert!(names.contains(&"agent.create_artifact".to_string()));
 
         // Count only built-in tools (exclude MCP tools which have "." in server name like "server.tool")
-        // Built-in tools use "_" separators (e.g., dev_server.start, agent.todo)
+        // Built-in tools use "_" separators (e.g., dev_server.start, agent.task)
         let builtin_names: Vec<&String> = names
             .iter()
             .filter(|n| {

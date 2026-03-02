@@ -105,14 +105,14 @@ pub mod tests {
     }
 
     #[tokio::test]
-    async fn test_agent_todo_descriptor() {
+    async fn test_agent_task_descriptor() {
         let descriptor = json!({
-            "name": "agent.todo",
-            "description": "Create and manage a TODO list",
+            "name": "agent.task",
+            "description": "Create and manage a task list",
             "parameters": {
                 "type": "object",
                 "properties": {
-                    "todos": {
+                    "tasks": {
                         "type": "array",
                         "items": {
                             "type": "object",
@@ -126,8 +126,8 @@ pub mod tests {
             }
         });
 
-        assert_eq!(descriptor["name"], "agent.todo");
-        let status_enum = &descriptor["parameters"]["properties"]["todos"]["items"]["properties"]
+        assert_eq!(descriptor["name"], "agent.task");
+        let status_enum = &descriptor["parameters"]["properties"]["tasks"]["items"]["properties"]
             ["status"]["enum"];
         assert!(status_enum
             .as_array()
@@ -597,7 +597,7 @@ pub mod tests {
             "git.commit",
             "git.log",
             "skills.list",
-            "agent.todo",
+            "agent.task",
             "agent.complete",
             "subagent.spawn",
             "skills.load",
@@ -627,7 +627,7 @@ pub mod tests {
             (
                 "agent",
                 vec![
-                    "agent.todo",
+                    "agent.task",
                     "agent.complete",
                     "agent.create_artifact",
                     "agent.request_build_mode",

@@ -325,12 +325,12 @@ pub mod tests {
     // ====================================================================================
 
     #[tokio::test]
-    async fn test_todo_creation_structure() {
-        let todo_create = json!({
-            "tool_name": "agent.todo",
+    async fn test_task_creation_structure() {
+        let task_create = json!({
+            "tool_name": "agent.task",
             "status": "succeeded",
             "output": {
-                "todos": [
+                "tasks": [
                     {"content": "Create file", "status": "pending", "activeForm": "Creating file"},
                     {"content": "Write content", "status": "pending", "activeForm": "Writing content"},
                     {"content": "Verify output", "status": "pending", "activeForm": "Verifying output"}
@@ -338,10 +338,10 @@ pub mod tests {
             }
         });
 
-        let todos = todo_create["output"]["todos"].as_array().unwrap();
-        assert_eq!(todos.len(), 3);
-        assert_eq!(todos[0]["content"], "Create file");
-        assert_eq!(todos[0]["status"], "pending");
+        let tasks = task_create["output"]["tasks"].as_array().unwrap();
+        assert_eq!(tasks.len(), 3);
+        assert_eq!(tasks[0]["content"], "Create file");
+        assert_eq!(tasks[0]["status"], "pending");
     }
 
     #[tokio::test]
@@ -483,7 +483,7 @@ pub mod tests {
             .map(|t| t.name.as_str())
             .collect();
 
-        assert!(agent_tools.contains(&"agent.todo"));
+        assert!(agent_tools.contains(&"agent.task"));
         // Note: agent.create_artifact is excluded from build mode
     }
 
@@ -622,7 +622,7 @@ pub mod tests {
     async fn test_permission_contract_structure() {
         let contract = json!({
             "permissions": {
-                "allowed_tools": ["fs.read", "fs.write", "agent.todo"],
+                "allowed_tools": ["fs.read", "fs.write", "agent.task"],
                 "can_spawn_children": true,
                 "max_delegation_depth": 2
             },

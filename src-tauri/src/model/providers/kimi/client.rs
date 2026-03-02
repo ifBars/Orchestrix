@@ -17,6 +17,31 @@ use crate::runtime::plan_mode_settings::{DEFAULT_PLAN_MODE_MAX_TOKENS, WORKER_MA
 // Full endpoint will be: {base_url}/v1/chat/completions
 const DEFAULT_KIMI_BASE_URL: &str = "https://api.kimi.com/coding";
 
+/// Kimi rejects tool names that contain dots (must match `[a-zA-Z][a-zA-Z0-9_-]*`).
+/// Convert dots to underscores before sending to the API.
+#[inline]
+fn tool_name_to_kimi(name: &str) -> String {
+    name.replace('.', "_")
+}
+
+/// Reverse a Kimi-sanitised tool name back to its canonical form by looking it
+/// up in the original descriptor list.  This is the safe approach because naively
+/// replacing all underscores with dots would corrupt MCP tool names that contain
+/// underscores in the server or tool name components.
+fn tool_name_from_kimi_with_lookup(kimi_name: &str, descriptors: &[ToolDescriptor]) -> String {
+    descriptors
+        .iter()
+        .find(|d| tool_name_to_kimi(&d.name) == kimi_name)
+        .map(|d| d.name.clone())
+        .unwrap_or_else(|| kimi_name.to_string())
+}
+
+/// Check whether a model-returned name corresponds to a known canonical name.
+#[inline]
+fn kimi_names_match(canonical: &str, from_model: &str) -> bool {
+    tool_name_to_kimi(canonical) == from_model
+}
+
 #[derive(Debug, Clone)]
 pub struct KimiClient {
     api_key: String,
@@ -86,7 +111,7 @@ impl KimiClient {
                     .map(|d| OpenAiTool {
                         type_: "function".to_string(),
                         function: OpenAiFunction {
-                            name: d.name.clone(),
+                            name: tool_name_to_kimi(&d.name),
                             description: d.description.clone(),
                             parameters: d.input_schema.clone(),
                         },
@@ -124,6 +149,7 @@ impl KimiClient {
             .post(endpoint)
             .header("Content-Type", "application/json")
             .header("Authorization", format!("Bearer {}", self.api_key))
+            .header("User-Agent", "KimiCLI/0.77")
             .json(&body)
             .send()
             .await
@@ -188,7 +214,7 @@ impl KimiClient {
                     .map(|d| OpenAiTool {
                         type_: "function".to_string(),
                         function: OpenAiFunction {
-                            name: d.name.clone(),
+                            name: tool_name_to_kimi(&d.name),
                             description: d.description.clone(),
                             parameters: d.input_schema.clone(),
                         },
@@ -226,6 +252,7 @@ impl KimiClient {
             .post(endpoint)
             .header("Content-Type", "application/json")
             .header("Authorization", format!("Bearer {}", self.api_key))
+            .header("User-Agent", "KimiCLI/0.77")
             .json(&body)
             .send()
             .await
@@ -379,7 +406,11 @@ impl KimiClient {
                 if call.tool_type != "function" {
                     continue;
                 }
-                if call.function.name == "agent.create_artifact" {
+                // Match both canonical ("agent.create_artifact") and the sanitised
+                // form Kimi returns ("agent_create_artifact").
+                if kimi_names_match("agent.create_artifact", &call.function.name)
+                    || call.function.name == "agent.create_artifact"
+                {
                     let args: serde_json::Value = serde_json::from_str(&call.function.arguments)
                         .unwrap_or(serde_json::json!({}));
                     if let Some(c) = args.get("content").and_then(|v| v.as_str()) {
@@ -459,8 +490,14 @@ impl KimiClient {
                     let args_json =
                         serde_json::from_str::<serde_json::Value>(&call.function.arguments)
                             .unwrap_or_else(|_| serde_json::json!({}));
+                    // Kimi returns sanitised names (underscores); reverse-lookup the
+                    // canonical dot-separated name from the original descriptors.
+                    let canonical_name = tool_name_from_kimi_with_lookup(
+                        &call.function.name,
+                        &req.tool_descriptors,
+                    );
                     calls.push(WorkerToolCall {
-                        tool_name: call.function.name.clone(),
+                        tool_name: canonical_name,
                         tool_args: args_json,
                         rationale: None,
                     });

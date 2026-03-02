@@ -38,6 +38,10 @@ ignore = "0.4"
 nucleo-matcher = "0.3"
 indicatif = "0.17"
 dotenvy = "0.15"
+base64 = "0.22"
+sha2 = "0.10"
+rand = "0.8"
+urlencoding = "2"
 
 [dev-dependencies]
 tempfile = "3"

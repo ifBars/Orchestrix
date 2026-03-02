@@ -10,6 +10,8 @@ pub enum ProviderId {
     Kimi,
     Zhipu,
     Modal,
+    OpenAIChatGPT,
+    Gemini,
 }
 
 impl ProviderId {
@@ -19,6 +21,8 @@ impl ProviderId {
             ProviderId::Kimi => "kimi",
             ProviderId::Zhipu => "zhipu",
             ProviderId::Modal => "modal",
+            ProviderId::OpenAIChatGPT => "openai-chatgpt",
+            ProviderId::Gemini => "gemini",
         }
     }
 
@@ -28,6 +32,8 @@ impl ProviderId {
             ProviderId::Kimi,
             ProviderId::Zhipu,
             ProviderId::Modal,
+            ProviderId::OpenAIChatGPT,
+            ProviderId::Gemini,
         ]
     }
 }
@@ -47,6 +53,8 @@ impl FromStr for ProviderId {
             "kimi" => Ok(ProviderId::Kimi),
             "zhipu" | "glm" => Ok(ProviderId::Zhipu),
             "modal" => Ok(ProviderId::Modal),
+            "openai-chatgpt" | "chatgpt" | "openai" => Ok(ProviderId::OpenAIChatGPT),
+            "gemini" => Ok(ProviderId::Gemini),
             _ => Err(format!("unknown provider: {}", s)),
         }
     }
@@ -100,9 +108,23 @@ mod tests {
         assert_eq!(ProviderId::from_str("glm").unwrap(), ProviderId::Zhipu);
         assert_eq!(ProviderId::from_str("modal").unwrap(), ProviderId::Modal);
         assert_eq!(
+            ProviderId::from_str("openai-chatgpt").unwrap(),
+            ProviderId::OpenAIChatGPT
+        );
+        assert_eq!(
+            ProviderId::from_str("chatgpt").unwrap(),
+            ProviderId::OpenAIChatGPT
+        );
+        assert_eq!(
+            ProviderId::from_str("openai").unwrap(),
+            ProviderId::OpenAIChatGPT
+        );
+        assert_eq!(
             ProviderId::from_str("MINIMAX").unwrap(),
             ProviderId::MiniMax
         );
+        assert_eq!(ProviderId::from_str("gemini").unwrap(), ProviderId::Gemini);
+        assert_eq!(ProviderId::from_str("GEMINI").unwrap(), ProviderId::Gemini);
         assert!(ProviderId::from_str("unknown").is_err());
     }
 

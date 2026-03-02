@@ -23,6 +23,8 @@ export const eventHandlers: Record<string, EventHandler> = {
   "agent.deciding": agent.handleDeciding,
   "agent.tool_calls_preparing": agent.handleToolCallsPreparing,
   "agent.subagents_scheduled": agent.handleSubagentsScheduled,
+  "agent.compaction_started": agent.handleCompactionStarted,
+  "agent.compaction_completed": agent.handleCompactionCompleted,
   "agent.question_required": question.handleQuestionRequired,
   "agent.question_answered": question.handleQuestionAnswered,
 

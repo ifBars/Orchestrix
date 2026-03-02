@@ -7,7 +7,7 @@
 //! - Persistent storage of conversation summaries
 
 use crate::db::{queries, Database};
-use crate::model::{GlmClient, KimiClient, MiniMaxClient, ModalClient, ModelCatalog};
+use crate::model::{GeminiClient, GlmClient, KimiClient, MiniMaxClient, ModalClient, ModelCatalog};
 use chrono::Utc;
 use uuid::Uuid;
 
@@ -138,6 +138,21 @@ fn estimate_tokens(messages: &[ConversationMessage]) -> usize {
 }
 
 /// Generate a summary of conversation history using the specified model.
+/// 
+/// NOTE: This uses a "simple completion" approach which does NOT preserve the prompt cache.
+/// For cache-safe compaction (as described in prompt-caching.md), we would need to:
+/// 1. Use the exact same system prompt, user context, system context, and tool definitions
+///    as the parent conversation
+/// 2. Prepend the parent's conversation messages
+/// 3. Append the compaction prompt as a new user message at the end
+/// 
+/// This ensures the API sees a nearly identical request to the parent's last request,
+/// allowing the cached prefix to be reused. The only new tokens are the compaction
+/// prompt itself.
+/// 
+/// Since most coding subscriptions don't support cross-request caching, we use the
+/// simpler approach for now. When caching becomes available, refactor to use
+/// cache-safe forking.
 pub async fn generate_summary(
     db: &Database,
     task_id: &str,
@@ -181,6 +196,9 @@ pub async fn generate_summary(
         }
         "modal" => {
             summarize_with_modal(api_key, model, base_url, &system_prompt, &conversation_text).await
+        }
+        "gemini" => {
+            summarize_with_gemini(api_key, model, base_url, &system_prompt, &conversation_text).await
         }
         _ => {
             summarize_with_minimax(api_key, model, base_url, &system_prompt, &conversation_text)
@@ -323,6 +341,36 @@ async fn summarize_with_modal(
         Err(e) => {
             tracing::warn!(
                 "Modal summarization failed: {}, falling back to basic summary",
+                e
+            );
+            generate_fallback_summary(conversation)
+        }
+    }
+}
+
+/// Summarize using Gemini model with simple completion (no agent loop).
+#[allow(dead_code)]
+async fn summarize_with_gemini(
+    api_key: &str,
+    model: Option<&str>,
+    base_url: Option<&str>,
+    system_prompt: &str,
+    conversation: &str,
+) -> String {
+    let planner = GeminiClient::new(
+        api_key.to_string(),
+        model.map(String::from),
+        base_url.map(String::from),
+    );
+
+    match planner
+        .complete(system_prompt, conversation, SUMMARIZATION_MAX_TOKENS)
+        .await
+    {
+        Ok(summary) => summary,
+        Err(e) => {
+            tracing::warn!(
+                "Gemini summarization failed: {}, falling back to basic summary",
                 e
             );
             generate_fallback_summary(conversation)

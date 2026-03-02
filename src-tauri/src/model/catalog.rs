@@ -51,11 +51,18 @@ impl ModelCatalog {
             },
             ProviderEntry {
                 provider: ProviderId::Kimi.as_str().to_string(),
-                models: vec![ModelInfo {
-                    name: "kimi-k2.5".to_string(),
-                    context_window: 256_000,
-                    description: "Kimi general purpose model".to_string(),
-                }],
+                models: vec![
+                    ModelInfo {
+                        name: "kimi-k2-thinking".to_string(),
+                        context_window: 256_000,
+                        description: "Kimi K2 Thinking - Extended reasoning model".to_string(),
+                    },
+                    ModelInfo {
+                        name: "kimi-k2.5".to_string(),
+                        context_window: 256_000,
+                        description: "Kimi general purpose model".to_string(),
+                    },
+                ],
             },
             ProviderEntry {
                 provider: ProviderId::Zhipu.as_str().to_string(),
@@ -110,6 +117,78 @@ impl ModelCatalog {
                     description: "GLM-5 on Modal (FP8 quantized)".to_string(),
                 }],
             },
+            ProviderEntry {
+                provider: ProviderId::OpenAIChatGPT.as_str().to_string(),
+                models: vec![
+                    ModelInfo {
+                        name: "gpt-5.3-codex".to_string(),
+                        context_window: 400_000,
+                        description: "GPT-5.3 Codex - Latest coding model (ChatGPT Plus/Pro)"
+                            .to_string(),
+                    },
+                    ModelInfo {
+                        name: "gpt-5.2-codex".to_string(),
+                        context_window: 400_000,
+                        description: "GPT-5.2 Codex - Coding model (ChatGPT Plus/Pro)".to_string(),
+                    },
+                    ModelInfo {
+                        name: "gpt-5.1-codex-max".to_string(),
+                        context_window: 400_000,
+                        description: "GPT-5.1 Codex Max - Full capability coding model".to_string(),
+                    },
+                    ModelInfo {
+                        name: "gpt-5.1-codex-mini".to_string(),
+                        context_window: 400_000,
+                        description: "GPT-5.1 Codex Mini - Fast coding model".to_string(),
+                    },
+                    ModelInfo {
+                        name: "gpt-5.2".to_string(),
+                        context_window: 400_000,
+                        description: "GPT-5.2 - Latest general model (ChatGPT Plus/Pro)"
+                            .to_string(),
+                    },
+                    ModelInfo {
+                        name: "gpt-5.1".to_string(),
+                        context_window: 400_000,
+                        description: "GPT-5.1 - General purpose model".to_string(),
+                    },
+                    ModelInfo {
+                        name: "gpt-5".to_string(),
+                        context_window: 200_000,
+                        description: "GPT-5 - Standard model".to_string(),
+                    },
+                    ModelInfo {
+                        name: "gpt-5-nano".to_string(),
+                        context_window: 128_000,
+                        description: "GPT-5 Nano - Fast, lightweight model".to_string(),
+                    },
+                ],
+            },
+            ProviderEntry {
+                provider: ProviderId::Gemini.as_str().to_string(),
+                models: vec![
+                    ModelInfo {
+                        name: "gemini-3-pro-preview".to_string(),
+                        context_window: 1_000_000,
+                        description:
+                            "Gemini 3 Pro - 1M tokens, complex reasoning, coding, research"
+                                .to_string(),
+                    },
+                    ModelInfo {
+                        name: "gemini-3-flash-preview".to_string(),
+                        context_window: 1_000_000,
+                        description:
+                            "Gemini 3 Flash - 1M tokens, fast, balanced performance, multimodal"
+                                .to_string(),
+                    },
+                    ModelInfo {
+                        name: "gemini-3-pro-image-preview".to_string(),
+                        context_window: 65_536,
+                        description: "Gemini 3 Pro Image - Image generation and editing"
+                            .to_string(),
+                    },
+                ],
+            },
         ]
     }
 
@@ -120,6 +199,8 @@ impl ModelCatalog {
             ProviderId::Kimi => "kimi-k2.5".to_string(),
             ProviderId::Zhipu => "glm-5".to_string(),
             ProviderId::Modal => "zai-org/GLM-5-FP8".to_string(),
+            ProviderId::OpenAIChatGPT => "gpt-5.3-codex".to_string(),
+            ProviderId::Gemini => "gemini-3-flash-preview".to_string(),
         }
     }
 }

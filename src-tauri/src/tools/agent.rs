@@ -1,4 +1,4 @@
-//! Agent-related tools for todo management and mode switching.
+//! Agent-related tools for task management and mode switching.
 
 use std::path::Path;
 
@@ -8,8 +8,8 @@ use crate::policy::{PolicyDecision, PolicyEngine};
 use crate::runtime::questions::{UserQuestionOption, UserQuestionRequest};
 use crate::tools::types::{Tool, ToolCallOutput, ToolError};
 
-/// Tool for managing agent todo lists.
-pub struct AgentTodoTool;
+/// Tool for managing agent task lists.
+pub struct AgentTaskTool;
 
 /// Tool for asking the user targeted preference questions.
 pub struct AgentAskUserTool;
@@ -185,23 +185,23 @@ impl Tool for AgentMemoryUpsertTool {
     }
 }
 
-impl Tool for AgentTodoTool {
+impl Tool for AgentTaskTool {
     fn descriptor(&self) -> ToolDescriptor {
         ToolDescriptor {
-            name: "agent.todo".into(),
+            name: "agent.task".into(),
             description: concat!(
-                "Manage the agent's local todo list. Actions: list, set, add, update, clear. ",
-                "For 'update', pass a 'todos' array where position determines which todo to update. ",
-                "Use 'list_id' to scope todos to a specific agent/run to avoid conflicts with parent/sub-agents."
+                "Manage the agent's task list and coordinate sub-agents. Actions: list, set, add, update, clear. ",
+                "For 'update', pass a 'tasks' array where position determines which task to update. ",
+                "Use 'list_id' to scope tasks to a specific agent/run. Tasks help communicate dependencies and share updates across agents."
             ).into(),
             input_schema: serde_json::json!({
                 "type": "object",
                 "properties": {
                     "action": {"type": "string", "enum": ["list", "set", "add", "update", "clear"]},
-                    "todos": {"type": "array", "items": {"type": "object"}, "description": "For 'set' or 'update' actions. For update, array position determines which todo to update."},
+                    "tasks": {"type": "array", "items": {"type": "object"}, "description": "For 'set' or 'update' actions. For update, array position determines which task to update."},
                     "item": {"type": "object", "description": "For 'add' action or 'update' with index"},
                     "index": {"type": "integer", "description": "Optional: specific index for update (legacy)"},
-                    "list_id": {"type": "string", "description": "Optional: scope this todo list to a specific ID (e.g., agent/run identifier). Prevents conflicts between parent and sub-agent todos."}
+                    "list_id": {"type": "string", "description": "Optional: scope this task list to a specific ID (e.g., agent/run identifier). Prevents conflicts between parent and sub-agent tasks."}
                 }
             }),
             output_schema: None,
@@ -223,17 +223,17 @@ impl Tool for AgentTodoTool {
         let state_dir = cwd.join(".orchestrix");
         std::fs::create_dir_all(&state_dir).map_err(|e| ToolError::Execution(e.to_string()))?;
 
-        // Scope todo file to list_id if provided, otherwise use default
-        let todo_path = if let Some(id) = list_id {
+        // Scope task file to list_id if provided, otherwise use default
+        let task_path = if let Some(id) = list_id {
             // Sanitize list_id to be filesystem-safe
             let safe_id = id.replace(|c: char| !c.is_alphanumeric() && c != '-' && c != '_', "_");
-            state_dir.join(format!("agent-todo-{}.json", safe_id))
+            state_dir.join(format!("agent-task-{}.json", safe_id))
         } else {
-            state_dir.join("agent-todo.json")
+            state_dir.join("agent-task.json")
         };
 
-        let mut todos: Vec<serde_json::Value> = if todo_path.exists() {
-            let raw = std::fs::read_to_string(&todo_path)
+        let mut tasks: Vec<serde_json::Value> = if task_path.exists() {
+            let raw = std::fs::read_to_string(&task_path)
                 .map_err(|e| ToolError::Execution(e.to_string()))?;
             serde_json::from_str(&raw).unwrap_or_default()
         } else {
@@ -243,24 +243,24 @@ impl Tool for AgentTodoTool {
         match action {
             "set" => {
                 let next = input
-                    .get("todos")
+                    .get("tasks")
                     .and_then(|v| v.as_array())
                     .ok_or_else(|| {
-                        ToolError::InvalidInput("todos array is required for set".to_string())
+                        ToolError::InvalidInput("tasks array is required for set".to_string())
                     })?;
-                todos = next.clone();
+                tasks = next.clone();
             }
             "add" => {
                 let item = input.get("item").ok_or_else(|| {
                     ToolError::InvalidInput("item is required for add".to_string())
                 })?;
-                todos.push(item.clone());
+                tasks.push(item.clone());
             }
             "update" => {
-                if let Some(items) = input.get("todos").and_then(|v| v.as_array()) {
+                if let Some(items) = input.get("tasks").and_then(|v| v.as_array()) {
                     for (idx, item) in items.iter().enumerate() {
-                        if idx < todos.len() {
-                            todos[idx] = item.clone();
+                        if idx < tasks.len() {
+                            tasks[idx] = item.clone();
                         }
                     }
                 } else if let Some(idx) = input.get("index").and_then(|v| v.as_u64()) {
@@ -268,18 +268,18 @@ impl Tool for AgentTodoTool {
                     let item = input.get("item").ok_or_else(|| {
                         ToolError::InvalidInput("item is required when using index".to_string())
                     })?;
-                    if idx >= todos.len() {
+                    if idx >= tasks.len() {
                         return Err(ToolError::InvalidInput("index out of range".to_string()));
                     }
-                    todos[idx] = item.clone();
+                    tasks[idx] = item.clone();
                 } else {
                     return Err(ToolError::InvalidInput(
-                        "todos array or index+item is required for update".to_string(),
+                        "tasks array or index+item is required for update".to_string(),
                     ));
                 }
             }
             "clear" => {
-                todos.clear();
+                tasks.clear();
             }
             "list" => {}
             _ => return Err(ToolError::InvalidInput(format!("unknown action: {action}"))),
@@ -287,8 +287,8 @@ impl Tool for AgentTodoTool {
 
         if action != "list" {
             std::fs::write(
-                &todo_path,
-                serde_json::to_string_pretty(&todos)
+                &task_path,
+                serde_json::to_string_pretty(&tasks)
                     .map_err(|e| ToolError::Execution(e.to_string()))?,
             )
             .map_err(|e| ToolError::Execution(e.to_string()))?;
@@ -296,7 +296,7 @@ impl Tool for AgentTodoTool {
 
         Ok(ToolCallOutput {
             ok: true,
-            data: serde_json::json!({ "todos": todos }),
+            data: serde_json::json!({ "tasks": tasks }),
             error: None,
         })
     }

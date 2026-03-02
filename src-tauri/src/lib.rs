@@ -181,6 +181,16 @@ fn env_for_provider(provider: &str) -> (Option<String>, Option<String>, Option<S
             std::env::var("MINIMAX_MODEL").ok(),
             std::env::var("MINIMAX_BASE_URL").ok(),
         ),
+        "openai-chatgpt" | "chatgpt" => (
+            std::env::var("OPENAI_API_KEY").ok(),
+            std::env::var("OPENAI_MODEL").ok(),
+            None,
+        ),
+        "gemini" => (
+            std::env::var("GEMINI_API_KEY").ok(),
+            std::env::var("GEMINI_MODEL").ok(),
+            std::env::var("GEMINI_BASE_URL").ok(),
+        ),
         _ => (
             std::env::var("MINIMAX_API_KEY").ok(),
             std::env::var("MINIMAX_MODEL").ok(),
@@ -193,6 +203,50 @@ pub(crate) fn load_provider_config(
     db: &Database,
     provider: &str,
 ) -> Result<Option<ProviderConfig>, AppError> {
+    // Special handling for ChatGPT: prefer OAuth tokens over manual API key
+    if provider == "openai-chatgpt" || provider == "chatgpt" {
+        if let Some(raw) = queries::get_setting(db, "chatgpt_oauth_auth")? {
+            // OAuth tokens stored by complete_chatgpt_oauth
+            #[derive(Deserialize)]
+            struct ChatGPTAuthData {
+                access_token: String,
+                refresh_token: String,
+                expires_at: i64,
+                account_id: Option<String>,
+            }
+            if let Ok(auth) = serde_json::from_str::<ChatGPTAuthData>(&raw) {
+                // Encode tokens as JSON in the api_key field so the runtime can unpack them
+                let api_key = serde_json::json!({
+                    "access_token": auth.access_token,
+                    "refresh_token": auth.refresh_token,
+                    "expires_at": auth.expires_at,
+                    "account_id": auth.account_id,
+                })
+                .to_string();
+
+                // Still check if user set a custom model or base_url via set_provider_config
+                let (default_model, base_url) = if let Some(cfg_raw) =
+                    queries::get_setting(db, &provider_setting_key(provider))?
+                {
+                    if let Ok(cfg) = serde_json::from_str::<ProviderConfig>(&cfg_raw) {
+                        (cfg.default_model, cfg.base_url)
+                    } else {
+                        (None, None)
+                    }
+                } else {
+                    (None, None)
+                };
+
+                return Ok(Some(ProviderConfig {
+                    api_key,
+                    default_model,
+                    base_url,
+                }));
+            }
+        }
+        // Fall through to manual API key path if no OAuth tokens
+    }
+
     // Check database first - this is the authoritative source for UI
     let raw = queries::get_setting(db, &provider_setting_key(provider))?;
     if let Some(raw) = raw {
@@ -467,6 +521,12 @@ pub fn run() {
             commands::providers::get_provider_configs,
             commands::providers::get_model_catalog,
             commands::providers::get_context_window_for_model,
+            // ChatGPT OAuth
+            commands::providers::start_chatgpt_oauth,
+            commands::providers::start_chatgpt_oauth_and_listen,
+            commands::providers::complete_chatgpt_oauth,
+            commands::providers::get_chatgpt_auth_status,
+            commands::providers::remove_chatgpt_auth,
             // embeddings
             commands::embeddings::get_embedding_config,
             commands::embeddings::set_embedding_config,

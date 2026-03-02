@@ -9,6 +9,8 @@ export function providerLabel(providerId: string): string {
   if (providerId === "minimax") return "MiniMax";
   if (providerId === "kimi") return "Kimi";
   if (providerId === "zhipu") return "GLM (Zhipu)";
+  if (providerId === "modal") return "Modal";
+  if (providerId === "openai-chatgpt") return "OpenAI ChatGPT";
   return providerId
     .split(/[-_\s]+/)
     .filter((token) => token.length > 0)

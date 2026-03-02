@@ -10,8 +10,8 @@ use crate::core::prompt_references::expand_prompt_references;
 use crate::core::tool::ToolDescriptor;
 use crate::db::{queries, Database};
 use crate::model::{
-    strip_tool_call_markup, AgentModelClient, GlmClient, KimiClient, MiniMaxClient, ModalClient,
-    WorkerAction, WorkerActionRequest, WorkerToolCall,
+    strip_tool_call_markup, AgentModelClient, ChatGPTClient, GeminiClient, GlmClient, KimiClient,
+    MiniMaxClient, ModalClient, WorkerAction, WorkerActionRequest, WorkerToolCall,
 };
 use crate::policy::PolicyEngine;
 use crate::runtime::approval::ApprovalGate;
@@ -710,6 +710,72 @@ pub async fn generate_plan_markdown_artifact(
         }
         "modal" => {
             let planner = ModalClient::new(api_key, model, base_url);
+            planner_model = planner.model_id().to_string();
+            run_multi_turn_planning(
+                &db,
+                &bus,
+                &planner,
+                &task_id,
+                &run_id,
+                &prompt_with_refs,
+                &context,
+                &skills_context,
+                plan_mode_tools.clone(),
+                tool_registry.as_ref(),
+                &policy,
+                approval_gate.as_ref(),
+                question_gate.as_ref(),
+                &workspace_root,
+                max_tokens,
+                include_embeddings,
+            )
+            .await?
+        }
+        "gemini" => {
+            let planner = GeminiClient::new(api_key, model, base_url);
+            planner_model = planner.model_id().to_string();
+            run_multi_turn_planning(
+                &db,
+                &bus,
+                &planner,
+                &task_id,
+                &run_id,
+                &prompt_with_refs,
+                &context,
+                &skills_context,
+                plan_mode_tools.clone(),
+                tool_registry.as_ref(),
+                &policy,
+                approval_gate.as_ref(),
+                question_gate.as_ref(),
+                &workspace_root,
+                max_tokens,
+                include_embeddings,
+            )
+            .await?
+        }
+        "openai-chatgpt" | "chatgpt" => {
+            // api_key carries JSON-encoded OAuth data when OAuth is used, or a raw Bearer token
+            let planner = if let Ok(auth) = serde_json::from_str::<serde_json::Value>(&api_key) {
+                let access_token = auth
+                    .get("access_token")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("")
+                    .to_string();
+                let refresh_token = auth
+                    .get("refresh_token")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("")
+                    .to_string();
+                let expires_at = auth.get("expires_at").and_then(|v| v.as_i64()).unwrap_or(0);
+                let account_id = auth
+                    .get("account_id")
+                    .and_then(|v| v.as_str())
+                    .map(str::to_string);
+                ChatGPTClient::new(access_token, refresh_token, expires_at, account_id, model)
+            } else {
+                ChatGPTClient::new(api_key, String::new(), i64::MAX, None, model)
+            };
             planner_model = planner.model_id().to_string();
             run_multi_turn_planning(
                 &db,

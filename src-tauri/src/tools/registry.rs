@@ -13,7 +13,7 @@ use crate::core::mcp::{call_mcp_tool_by_server_and_name, load_mcp_tools_cache};
 use crate::core::tool::ToolDescriptor;
 use crate::policy::PolicyEngine;
 use crate::tools::agent::{
-    AgentAskUserTool, AgentCompleteTool, AgentMemoryUpsertTool, AgentTodoTool, CreateArtifactTool,
+    AgentAskUserTool, AgentCompleteTool, AgentMemoryUpsertTool, AgentTaskTool, CreateArtifactTool,
     RequestBuildModeTool, RequestPlanModeTool, SubAgentSpawnTool,
 };
 use crate::tools::canvas::{CanvasMutateTool, CanvasReadStateTool};
@@ -98,7 +98,7 @@ impl ToolRegistry {
         tools.insert("memory.compact".to_string(), Box::new(MemoryCompactTool));
 
         // Agent tools
-        tools.insert("agent.todo".to_string(), Box::new(AgentTodoTool));
+        tools.insert("agent.task".to_string(), Box::new(AgentTaskTool));
         tools.insert("agent.ask_user".to_string(), Box::new(AgentAskUserTool));
         tools.insert(
             "agent.memory_upsert".to_string(),
@@ -157,7 +157,7 @@ impl ToolRegistry {
     /// Mode-specific restrictions are enforced at execution time.
     ///
     /// Only includes read-only tools and plan-specific agent tools:
-    /// fs.read, fs.list, search.rg, git.*, skills.*, agent.todo,
+    /// fs.read, fs.list, search.rg, git.*, skills.*, agent.task,
     /// agent.create_artifact, agent.request_build_mode
     ///
     /// If `include_embeddings` is false, excludes search.embeddings.
@@ -177,7 +177,7 @@ impl ToolRegistry {
             "memory.list",
             "memory.read",
             "agent.ask_user",
-            "agent.todo",
+            "agent.task",
             "agent.create_artifact",
             "agent.request_build_mode",
             "diagram.read_graph",

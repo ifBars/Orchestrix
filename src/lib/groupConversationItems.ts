@@ -9,7 +9,10 @@ function isToolCall(item: ConversationItem): boolean {
 }
 
 function isTransientStatus(item: ConversationItem): boolean {
-  return item.type === "statusChange" && (item.status === "deciding" || item.status === "preparing");
+  return (
+    item.type === "statusChange" &&
+    (item.status === "deciding" || item.status === "preparing" || item.status === "compacting")
+  );
 }
 
 function shouldSkipItem(item: ConversationItem, nextItem: ConversationItem | undefined): boolean {

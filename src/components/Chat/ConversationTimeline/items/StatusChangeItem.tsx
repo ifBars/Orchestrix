@@ -1,4 +1,4 @@
-import { AlertTriangle, CheckCircle2, Clock3, GitMerge, Loader2 } from "lucide-react";
+import { AlertTriangle, CheckCircle2, Clock3, GitMerge, Loader2, Minimize2 } from "lucide-react";
 import type { ConversationItem } from "@/runtime/eventBuffer";
 
 type StatusChangeItemProps = {
@@ -7,8 +7,9 @@ type StatusChangeItemProps = {
 
 export function StatusChangeItem({ item }: StatusChangeItemProps) {
   // Transient states that will be auto-removed (more subtle appearance)
-  const isTransient = item.status === "deciding" || item.status === "preparing";
-  
+  const isTransient =
+    item.status === "deciding" || item.status === "preparing" || item.status === "compacting";
+
   let icon = <Clock3 size={12} className="text-muted-foreground" />;
   if (item.status === "completed" || item.status === "merged") {
     icon = <CheckCircle2 size={12} className="text-success" />;
@@ -22,6 +23,10 @@ export function StatusChangeItem({ item }: StatusChangeItemProps) {
     icon = <Loader2 size={12} className="animate-spin text-muted-foreground/60" />;
   } else if (item.status === "preparing") {
     icon = <Loader2 size={12} className="animate-spin text-muted-foreground/70" />;
+  } else if (item.status === "compacting") {
+    icon = <Loader2 size={12} className="animate-spin text-muted-foreground/60" />;
+  } else if (item.status === "compacted") {
+    icon = <Minimize2 size={12} className="text-muted-foreground" />;
   }
 
   // Transient items get a more subtle, inline appearance

@@ -173,14 +173,14 @@ fn default_timeout() -> u64 {
     300_000 // 5 minutes
 }
 
-/// Count open todos in the latest todo observation.
+/// Count open tasks in the latest task observation.
 ///
-/// Returns Some(count) if the last observation is a successful agent.todo call
+/// Returns Some(count) if the last observation is a successful agent.task call
 /// with pending/in_progress items, None otherwise.
-pub fn open_todos_in_latest_todo_observation(observations: &[serde_json::Value]) -> Option<usize> {
+pub fn open_tasks_in_latest_task_observation(observations: &[serde_json::Value]) -> Option<usize> {
     let last = observations.last()?;
     let tool_name = last.get("tool_name")?.as_str()?;
-    if tool_name != "agent.todo" {
+    if tool_name != "agent.task" {
         return None;
     }
 
@@ -189,11 +189,11 @@ pub fn open_todos_in_latest_todo_observation(observations: &[serde_json::Value])
         return None;
     }
 
-    let todos = last.get("output")?.get("todos")?.as_array()?;
-    let open = todos
+    let tasks = last.get("output")?.get("tasks")?.as_array()?;
+    let open = tasks
         .iter()
-        .filter(|todo| {
-            let state = todo
+        .filter(|task| {
+            let state = task
                 .get("status")
                 .and_then(|v| v.as_str())
                 .unwrap_or("pending");

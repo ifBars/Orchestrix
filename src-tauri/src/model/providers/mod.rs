@@ -1,5 +1,7 @@
 //! Model client implementations.
 
+pub mod chatgpt;
+pub mod gemini;
 pub mod glm;
 pub mod kimi;
 pub mod minimax;

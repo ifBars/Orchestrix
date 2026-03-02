@@ -35,6 +35,8 @@ pub use types::{
 };
 
 // Re-export provider clients for convenience
+pub use providers::chatgpt::ChatGPTClient;
+pub use providers::gemini::GeminiClient;
 pub use providers::glm::GlmClient;
 pub use providers::kimi::KimiClient;
 pub use providers::minimax::MiniMaxClient;
