@@ -3,15 +3,17 @@ import { Github, Twitter, Mail } from "lucide-react";
 const footerLinks = {
   Product: [
     { label: "Download", href: "#" },
-    { label: "Features", href: "#execution-model" },
+    { label: "How it works", href: "#execution-model" },
     { label: "Architecture", href: "#architecture" },
-    { label: "Tools", href: "#tools" },
+    { label: "Agents & Tools", href: "#agents" },
+    { label: "Providers", href: "#providers" },
   ],
   Resources: [
     { label: "Documentation", href: "#" },
     { label: "API Reference", href: "#" },
     { label: "GitHub", href: "https://github.com/orchestrix" },
     { label: "Skills Guide", href: "#" },
+    { label: "AGENTS.md", href: "#" },
   ],
   Company: [
     { label: "About", href: "#" },
@@ -22,65 +24,89 @@ const footerLinks = {
 };
 
 const socialLinks = [
-  { icon: Github, href: "https://github.com/orchestrix", label: "GitHub" },
-  { icon: Twitter, href: "#", label: "Twitter" },
-  { icon: Mail, href: "mailto:hello@orchestrix.io", label: "Email" },
+  { icon: Github,  href: "https://github.com/orchestrix", label: "GitHub" },
+  { icon: Twitter, href: "#",                              label: "Twitter" },
+  { icon: Mail,    href: "mailto:hello@orchestrix.io",    label: "Email" },
 ];
+
+const OrchestrxLogo = () => (
+  <svg width="18" height="18" viewBox="0 0 20 20" fill="none" aria-hidden="true">
+    <polygon
+      points="10,2 17,6 17,14 10,18 3,14 3,6"
+      stroke="currentColor"
+      strokeWidth="1.5"
+      fill="none"
+    />
+    <circle cx="10" cy="10" r="2.5" fill="currentColor" />
+  </svg>
+);
 
 const Footer = () => {
   return (
-    <footer className="border-t border-border/20 py-16 relative overflow-hidden">
-      {/* Background */}
-      <div className="absolute inset-0 grid-bg opacity-[0.015]" />
-      <div className="absolute bottom-0 left-1/2 -translate-x-1/2 w-[600px] h-[300px] rounded-full bg-primary/[0.02] blur-[80px]" />
+    <footer className="relative overflow-hidden border-t border-border/20">
+      {/* Top scanning accent */}
+      <div
+        className="absolute top-0 left-0 right-0 h-px"
+        style={{
+          background:
+            "linear-gradient(90deg, transparent 0%, oklch(0.68 0.12 235 / 0.15) 30%, oklch(0.68 0.12 235 / 0.15) 70%, transparent 100%)",
+        }}
+      />
 
-      <div className="container relative mx-auto px-6">
+      <div className="absolute bottom-0 left-1/2 -translate-x-1/2 w-[500px] h-[200px] pointer-events-none"
+        style={{
+          background: "radial-gradient(ellipse at bottom, oklch(0.68 0.10 235 / 0.04) 0%, transparent 70%)",
+        }}
+      />
+
+      <div className="container relative mx-auto px-6 pt-16 pb-10">
         <div className="grid sm:grid-cols-2 lg:grid-cols-5 gap-10 mb-12">
-          {/* Brand */}
+
+          {/* Brand block */}
           <div className="lg:col-span-2">
-            <a href="/" className="flex items-center gap-2.5 mb-4">
-              <div className="h-7 w-7 rounded-lg bg-gradient-to-br from-primary to-primary/60 flex items-center justify-center">
-                <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
-                  <path
-                    d="M8 1L14 4.5V11.5L8 15L2 11.5V4.5L8 1Z"
-                    stroke="currentColor"
-                    strokeWidth="1.5"
-                    className="text-primary-foreground"
-                  />
-                  <circle cx="8" cy="8" r="2" fill="currentColor" className="text-primary-foreground" />
-                </svg>
+            <a href="/" className="inline-flex items-center gap-2.5 mb-5 group">
+              <div className="flex items-center justify-center w-8 h-8 rounded-lg border border-border/60 bg-card/50 text-primary group-hover:border-primary/40 transition-colors">
+                <OrchestrxLogo />
               </div>
-              <span className="text-sm font-bold text-foreground font-mono">Orchestrix</span>
+              <span className="text-sm font-semibold text-foreground font-mono tracking-tight">
+                Orchestrix
+              </span>
             </a>
             <p className="text-xs text-muted-foreground leading-relaxed max-w-xs mb-6">
-              Backend-authoritative AI agent runtime. Plan-first execution with human approval gates and full event visibility.
+              Backend-authoritative AI agent runtime. Plan-first execution with human approval gates and full event visibility. Built in Rust.
             </p>
-            <div className="flex items-center gap-3">
+
+            {/* Social links */}
+            <div className="flex items-center gap-2">
               {socialLinks.map((social) => (
                 <a
                   key={social.label}
                   href={social.href}
-                  className="w-9 h-9 rounded-lg bg-card/50 border border-border/50 flex items-center justify-center text-muted-foreground hover:text-foreground hover:border-primary/30 hover:bg-card transition-all duration-300"
+                  className="flex items-center justify-center w-8 h-8 rounded-lg border border-border/50 bg-card/30 text-muted-foreground hover:text-foreground hover:border-primary/30 hover:bg-card/70 transition-all duration-200"
                   aria-label={social.label}
+                  target={social.href.startsWith("http") ? "_blank" : undefined}
+                  rel={social.href.startsWith("http") ? "noopener noreferrer" : undefined}
                 >
-                  <social.icon className="w-4 h-4" />
+                  <social.icon className="w-3.5 h-3.5" />
                 </a>
               ))}
             </div>
           </div>
 
-          {/* Links */}
+          {/* Link columns */}
           {Object.entries(footerLinks).map(([category, links]) => (
             <div key={category}>
-              <h3 className="text-xs font-semibold text-foreground font-mono uppercase tracking-wider mb-4">
+              <h3 className="text-[10px] font-semibold text-foreground/80 font-mono uppercase tracking-[0.15em] mb-4">
                 {category}
               </h3>
-              <ul className="space-y-3">
+              <ul className="space-y-2.5">
                 {links.map((link) => (
                   <li key={link.label}>
                     <a
                       href={link.href}
-                      className="text-xs text-muted-foreground hover:text-foreground transition-colors"
+                      className="text-xs text-muted-foreground hover:text-foreground transition-colors duration-150 font-mono"
+                      target={link.href.startsWith("http") ? "_blank" : undefined}
+                      rel={link.href.startsWith("http") ? "noopener noreferrer" : undefined}
                     >
                       {link.label}
                     </a>
@@ -91,15 +117,19 @@ const Footer = () => {
           ))}
         </div>
 
-        {/* Bottom */}
+        {/* Bottom bar */}
         <div className="pt-8 border-t border-border/20 flex flex-col sm:flex-row items-center justify-between gap-4">
-          <p className="text-[10px] text-muted-foreground font-mono">
+          <p className="text-[10px] text-muted-foreground/50 font-mono">
             © 2026 Orchestrix. Built in Rust.
           </p>
-          <div className="flex items-center gap-4 text-[10px] text-muted-foreground/60 font-mono">
+          <div className="flex items-center gap-4 text-[10px] text-muted-foreground/35 font-mono">
             <span>MIT License</span>
-            <span>•</span>
-            <span>v0.1.0-alpha</span>
+            <span className="text-muted-foreground/20">·</span>
+            <code className="px-1.5 py-0.5 rounded bg-muted/40 text-primary/50">v0.1.0-alpha</code>
+            <span className="text-muted-foreground/20">·</span>
+            <a href="#" className="hover:text-muted-foreground/60 transition-colors">Terms</a>
+            <span className="text-muted-foreground/20">·</span>
+            <a href="#" className="hover:text-muted-foreground/60 transition-colors">Privacy</a>
           </div>
         </div>
       </div>

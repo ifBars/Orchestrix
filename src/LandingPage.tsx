@@ -2,12 +2,9 @@ import {
   Navbar,
   HeroSection,
   ExecutionModelSection,
-  EventArchitectureSection,
-  VisibilitySection,
-  SubAgentsSection,
-  ToolSystemSection,
-  ProvidersSection,
-  CrashRecoverySection,
+  ArchitectureAndVisibilitySection,
+  AgentsAndToolsSection,
+  ProvidersAndRecoverySection,
   CTASection,
   Footer,
 } from "@/components/landing";
@@ -19,12 +16,9 @@ const LandingPage = () => {
       <main>
         <HeroSection />
         <ExecutionModelSection />
-        <EventArchitectureSection />
-        <VisibilitySection />
-        <SubAgentsSection />
-        <ToolSystemSection />
-        <ProvidersSection />
-        <CrashRecoverySection />
+        <ArchitectureAndVisibilitySection />
+        <AgentsAndToolsSection />
+        <ProvidersAndRecoverySection />
         <CTASection />
       </main>
       <Footer />
