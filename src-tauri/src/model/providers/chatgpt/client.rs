@@ -9,8 +9,7 @@ use tokio::sync::RwLock;
 
 use crate::core::tool::ToolDescriptor;
 use crate::model::shared::{
-    preferred_response_text, strip_tool_call_markup,
-    worker_system_prompt, worker_user_prompt,
+    preferred_response_text, strip_tool_call_markup, worker_system_prompt, worker_user_prompt,
 };
 use crate::model::{
     AgentModelClient, ModelError, StreamDelta, WorkerAction, WorkerActionRequest, WorkerDecision,
@@ -77,21 +76,22 @@ impl ChatGPTClient {
     /// Get current auth (refreshes if needed)
     async fn get_auth(&self) -> Result<ChatGPTAuth, ModelError> {
         let auth = self.auth.read().await.clone();
-        
+
         if auth.is_expired() {
             // Need to refresh
             let mut auth_guard = self.auth.write().await;
-            
+
             // Double-check after acquiring write lock
             if auth_guard.is_expired() {
                 tracing::info!("Refreshing ChatGPT access token");
-                
-                let new_tokens = oauth::refresh_access_token(&auth_guard.refresh_token
-                ).await.map_err(|e| ModelError::Auth(format!("Token refresh failed: {}", e)))?;
-                
+
+                let new_tokens = oauth::refresh_access_token(&auth_guard.refresh_token)
+                    .await
+                    .map_err(|e| ModelError::Auth(format!("Token refresh failed: {}", e)))?;
+
                 let new_account_id = oauth::extract_account_id_from_tokens(&new_tokens)
                     .or_else(|| auth_guard.account_id.clone());
-                
+
                 *auth_guard = ChatGPTAuth {
                     access_token: new_tokens.access_token.clone(),
                     refresh_token: new_tokens.refresh_token,
@@ -99,7 +99,7 @@ impl ChatGPTClient {
                     account_id: new_account_id,
                 };
             }
-            
+
             Ok(auth_guard.clone())
         } else {
             Ok(auth)
@@ -107,6 +107,7 @@ impl ChatGPTClient {
     }
 
     /// Simple text completion without tools
+    #[allow(dead_code)]
     pub async fn complete(
         &self,
         system: &str,
@@ -121,6 +122,7 @@ impl ChatGPTClient {
     }
 
     /// Run chat completion with optional tools
+    #[allow(dead_code)]
     async fn run_chat(
         &self,
         system: &str,
@@ -129,7 +131,7 @@ impl ChatGPTClient {
         tools: Option<Vec<ToolDescriptor>>,
     ) -> Result<OpenAiResponseMessage, ModelError> {
         let auth = self.get_auth().await?;
-        
+
         let body = OpenAiChatRequest {
             model: self.model.clone(),
             messages: vec![
@@ -182,7 +184,7 @@ impl ChatGPTClient {
                 status, text
             )));
         }
-        
+
         if !status.is_success() {
             return Err(ModelError::Request(format!(
                 "ChatGPT error {}: {}",
@@ -215,7 +217,7 @@ impl ChatGPTClient {
         on_delta: &mut (dyn FnMut(StreamDelta) -> Result<(), String> + Send),
     ) -> Result<OpenAiResponseMessage, ModelError> {
         let auth = self.get_auth().await?;
-        
+
         let body = OpenAiChatRequest {
             model: self.model.clone(),
             messages: vec![
@@ -262,7 +264,7 @@ impl ChatGPTClient {
                 status, text
             )));
         }
-        
+
         if !status.is_success() {
             let text = response.text().await.unwrap_or_default();
             return Err(ModelError::Request(format!(
@@ -354,8 +356,16 @@ impl ChatGPTClient {
         };
 
         Ok(OpenAiResponseMessage {
-            content: if content.is_empty() { None } else { Some(content) },
-            reasoning_content: if reasoning.is_empty() { None } else { Some(reasoning) },
+            content: if content.is_empty() {
+                None
+            } else {
+                Some(content)
+            },
+            reasoning_content: if reasoning.is_empty() {
+                None
+            } else {
+                Some(reasoning)
+            },
             tool_calls,
         })
     }
@@ -391,10 +401,10 @@ impl ChatGPTClient {
             Some(req.tool_descriptors.clone())
         };
         let max_tokens = req.max_tokens.unwrap_or(WORKER_MAX_TOKENS);
-        
+
         let response = self
-            .run_chat_streaming(&system, &user, max_tokens, tools_arg, &mut on_delta
-            ).await?;
+            .run_chat_streaming(&system, &user, max_tokens, tools_arg, &mut on_delta)
+            .await?;
 
         tracing::debug!(
             "ChatGPT worker response - content: {:?}, tool_calls: {:?}",
@@ -458,10 +468,7 @@ impl AgentModelClient for ChatGPTClient {
         self.model.clone()
     }
 
-    async fn decide_action(
-        &self,
-        req: WorkerActionRequest,
-    ) -> Result<WorkerDecision, ModelError> {
+    async fn decide_action(&self, req: WorkerActionRequest) -> Result<WorkerDecision, ModelError> {
         let noop = |_delta: StreamDelta| Ok::<(), String>(());
         self.decide_action_streaming(req, noop).await
     }
@@ -518,11 +525,13 @@ impl From<ToolDescriptor> for OpenAiTool {
 }
 
 #[derive(Debug, serde::Deserialize)]
+#[allow(dead_code)]
 struct OpenAiChatResponse {
     choices: Vec<OpenAiChoice>,
 }
 
 #[derive(Debug, serde::Deserialize)]
+#[allow(dead_code)]
 struct OpenAiChoice {
     message: OpenAiResponseMessage,
 }
@@ -634,8 +643,7 @@ fn process_stream_line(
                 if !delta_content.is_empty() {
                     *saw_content_delta = true;
                     content.push_str(&delta_content);
-                    on_delta(StreamDelta::Content(delta_content))
-                        .map_err(ModelError::Request)?;
+                    on_delta(StreamDelta::Content(delta_content)).map_err(ModelError::Request)?;
                 }
             }
 

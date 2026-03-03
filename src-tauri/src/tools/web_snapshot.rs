@@ -11,6 +11,7 @@ use uuid::Uuid;
 
 use crate::core::tool::ToolDescriptor;
 use crate::policy::PolicyEngine;
+use crate::tools::args::{schema_for_type, WebSnapshotArgs};
 use crate::tools::types::{Tool, ToolCallOutput, ToolError};
 
 const DEFAULT_VIEWPORT_WIDTH: u32 = 1280;
@@ -20,18 +21,6 @@ const MAX_TIMEOUT_SECS: u64 = 120;
 
 /// Tool for capturing web snapshots (screenshots).
 pub struct WebSnapshotTool;
-
-/// Input for web.snapshot tool.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct WebSnapshotInput {
-    pub url: String,
-    pub wait_for_selector: Option<String>,
-    pub wait_for_timeout_ms: Option<u64>,
-    pub viewport_width: Option<u32>,
-    pub viewport_height: Option<u32>,
-    pub full_page: Option<bool>,
-    pub timeout_secs: Option<u64>,
-}
 
 /// Output for web.snapshot tool.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -75,40 +64,7 @@ impl Tool for WebSnapshotTool {
                 "Use this to verify UI changes or inspect the current state of a web app. ",
                 "Returns the screenshot as an artifact along with console errors and failed network requests."
             ).into(),
-            input_schema: serde_json::json!({
-                "type": "object",
-                "properties": {
-                    "url": {
-                        "type": "string",
-                        "description": "URL to capture (e.g., 'http://localhost:3000')"
-                    },
-                    "wait_for_selector": {
-                        "type": "string",
-                        "description": "CSS selector to wait for before capturing (optional)"
-                    },
-                    "wait_for_timeout_ms": {
-                        "type": "integer",
-                        "description": "Additional time to wait after page load in milliseconds (default: 1000)"
-                    },
-                    "viewport_width": {
-                        "type": "integer",
-                        "description": "Viewport width in pixels (default: 1280)"
-                    },
-                    "viewport_height": {
-                        "type": "integer",
-                        "description": "Viewport height in pixels (default: 720)"
-                    },
-                    "full_page": {
-                        "type": "boolean",
-                        "description": "Capture full page scroll height (default: false)"
-                    },
-                    "timeout_secs": {
-                        "type": "integer",
-                        "description": "Maximum time to wait for page load in seconds (default: 30, max: 120)"
-                    }
-                },
-                "required": ["url"]
-            }),
+            input_schema: schema_for_type::<WebSnapshotArgs>(),
             output_schema: None,
         }
     }
@@ -119,7 +75,7 @@ impl Tool for WebSnapshotTool {
         cwd: &Path,
         input: serde_json::Value,
     ) -> Result<ToolCallOutput, ToolError> {
-        let args: WebSnapshotInput = serde_json::from_value(input)
+        let args: WebSnapshotArgs = serde_json::from_value(input)
             .map_err(|e| ToolError::InvalidInput(format!("invalid input: {}", e)))?;
 
         // Validate URL (must be http or https)
@@ -161,7 +117,7 @@ impl Tool for WebSnapshotTool {
 
 async fn capture_snapshot(
     cwd: &Path,
-    args: WebSnapshotInput,
+    args: WebSnapshotArgs,
 ) -> Result<WebSnapshotOutput, ToolError> {
     let timeout_secs = args
         .timeout_secs
@@ -240,6 +196,13 @@ async fn capture_snapshot(
     // Collect failed requests
     let failed_requests = collect_failed_requests(&tab);
 
+    // Ensure the tab is active before capturing screenshot
+    tab.activate()
+        .map_err(|e| ToolError::Execution(format!("failed to activate tab: {}", e)))?;
+
+    // Wait a moment for tab activation to take effect
+    tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+
     // Capture screenshot with retry logic
     let screenshot_data = capture_screenshot_with_retry(&tab, full_page, 3).await?;
 
@@ -269,9 +232,17 @@ async fn capture_screenshot_with_retry(
     let mut last_error = None;
 
     for attempt in 1..=max_retries {
-        // Small delay before each attempt to ensure rendering is complete
+        // Delay before each attempt (except first, since caller already waited)
         if attempt > 1 {
             tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+            // Re-activate tab before each retry
+            if let Err(e) = tab.activate() {
+                eprintln!(
+                    "[web.snapshot] Warning: failed to activate tab on retry: {}",
+                    e
+                );
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(100)).await;
         }
 
         match if full_page {
@@ -279,33 +250,20 @@ async fn capture_screenshot_with_retry(
         } else {
             tab.capture_screenshot(CaptureScreenshotFormatOption::Png, None, None, false)
         } {
-            Ok(data) => return Ok(data),
+            Ok(data) => {
+                eprintln!(
+                    "[web.snapshot] Screenshot captured successfully on attempt {}",
+                    attempt
+                );
+                return Ok(data);
+            }
             Err(e) => {
                 let error_msg = format!("{}", e);
                 last_error = Some(error_msg.clone());
-
-                // Check if the page might have crashed
-                if error_msg.contains("-32000") || error_msg.contains("Unable to capture") {
-                    eprintln!(
-                        "[web.snapshot] Screenshot failed (attempt {}/{}): {}",
-                        attempt, max_retries, error_msg
-                    );
-
-                    // Try to re-activate the tab before retry
-                    if attempt < max_retries {
-                        if let Err(activate_err) = tab.activate() {
-                            eprintln!("[web.snapshot] Failed to re-activate tab: {}", activate_err);
-                        }
-                        // Wait a bit for the tab to stabilize
-                        tokio::time::sleep(std::time::Duration::from_millis(300)).await;
-                    }
-                } else {
-                    // Non-retryable error
-                    return Err(ToolError::Execution(format!(
-                        "failed to capture screenshot: {}",
-                        e
-                    )));
-                }
+                eprintln!(
+                    "[web.snapshot] Screenshot failed (attempt {}/{}): {}",
+                    attempt, max_retries, error_msg
+                );
             }
         }
     }

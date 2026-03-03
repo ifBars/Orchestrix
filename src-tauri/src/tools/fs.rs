@@ -6,6 +6,7 @@ use std::path::{Path, PathBuf};
 
 use crate::core::tool::ToolDescriptor;
 use crate::policy::{PolicyDecision, PolicyEngine};
+use crate::tools::args::{schema_for_type, FsListArgs, FsReadArgs, FsWriteArgs};
 use crate::tools::types::{Tool, ToolCallOutput, ToolError};
 
 /// Tool for reading file contents.
@@ -16,16 +17,7 @@ impl Tool for FsReadTool {
         ToolDescriptor {
             name: "fs.read".into(),
             description: "Read file contents. Supports reading specific lines with offset/limit parameters for large files. Returns content with line numbers by default.".into(),
-            input_schema: serde_json::json!({
-                "type": "object",
-                "properties": {
-                    "path": {"type": "string", "description": "Path to the file"},
-                    "offset": {"type": "integer", "description": "Start reading from this line number (1-indexed). Default: 1."},
-                    "limit": {"type": "integer", "description": "Maximum number of lines to read. Default: 2000."},
-                    "line_numbers": {"type": "boolean", "description": "If true, prefix each line with its number (e.g. '1: content'). Default: true."}
-                },
-                "required": ["path"]
-            }),
+            input_schema: schema_for_type::<FsReadArgs>(),
             output_schema: None,
         }
     }
@@ -36,25 +28,14 @@ impl Tool for FsReadTool {
         cwd: &Path,
         input: serde_json::Value,
     ) -> Result<ToolCallOutput, ToolError> {
-        let path = input
-            .get("path")
-            .and_then(|v| v.as_str())
-            .ok_or_else(|| ToolError::InvalidInput("path required".into()))?;
+        let args: FsReadArgs = serde_json::from_value(input)
+            .map_err(|e| ToolError::InvalidInput(format!("invalid input: {}", e)))?;
 
-        let offset = input
-            .get("offset")
-            .and_then(|v| v.as_u64())
-            .unwrap_or(1)
-            .max(1); // Ensure 1-based indexing
+        let offset = args.offset.unwrap_or(1).max(1);
+        let limit = args.limit.unwrap_or(2000);
+        let show_line_numbers = args.line_numbers.unwrap_or(true);
 
-        let limit = input.get("limit").and_then(|v| v.as_u64()).unwrap_or(2000);
-
-        let show_line_numbers = input
-            .get("line_numbers")
-            .and_then(|v| v.as_bool())
-            .unwrap_or(true);
-
-        let full = cwd.join(path);
+        let full = cwd.join(&args.path);
 
         match policy.evaluate_path(&full) {
             PolicyDecision::Allow => {}
@@ -75,7 +56,6 @@ impl Tool for FsReadTool {
             .enumerate()
             .map(|(idx, line_res)| {
                 let line_num = offset + (idx as u64);
-                // Handle potentially invalid UTF-8 gracefully-ish
                 let line_content =
                     line_res.unwrap_or_else(|_| "<binary or read error>".to_string());
                 if show_line_numbers {
@@ -109,14 +89,7 @@ impl Tool for FsWriteTool {
         ToolDescriptor {
             name: "fs.write".into(),
             description: "Write file contents".into(),
-            input_schema: serde_json::json!({
-                "type": "object",
-                "properties": {
-                    "path": {"type": "string"},
-                    "content": {"type": "string"}
-                },
-                "required": ["path", "content"]
-            }),
+            input_schema: schema_for_type::<FsWriteArgs>(),
             output_schema: None,
         }
     }
@@ -127,17 +100,11 @@ impl Tool for FsWriteTool {
         cwd: &Path,
         input: serde_json::Value,
     ) -> Result<ToolCallOutput, ToolError> {
-        let path = input
-            .get("path")
-            .and_then(|v| v.as_str())
-            .ok_or_else(|| ToolError::InvalidInput("path required".into()))?;
-        let content = input
-            .get("content")
-            .and_then(|v| v.as_str())
-            .ok_or_else(|| ToolError::InvalidInput("content required".into()))?;
-        let full = cwd.join(path);
+        let args: FsWriteArgs = serde_json::from_value(input)
+            .map_err(|e| ToolError::InvalidInput(format!("invalid input: {}", e)))?;
 
-        // Check policy BEFORE creating directories to avoid OS errors on denied paths
+        let full = cwd.join(&args.path);
+
         match policy.evaluate_path(&full) {
             PolicyDecision::Allow => {}
             PolicyDecision::Deny(reason) => return Err(ToolError::PolicyDenied(reason)),
@@ -149,7 +116,7 @@ impl Tool for FsWriteTool {
         if let Some(parent) = full.parent() {
             std::fs::create_dir_all(parent).map_err(|e| ToolError::Execution(e.to_string()))?;
         }
-        std::fs::write(&full, content).map_err(|e| ToolError::Execution(e.to_string()))?;
+        std::fs::write(&full, &args.content).map_err(|e| ToolError::Execution(e.to_string()))?;
 
         Ok(ToolCallOutput {
             ok: true,
@@ -167,17 +134,7 @@ impl Tool for FsListTool {
         ToolDescriptor {
             name: "fs.list".into(),
             description: "List directory contents without shell commands. Supports recursion, depth limit, and entry limit.".into(),
-            input_schema: serde_json::json!({
-                "type": "object",
-                "properties": {
-                    "path": {"type": "string", "description": "Directory path relative to workspace root (default: .)"},
-                    "recursive": {"type": "boolean", "description": "If true, walk subdirectories recursively"},
-                    "max_depth": {"type": "integer", "minimum": 0, "description": "Max depth when recursive=true (0 means only the target directory)"},
-                    "limit": {"type": "integer", "minimum": 1, "description": "Max number of entries to return (default: 200)"},
-                    "files_only": {"type": "boolean", "description": "If true, only include files"},
-                    "dirs_only": {"type": "boolean", "description": "If true, only include directories"}
-                }
-            }),
+            input_schema: schema_for_type::<FsListArgs>(),
             output_schema: None,
         }
     }
@@ -188,25 +145,15 @@ impl Tool for FsListTool {
         cwd: &Path,
         input: serde_json::Value,
     ) -> Result<ToolCallOutput, ToolError> {
-        let path = input.get("path").and_then(|v| v.as_str()).unwrap_or(".");
-        let recursive = input
-            .get("recursive")
-            .and_then(|v| v.as_bool())
-            .unwrap_or(false);
-        let max_depth = input.get("max_depth").and_then(|v| v.as_u64()).unwrap_or(3) as usize;
-        let limit = input
-            .get("limit")
-            .and_then(|v| v.as_u64())
-            .unwrap_or(200)
-            .clamp(1, 2000) as usize;
-        let files_only = input
-            .get("files_only")
-            .and_then(|v| v.as_bool())
-            .unwrap_or(false);
-        let dirs_only = input
-            .get("dirs_only")
-            .and_then(|v| v.as_bool())
-            .unwrap_or(false);
+        let args: FsListArgs = serde_json::from_value(input)
+            .map_err(|e| ToolError::InvalidInput(format!("invalid input: {}", e)))?;
+
+        let path = args.path.as_deref().unwrap_or(".");
+        let recursive = args.recursive.unwrap_or(false);
+        let max_depth = args.max_depth.unwrap_or(3) as usize;
+        let limit = args.limit.unwrap_or(200).clamp(1, 2000) as usize;
+        let files_only = args.files_only.unwrap_or(false);
+        let dirs_only = args.dirs_only.unwrap_or(false);
 
         if files_only && dirs_only {
             return Err(ToolError::InvalidInput(

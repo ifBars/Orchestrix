@@ -4,6 +4,7 @@ use std::sync::Arc;
 use crate::core::tool::ToolDescriptor;
 use crate::embeddings::SemanticIndexService;
 use crate::policy::{PolicyDecision, PolicyEngine};
+use crate::tools::args::{schema_for_type, SearchEmbeddingsArgs};
 use crate::tools::types::{Tool, ToolCallOutput, ToolError};
 
 static SEMANTIC_INDEX_SERVICE: std::sync::OnceLock<Arc<SemanticIndexService>> =
@@ -31,20 +32,7 @@ impl Tool for SearchEmbeddingsTool {
                 "If embeddings are not built yet, it starts background indexing and returns indexing status."
             )
             .into(),
-            input_schema: serde_json::json!({
-                "type": "object",
-                "properties": {
-                    "query": {
-                        "type": "string",
-                        "description": "Semantic query text"
-                    },
-                    "limit": {
-                        "type": "integer",
-                        "description": "Maximum number of result chunks to return (default: 8, max: 50)"
-                    }
-                },
-                "required": ["query"]
-            }),
+            input_schema: schema_for_type::<SearchEmbeddingsArgs>(),
             output_schema: None,
         }
     }
@@ -55,23 +43,17 @@ impl Tool for SearchEmbeddingsTool {
         cwd: &Path,
         input: serde_json::Value,
     ) -> Result<ToolCallOutput, ToolError> {
-        let query = input
-            .get("query")
-            .and_then(|value| value.as_str())
-            .ok_or_else(|| ToolError::InvalidInput("query required".to_string()))?
-            .trim()
-            .to_string();
+        let args: SearchEmbeddingsArgs = serde_json::from_value(input)
+            .map_err(|e| ToolError::InvalidInput(format!("invalid input: {}", e)))?;
+
+        let query = args.query.trim().to_string();
         if query.is_empty() {
             return Err(ToolError::InvalidInput(
                 "query must not be empty".to_string(),
             ));
         }
 
-        let limit = input
-            .get("limit")
-            .and_then(|value| value.as_u64())
-            .unwrap_or(8)
-            .clamp(1, 50) as usize;
+        let limit = args.limit.unwrap_or(8).clamp(1, 50) as usize;
 
         let workspace_root = resolve_workspace_root(cwd);
         match policy.evaluate_path(&workspace_root) {

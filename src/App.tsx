@@ -1,6 +1,8 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useShallow } from "zustand/shallow";
+import { open as openDialog } from "@tauri-apps/plugin-dialog";
 import { useAppStore } from "@/stores/appStore";
+import { ThemeContext } from "@/contexts/ThemeContext";
 import { IdeShell } from "@/layouts/IdeShell";
 import { Header } from "@/components/Header";
 import { Sidebar } from "@/components/Sidebar";
@@ -13,6 +15,7 @@ import { BenchmarkWindowHeader } from "@/components/BenchmarkWindowHeader";
 import { SETTINGS_SECTIONS, type SettingsSectionId } from "@/components/Settings/types";
 import { EmptyState } from "@/components/EmptyState";
 import { ArchitectureCanvas } from "@/components/Canvas";
+import { CommandPalette } from "@/components/CommandPalette";
 
 const SETTINGS_SECTION_KEY = "orchestrix:last-settings-section";
 
@@ -77,6 +80,7 @@ function App() {
   const [artifactsOpen, setArtifactsOpen] = useState(false);
   const [darkMode, setDarkMode] = useState(true);
   const [chatActiveTab, setChatActiveTab] = useState<"chat" | "review" | "canvas">("chat");
+  const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
 
   // Derive a view-safe tab for ChatInterface (it only understands "chat" | "review")
   const chatInterfaceTab: "chat" | "review" =
@@ -102,16 +106,19 @@ function App() {
     [tasks, selectedTaskId]
   );
 
-  // Auto-show artifacts when a task is selected and has artifacts
+  // Auto-show artifacts only when a new task is first selected (not on every artifact update)
   const taskArtifacts = useAppStore(
     (state) => (selectedTaskId ? state.artifactsByTask[selectedTaskId] ?? EMPTY_ARTIFACTS : EMPTY_ARTIFACTS)
   );
+  const previousTaskIdRef = useRef<string | null>(null);
 
   useEffect(() => {
-    if (taskArtifacts.length > 0 && !artifactsOpen) {
+    // Only auto-show when switching to a different task with artifacts
+    if (selectedTaskId && selectedTaskId !== previousTaskIdRef.current && taskArtifacts.length > 0) {
       setArtifactsOpen(true);
     }
-  }, [artifactsOpen, taskArtifacts.length]);
+    previousTaskIdRef.current = selectedTaskId;
+  }, [selectedTaskId, taskArtifacts.length]);
 
   // Keyboard shortcuts for navigation
   useEffect(() => {
@@ -169,7 +176,7 @@ function App() {
   }
 
   return (
-    <>
+    <ThemeContext.Provider value={{ darkMode }}>
       <IdeShell
         isArtifactsOpen={activeView === "chat" && artifactsOpen && chatActiveTab !== "canvas"}
         fillMain={activeView === "chat" && chatActiveTab === "canvas" && selectedTask != null}
@@ -198,6 +205,7 @@ function App() {
             artifactsOpen={artifactsOpen}
             onToggleTheme={() => setDarkMode((prev) => !prev)}
             onToggleArtifacts={() => setArtifactsOpen((prev) => !prev)}
+            onOpenCommandPalette={() => setCommandPaletteOpen(true)}
           />
         }
         sidebar={
@@ -239,13 +247,43 @@ function App() {
         )}
         composer={activeView === "chat" && chatActiveTab !== "canvas" ? <Composer /> : null}
         artifacts={activeView === "chat" && selectedTask && chatActiveTab !== "canvas" ? (
-          <ArtifactPanel 
-            taskId={selectedTask.id} 
+          <ArtifactPanel
+            taskId={selectedTask.id}
             onOpenReview={() => setChatActiveTab("review")}
           />
         ) : null}
       />
-    </>
+
+      <CommandPalette
+        open={commandPaletteOpen}
+        onOpenChange={setCommandPaletteOpen}
+        onOpenChat={() => setActiveView("chat")}
+        onOpenSettings={() => setActiveView("settings")}
+        onOpenBenchmarks={() => setActiveView("benchmarks")}
+        onNewConversation={() => {
+          setActiveView("chat");
+          // The sidebar will handle creating a new conversation
+          const sidebar = document.querySelector('[data-sidebar="true"]');
+          if (sidebar) {
+            const newBtn = sidebar.querySelector('button');
+            newBtn?.click();
+          }
+        }}
+        onSelectWorkspace={async () => {
+          const selected = await openDialog({
+            directory: true,
+            title: "Select workspace folder",
+          });
+          if (typeof selected === "string" && selected.length > 0) {
+            await useAppStore.getState().setWorkspaceRoot(selected);
+          }
+        }}
+        darkMode={darkMode}
+        onToggleTheme={() => setDarkMode((prev) => !prev)}
+        artifactsOpen={artifactsOpen}
+        onToggleArtifacts={() => setArtifactsOpen((prev) => !prev)}
+      />
+    </ThemeContext.Provider>
   );
 }
 

@@ -29,7 +29,11 @@ pub fn create_task(
     let workspace_root = {
         let path = load_workspace_root(&state.db);
         let s = path.to_string_lossy().to_string();
-        if s.is_empty() { None } else { Some(s) }
+        if s.is_empty() {
+            None
+        } else {
+            Some(s)
+        }
     };
 
     let row = queries::TaskRow {
@@ -387,7 +391,7 @@ pub fn update_task_canvas(
 ) -> Result<(), AppError> {
     let now = Utc::now().to_rfc3339();
     queries::upsert_task_canvas(&state.db, &task_id, &state_json, &now)?;
-    
+
     emit_and_record(
         &state.db,
         &state.bus,
@@ -400,6 +404,6 @@ pub fn update_task_canvas(
         }),
     )
     .map_err(AppError::Other)?;
-    
+
     Ok(())
 }

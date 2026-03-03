@@ -4,6 +4,10 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Select } from "@/components/ui/select";
+import { Switch } from "@/components/ui/switch";
+import { Slider } from "@/components/ui/slider";
+import { Label } from "@/components/ui/label";
+import { Separator } from "@/components/ui/separator";
 import type {
   AutoMemoryPathView,
   AutoMemorySettingsView,
@@ -234,12 +238,12 @@ export function ContextSection() {
         </div>
       )}
 
-      <div className="space-y-4 rounded-xl border border-border bg-card/60 p-4">
+      <section className="space-y-4 rounded-xl border border-border bg-card/60 p-4">
         <h3 className="text-sm font-semibold">Memory</h3>
 
         <div className="flex items-center justify-between rounded-lg border border-border bg-background/60 p-4">
           <div className="space-y-1">
-            <label className="text-sm font-medium">Enable Auto Memory</label>
+            <Label htmlFor="auto-memory-switch">Enable Auto Memory</Label>
             <p className="text-xs text-muted-foreground">
               Persist per-project preferences to MEMORY.md and inject concise startup context.
             </p>
@@ -247,16 +251,12 @@ export function ContextSection() {
               Source: <span className="font-mono">{memorySettings.source}</span>
             </p>
           </div>
-          <label className="relative inline-flex cursor-pointer items-center">
-            <input
-              type="checkbox"
-              checked={memorySettings.enabled}
-              disabled={memorySaving}
-              onChange={(e) => setAutoMemoryEnabled(e.target.checked).catch(console.error)}
-              className="peer sr-only"
-            />
-            <div className="peer h-6 w-11 rounded-full border border-border bg-muted transition-colors after:absolute after:left-[2px] after:top-[2px] after:h-5 after:w-5 after:rounded-full after:bg-background after:transition-all after:content-[''] peer-checked:bg-primary/80 peer-checked:after:translate-x-full peer-focus-visible:ring-2 peer-focus-visible:ring-ring/60"></div>
-          </label>
+          <Switch
+            id="auto-memory-switch"
+            checked={memorySettings.enabled}
+            onCheckedChange={(checked) => setAutoMemoryEnabled(checked).catch(console.error)}
+            disabled={memorySaving}
+          />
         </div>
 
         <div className="rounded-lg border border-border bg-background/60 p-3">
@@ -273,7 +273,7 @@ export function ContextSection() {
         </div>
 
         <div className="space-y-2 rounded-lg border border-border bg-background/60 p-3">
-          <label className="text-sm font-medium">Add or Update Preference</label>
+          <Label>Add or Update Preference</Label>
           <div className="grid gap-2 sm:grid-cols-3">
             <Input placeholder="Key" value={newMemoryKey} onChange={(e) => setNewMemoryKey(e.target.value)} />
             <Input placeholder="Category (optional)" value={newMemoryCategory} onChange={(e) => setNewMemoryCategory(e.target.value)} />
@@ -287,7 +287,7 @@ export function ContextSection() {
         </div>
 
         <div className="space-y-2 rounded-lg border border-border bg-background/60 p-3">
-          <label className="text-sm font-medium">Stored Preferences</label>
+          <Label>Stored Preferences</Label>
           {memoryPreferences.length === 0 ? (
             <p className="text-xs text-muted-foreground">No stored preferences.</p>
           ) : (
@@ -318,19 +318,17 @@ export function ContextSection() {
         </div>
 
         <div className="space-y-2 rounded-lg border border-border bg-background/60 p-3">
-          <label className="text-sm font-medium">Startup Memory Context</label>
+          <Label>Startup Memory Context</Label>
           <Textarea value={startupMemory} readOnly rows={8} className="font-mono text-xs" />
         </div>
-      </div>
+      </section>
 
-      <div className="space-y-4 rounded-xl border border-border bg-card/60 p-4">
+      <section className="space-y-4 rounded-xl border border-border bg-card/60 p-4">
         <h3 className="text-sm font-semibold">Compaction</h3>
 
         <div className="space-y-2 rounded-lg border border-border bg-background/60 p-3">
-          <label htmlFor="plan-max-tokens" className="text-sm font-medium">
-            Plan Mode Max Tokens
-          </label>
-          <p className="text-sm text-muted-foreground">
+          <Label htmlFor="plan-max-tokens">Plan Mode Max Tokens</Label>
+          <p className="text-xs text-muted-foreground">
             Maximum tokens for plan mode responses (content + reasoning + tool calls). Default: 25,000.
           </p>
           <Input
@@ -351,25 +349,21 @@ export function ContextSection() {
 
         <div className="flex items-center justify-between rounded-lg border border-border bg-background/60 p-4">
           <div className="space-y-0.5">
-            <label className="text-sm font-medium">Enable Compaction</label>
-            <p className="text-sm text-muted-foreground">
+            <Label htmlFor="enable-compaction-switch">Enable Compaction</Label>
+            <p className="text-xs text-muted-foreground">
               Automatically summarize conversation history when approaching token limits.
             </p>
           </div>
-          <label className="relative inline-flex cursor-pointer items-center">
-            <input
-              type="checkbox"
-              checked={settings.enabled}
-              onChange={(e) =>
-                setSettings((prev) => ({
-                  ...prev,
-                  enabled: e.target.checked,
-                }))
-              }
-              className="peer sr-only"
-            />
-            <div className="peer h-6 w-11 rounded-full border border-border bg-muted transition-colors after:absolute after:left-[2px] after:top-[2px] after:h-5 after:w-5 after:rounded-full after:bg-background after:transition-all after:content-[''] peer-checked:bg-primary/80 peer-checked:after:translate-x-full peer-focus-visible:ring-2 peer-focus-visible:ring-ring/60"></div>
-          </label>
+          <Switch
+            id="enable-compaction-switch"
+            checked={settings.enabled}
+            onCheckedChange={(checked) =>
+              setSettings((prev) => ({
+                ...prev,
+                enabled: checked,
+              }))
+            }
+          />
         </div>
 
         {settings.enabled && (
@@ -386,30 +380,29 @@ export function ContextSection() {
               </div>
             </div>
 
-            <div className="space-y-2 rounded-lg border border-border bg-background/60 p-3">
-              <label htmlFor="threshold" className="text-sm font-medium">Compaction Threshold (%)</label>
+            <div className="space-y-3 rounded-lg border border-border bg-background/60 p-3">
+              <Label htmlFor="threshold">Compaction Threshold (%)</Label>
               <div className="flex items-center gap-4">
-                <Input
-                  id="threshold"
-                  type="range"
-                  min={50}
-                  max={95}
-                  step={5}
-                  value={Math.round(settings.threshold_percentage * 100)}
-                  onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
-                    setSettings((prev) => ({
-                      ...prev,
-                      threshold_percentage: parseInt(e.target.value, 10) / 100,
-                    }))
-                  }
-                  className="flex-1"
-                />
+              <Slider
+                id="threshold"
+                min={50}
+                max={95}
+                step={5}
+                value={[Math.round(settings.threshold_percentage * 100)]}
+                onValueChange={([value]) =>
+                  setSettings((prev) => ({
+                    ...prev,
+                    threshold_percentage: value / 100,
+                  }))
+                }
+                className="flex-1"
+              />
                 <span className="w-16 text-sm font-mono text-foreground">{Math.round(settings.threshold_percentage * 100)}%</span>
               </div>
             </div>
 
             <div className="space-y-2 rounded-lg border border-border bg-background/60 p-3">
-              <label htmlFor="preserve" className="text-sm font-medium">Preserve Recent Messages</label>
+              <Label htmlFor="preserve">Preserve Recent Messages</Label>
               <Input
                 id="preserve"
                 type="number"
@@ -427,7 +420,7 @@ export function ContextSection() {
             </div>
 
             <div className="space-y-2 rounded-lg border border-border bg-background/60 p-3">
-              <label htmlFor="model" className="text-sm font-medium">Compaction Model (Optional)</label>
+              <Label htmlFor="model">Compaction Model (Optional)</Label>
               <Select
                 id="model"
                 value={settings.compaction_model || ""}
@@ -448,7 +441,7 @@ export function ContextSection() {
             </div>
 
             <div className="space-y-2 rounded-lg border border-border bg-background/60 p-3">
-              <label htmlFor="prompt" className="text-sm font-medium">Custom Summarization Prompt (Optional)</label>
+              <Label htmlFor="prompt">Custom Summarization Prompt (Optional)</Label>
               <Textarea
                 id="prompt"
                 placeholder="Enter custom summarization prompt..."
@@ -466,7 +459,9 @@ export function ContextSection() {
           </>
         )}
 
-        <div className="flex gap-2 border-t border-border-/70 pt-2">
+        <Separator />
+
+        <div className="flex gap-2 pt-2">
           <Button onClick={saveCompactionSettings} disabled={saving}>
             {saving ? "Saving..." : "Save Context Settings"}
           </Button>
@@ -474,7 +469,7 @@ export function ContextSection() {
             Reset Compaction Defaults
           </Button>
         </div>
-      </div>
+      </section>
     </div>
   );
 }

@@ -14,8 +14,8 @@ use crate::bench::business_ops::{
     BusinessOpsScenarioDescriptor,
 };
 use crate::bench::diagram::{
-    available_diagram_scenarios, run_diagram_benchmark, DiagramBenchOptions,
-    DiagramBenchReport, DiagramScenarioDescriptor,
+    available_diagram_scenarios, run_diagram_benchmark, DiagramBenchOptions, DiagramBenchReport,
+    DiagramScenarioDescriptor,
 };
 use crate::bench::llm::{
     run_llm_benchmark, LlmBenchOptions, LlmBenchReport, LlmProviderConfig, LlmProviderId,
@@ -283,6 +283,7 @@ pub fn list_diagram_scenarios_command() -> Vec<DiagramScenarioDescriptor> {
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct RunDiagramBenchmarkRequest {
+    #[allow(dead_code)]
     pub run_id: Option<String>,
     pub provider: Option<String>,
     pub provider_model: Option<String>,

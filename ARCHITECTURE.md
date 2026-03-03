@@ -163,7 +163,7 @@ Backend (Rust)
          │
          ▼
 ┌─────────────────┐
-│   Tauri Event   │  orchestrix://events
+│   Tauri Event   │  orchestrix-events
 │    Channel      │
 └────────┬────────┘
          │

@@ -138,18 +138,18 @@ fn estimate_tokens(messages: &[ConversationMessage]) -> usize {
 }
 
 /// Generate a summary of conversation history using the specified model.
-/// 
+///
 /// NOTE: This uses a "simple completion" approach which does NOT preserve the prompt cache.
 /// For cache-safe compaction (as described in prompt-caching.md), we would need to:
 /// 1. Use the exact same system prompt, user context, system context, and tool definitions
 ///    as the parent conversation
 /// 2. Prepend the parent's conversation messages
 /// 3. Append the compaction prompt as a new user message at the end
-/// 
+///
 /// This ensures the API sees a nearly identical request to the parent's last request,
 /// allowing the cached prefix to be reused. The only new tokens are the compaction
 /// prompt itself.
-/// 
+///
 /// Since most coding subscriptions don't support cross-request caching, we use the
 /// simpler approach for now. When caching becomes available, refactor to use
 /// cache-safe forking.
@@ -198,7 +198,8 @@ pub async fn generate_summary(
             summarize_with_modal(api_key, model, base_url, &system_prompt, &conversation_text).await
         }
         "gemini" => {
-            summarize_with_gemini(api_key, model, base_url, &system_prompt, &conversation_text).await
+            summarize_with_gemini(api_key, model, base_url, &system_prompt, &conversation_text)
+                .await
         }
         _ => {
             summarize_with_minimax(api_key, model, base_url, &system_prompt, &conversation_text)

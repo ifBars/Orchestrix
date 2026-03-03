@@ -213,15 +213,18 @@ async fn run_callback_server(
         .and_then(|path| {
             let q = path.splitn(2, '?').nth(1)?;
             // Find code= among query params, percent-decode it.
-            q.split('&')
-                .find_map(|pair| {
-                    let (k, v) = pair.split_once('=')?;
-                    if k == "code" {
-                        Some(urlencoding::decode(v).map(|s| s.into_owned()).unwrap_or_else(|_| v.to_owned()))
-                    } else {
-                        None
-                    }
-                })
+            q.split('&').find_map(|pair| {
+                let (k, v) = pair.split_once('=')?;
+                if k == "code" {
+                    Some(
+                        urlencoding::decode(v)
+                            .map(|s| s.into_owned())
+                            .unwrap_or_else(|_| v.to_owned()),
+                    )
+                } else {
+                    None
+                }
+            })
         })
         .ok_or_else(|| format!("No `code` in callback URL: {first_line}"))?;
 
@@ -325,19 +328,20 @@ pub async fn complete_chatgpt_oauth(
 
 /// Get ChatGPT OAuth authentication status
 #[tauri::command]
-pub fn get_chatgpt_auth_status(state: tauri::State<'_, AppState>) -> Result<ChatGPTAuthStatus, AppError> {
-    let setting = queries::get_setting(
-        &state.db, "chatgpt_oauth_auth")
+pub fn get_chatgpt_auth_status(
+    state: tauri::State<'_, AppState>,
+) -> Result<ChatGPTAuthStatus, AppError> {
+    let setting = queries::get_setting(&state.db, "chatgpt_oauth_auth")
         .map_err(|e| AppError::Other(format!("Failed to load auth: {}", e)))?;
 
     match setting {
         Some(s) => {
             let auth: ChatGPTAuthData = serde_json::from_str(&s)
                 .map_err(|e| AppError::Other(format!("Failed to parse auth: {}", e)))?;
-            
+
             let now = chrono::Utc::now().timestamp();
             let is_expired = auth.expires_at - 30 < now;
-            
+
             Ok(ChatGPTAuthStatus {
                 authenticated: true,
                 is_expired,

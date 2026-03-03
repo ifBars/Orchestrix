@@ -82,6 +82,12 @@ pub struct GeminiEmbeddingConfig {
     pub timeout_ms: u64,
     #[serde(default)]
     pub base_url: Option<String>,
+    /// Output dimensionality for Matryoshka embeddings (128–3072).
+    /// Defaults to None (API returns 3072). When set to any value < 3072,
+    /// normalize_l2 should be enabled because only 3072-dim embeddings are
+    /// pre-normalized by the Gemini API.
+    #[serde(default)]
+    pub output_dimensionality: Option<u32>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -152,6 +158,7 @@ pub struct GeminiEmbeddingConfigView {
     pub model: String,
     pub timeout_ms: u64,
     pub base_url: Option<String>,
+    pub output_dimensionality: Option<u32>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -172,6 +179,7 @@ impl Default for GeminiEmbeddingConfig {
             model: default_gemini_embedding_model(),
             timeout_ms: default_remote_timeout_ms(),
             base_url: None,
+            output_dimensionality: None,
         }
     }
 }
@@ -385,6 +393,7 @@ impl EmbeddingConfig {
                 model: self.gemini.model.clone(),
                 timeout_ms: self.gemini.timeout_ms,
                 base_url: self.gemini.base_url.clone(),
+                output_dimensionality: self.gemini.output_dimensionality,
             },
             ollama: self.ollama.clone(),
             transformersjs: self.transformersjs.clone(),

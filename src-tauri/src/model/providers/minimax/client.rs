@@ -481,9 +481,9 @@ impl MiniMaxClient {
             tools,
             tool_choice,
             parallel_tool_calls,
-            // Request standard JSON output, model might output <think> tags in content
-            // or we could use reasoning_split if we wanted separate fields.
-            // For now, let's keep it simple.
+            // Enable reasoning_split for cleaner output format
+            // This separates thinking into reasoning_details field instead of content
+            reasoning_split: Some(true),
         };
 
         tracing::debug!(
@@ -559,6 +559,8 @@ impl MiniMaxClient {
             tools,
             tool_choice,
             parallel_tool_calls,
+            // Enable reasoning_split for cleaner output format
+            reasoning_split: Some(true),
         };
 
         tracing::debug!(
@@ -723,6 +725,8 @@ struct MiniMaxChatRequest {
     tool_choice: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     parallel_tool_calls: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none", rename = "reasoning_split")]
+    reasoning_split: Option<bool>,
 }
 
 #[derive(Debug, Deserialize)]

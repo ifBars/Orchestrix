@@ -28,8 +28,8 @@ async fn main() {
     println!();
 
     // Check for MiniMax API key
-    let has_minimax_key = env::var("MINIMAX_API_KEY").is_ok()
-        || env::var("MINIMAX_API_TOKEN").is_ok();
+    let has_minimax_key =
+        env::var("MINIMAX_API_KEY").is_ok() || env::var("MINIMAX_API_TOKEN").is_ok();
 
     if !has_minimax_key {
         eprintln!("Error: No MiniMax API key found.");
@@ -47,35 +47,49 @@ async fn main() {
     let duration = start.elapsed();
 
     // Print results
-    println!("\n✓ Benchmark completed in {:.1}s\n", duration.as_secs_f64());
+    println!(
+        "\n✓ Benchmark completed in {:.1}s\n",
+        duration.as_secs_f64()
+    );
 
     for provider in &report.providers {
-        println!("Provider: {} (model: {:?})", provider.provider, provider.model);
+        println!(
+            "Provider: {} (model: {:?})",
+            provider.provider, provider.model
+        );
         println!("Status: {}", provider.status);
-        
+
         if let Some(error) = &provider.error {
             println!("Error: {}", error);
         }
 
         println!("\nAggregate Results:");
-        println!("  Tasks completed: {}/{}", 
+        println!(
+            "  Tasks completed: {}/{}",
             provider.aggregate.tasks_completed,
-            provider.aggregate.tasks_completed + provider.aggregate.tasks_failed);
-        println!("  Success rate: {:.1}%", provider.aggregate.success_rate * 100.0);
-        println!("  Total tool calls: {}", provider.aggregate.total_tool_calls);
-        println!("  Avg task duration: {:.1}s", 
-            provider.aggregate.avg_duration_ms / 1000.0);
+            provider.aggregate.tasks_completed + provider.aggregate.tasks_failed
+        );
+        println!(
+            "  Success rate: {:.1}%",
+            provider.aggregate.success_rate * 100.0
+        );
+        println!(
+            "  Total tool calls: {}",
+            provider.aggregate.total_tool_calls
+        );
+        println!(
+            "  Avg task duration: {:.1}s",
+            provider.aggregate.avg_duration_ms / 1000.0
+        );
 
         println!("\nTask Details:");
         for task in &provider.tasks {
             let status_icon = if task.success { "✓" } else { "✗" };
-            println!("  {} {}: {} ({} turns, {} tool calls)",
-                status_icon,
-                task.task_id,
-                task.status,
-                task.turns_taken,
-                task.tool_calls_made);
-            
+            println!(
+                "  {} {}: {} ({} turns, {} tool calls)",
+                status_icon, task.task_id, task.status, task.turns_taken, task.tool_calls_made
+            );
+
             if let Some(error) = &task.error {
                 println!("    Error: {}", error);
             }
@@ -84,9 +98,11 @@ async fn main() {
     }
 
     // Exit with error code if no providers succeeded
-    let any_success = report.providers.iter()
+    let any_success = report
+        .providers
+        .iter()
         .any(|p| p.aggregate.success_rate > 0.0);
-    
+
     if !any_success {
         std::process::exit(1);
     }

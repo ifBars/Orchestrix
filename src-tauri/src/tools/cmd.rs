@@ -5,6 +5,7 @@ use std::process::Command;
 
 use crate::core::tool::ToolDescriptor;
 use crate::policy::{PolicyDecision, PolicyEngine};
+use crate::tools::args::{schema_for_type, CmdExecArgs};
 use crate::tools::types::{Tool, ToolCallOutput, ToolError};
 
 /// Tool for executing shell commands.
@@ -20,15 +21,7 @@ impl Tool for CommandExecTool {
                 "Optionally pass 'workdir' (relative to workspace root) to run in a subdirectory. ",
                 "Alternatively you can pass a single 'command' string and it will be run via the system shell."
             ).into(),
-            input_schema: serde_json::json!({
-                "type": "object",
-                "properties": {
-                    "cmd": {"type": "string", "description": "Binary name (e.g. 'mkdir', 'bun', 'node')"},
-                    "args": {"type": "array", "items": {"type": "string"}, "description": "Arguments array"},
-                    "command": {"type": "string", "description": "Alternative: full shell command string"},
-                    "workdir": {"type": "string", "description": "Optional relative working directory (e.g. 'frontend'). Avoid using shell 'cd'."}
-                }
-            }),
+            input_schema: schema_for_type::<CmdExecArgs>(),
             output_schema: None,
         }
     }
@@ -39,7 +32,10 @@ impl Tool for CommandExecTool {
         cwd: &Path,
         input: serde_json::Value,
     ) -> Result<ToolCallOutput, ToolError> {
-        let command_cwd = normalize_workdir(cwd, input.get("workdir").and_then(|v| v.as_str()));
+        let args: CmdExecArgs = serde_json::from_value(input)
+            .map_err(|e| ToolError::InvalidInput(format!("invalid input: {}", e)))?;
+
+        let command_cwd = normalize_workdir(cwd, args.workdir.as_deref());
 
         match policy.evaluate_path(&command_cwd) {
             PolicyDecision::Allow => {}
@@ -56,25 +52,13 @@ impl Tool for CommandExecTool {
             )));
         }
 
-        let command_field = input
-            .get("command")
-            .and_then(|v| v.as_str())
-            .map(str::to_string);
+        let command_field = args.command.clone();
+        let explicit_args = args.args.clone();
 
-        // Get explicit args if provided
-        let explicit_args: Option<Vec<String>> =
-            input.get("args").and_then(|v| v.as_array()).map(|items| {
-                items
-                    .iter()
-                    .filter_map(|v| v.as_str().map(|s| s.to_string()))
-                    .collect()
-            });
-
-        // Try to get cmd from the input, with fallback to "command" key, then to args[0]
-        let raw_cmd = input
-            .get("cmd")
-            .and_then(|v| v.as_str())
-            .or_else(|| input.get("command").and_then(|v| v.as_str()))
+        let raw_cmd = args
+            .cmd
+            .as_deref()
+            .or_else(|| args.command.as_deref())
             .or_else(|| {
                 explicit_args
                     .as_ref()
@@ -82,8 +66,7 @@ impl Tool for CommandExecTool {
             })
             .ok_or_else(|| ToolError::InvalidInput("cmd required".into()))?;
 
-        // If cmd contains spaces and no explicit args, split it into binary + args
-        let (binary, mut args) = if explicit_args.is_some() {
+        let (binary, mut final_args) = if explicit_args.is_some() {
             (raw_cmd.to_string(), explicit_args.unwrap())
         } else if raw_cmd.contains(' ') {
             let parts: Vec<&str> = raw_cmd.split_whitespace().collect();
@@ -94,14 +77,14 @@ impl Tool for CommandExecTool {
             (raw_cmd.to_string(), Vec::new())
         };
 
-        // Common LLM recovery: args accidentally include the binary as first item
-        if args.first().map(|v| v == &binary).unwrap_or(false) {
-            let _ = args.remove(0);
+        if final_args.first().map(|v| v == &binary).unwrap_or(false) {
+            let _ = final_args.remove(0);
         }
 
-        // Handle cd command for policy checking
         if binary.eq_ignore_ascii_case("cd") {
-            if let Some(target) = resolve_cd_target(&command_cwd, command_field.as_deref(), &args) {
+            if let Some(target) =
+                resolve_cd_target(&command_cwd, command_field.as_deref(), &final_args)
+            {
                 match policy.evaluate_path(&target) {
                     PolicyDecision::Allow => {}
                     PolicyDecision::Deny(reason) => return Err(ToolError::PolicyDenied(reason)),
@@ -112,7 +95,6 @@ impl Tool for CommandExecTool {
             }
         }
 
-        // Policy check on the binary name
         match policy.evaluate_command(&binary) {
             PolicyDecision::Allow => {}
             PolicyDecision::Deny(reason) => return Err(ToolError::PolicyDenied(reason)),
@@ -125,7 +107,7 @@ impl Tool for CommandExecTool {
             run_shell_command(&command_cwd, command)?
         } else {
             match Command::new(&binary)
-                .args(&args)
+                .args(&final_args)
                 .current_dir(&command_cwd)
                 .output()
             {
@@ -133,10 +115,10 @@ impl Tool for CommandExecTool {
                 Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
                     #[cfg(target_os = "windows")]
                     {
-                        let shell_command = if args.is_empty() {
+                        let shell_command = if final_args.is_empty() {
                             binary.clone()
                         } else {
-                            format!("{} {}", binary, args.join(" "))
+                            format!("{} {}", binary, final_args.join(" "))
                         };
                         run_shell_command(&command_cwd, &shell_command)?
                     }
@@ -161,7 +143,7 @@ impl Tool for CommandExecTool {
                 "invoked": if let Some(command) = command_field {
                     serde_json::json!({"mode": "shell", "command": command})
                 } else {
-                    serde_json::json!({"mode": "binary", "cmd": binary, "args": args})
+                    serde_json::json!({"mode": "binary", "cmd": binary, "args": final_args})
                 },
             }),
             error: None,
@@ -169,37 +151,30 @@ impl Tool for CommandExecTool {
     }
 }
 
-/// Translates common Unix shell commands to Windows equivalents.
-/// This helps when the LLM generates Unix commands on Windows.
 #[cfg(target_os = "windows")]
 pub fn translate_unix_to_windows(command: &str) -> String {
     let trimmed = command.trim();
 
-    // Handle "which" command -> "where"
     if trimmed.starts_with("which ") {
         return trimmed.replacen("which ", "where ", 1);
     }
 
-    // Handle "command -v" (bash built-in for checking command existence) -> "where"
     if trimmed.starts_with("command -v ") {
         return trimmed.replacen("command -v ", "where ", 1);
     }
 
-    // Handle "rm -rf" -> rmdir /s /q
     if trimmed.starts_with("rm") {
         let after_rm = &trimmed[2..].trim_start();
         if after_rm.starts_with("-rf ") || after_rm.starts_with("-r ") {
             let after_flags = after_rm[after_rm.find(' ').unwrap_or(0)..].trim_start();
             return format!("rmdir /s /q {}", after_flags);
         }
-        // Single file rm (not -rf, -r, etc.)
         if !after_rm.starts_with('-') {
             let path = after_rm.trim();
             return format!("del /q {}", path);
         }
     }
 
-    // Handle "rm " (single file) -> del
     if trimmed.starts_with("rm ") && !trimmed.contains(" -") {
         let parts: Vec<&str> = trimmed.split_whitespace().collect();
         if parts.len() >= 2 {
@@ -207,7 +182,6 @@ pub fn translate_unix_to_windows(command: &str) -> String {
         }
     }
 
-    // Handle "mkdir -p" -> mkdir (Windows mkdir doesn't need -p)
     if trimmed.starts_with("mkdir -p ") {
         let after_flag = &trimmed["mkdir -p ".len()..].trim_start();
         if after_flag.is_empty() {
@@ -216,7 +190,6 @@ pub fn translate_unix_to_windows(command: &str) -> String {
         return format!("mkdir {}", after_flag);
     }
 
-    // Handle "cp -r" or "cp -a" -> xcopy /e /i /h
     if trimmed.starts_with("cp -r ")
         || trimmed.starts_with("cp -a ")
         || trimmed.starts_with("cp -R ")
@@ -229,7 +202,6 @@ pub fn translate_unix_to_windows(command: &str) -> String {
         }
     }
 
-    // Handle "cp " (single file) -> copy
     if trimmed.starts_with("cp ") && !trimmed.contains(" -") {
         let parts: Vec<&str> = trimmed.split_whitespace().collect();
         if parts.len() >= 3 {
@@ -239,7 +211,6 @@ pub fn translate_unix_to_windows(command: &str) -> String {
         }
     }
 
-    // Handle "mv " -> move
     if trimmed.starts_with("mv ") && !trimmed.starts_with("mv -") {
         let parts: Vec<&str> = trimmed.split_whitespace().collect();
         if parts.len() >= 3 {
@@ -249,29 +220,24 @@ pub fn translate_unix_to_windows(command: &str) -> String {
         }
     }
 
-    // Handle "touch " -> type nul >
     if trimmed.starts_with("touch ") {
         let path = trimmed.split_whitespace().nth(1).unwrap_or("");
         return format!("type nul > {}", path);
     }
 
-    // Handle "cat " -> type
     if trimmed.starts_with("cat ") {
         let path = trimmed.split_whitespace().nth(1).unwrap_or("");
         return format!("type {}", path);
     }
 
-    // Handle "ls " -> dir
     if trimmed.starts_with("ls ") || trimmed == "ls" {
         return "dir".to_string();
     }
 
-    // Handle "tree" -> use ASCII-only output via dir /s /b
     if trimmed == "tree" || trimmed.starts_with("tree ") {
         return "dir /s /b".to_string();
     }
 
-    // Handle "cd path && command" by stripping the cd part
     if trimmed.starts_with("cd ") && trimmed.contains(" && ") {
         if let Some(pos) = trimmed.find(" && ") {
             return trimmed[pos + 4..].to_string();

@@ -12,7 +12,10 @@ use tokio::fs;
 use crate::bench::core::{BenchmarkRunMetadata, WorkloadKind};
 use crate::bench::llm::{api_key_env_keys, first_non_empty_env, LlmProviderConfig, LlmProviderId};
 use crate::core::tool::ToolDescriptor;
-use crate::model::{AgentModelClient, GlmClient, KimiClient, MiniMaxClient, ModalClient, WorkerAction, WorkerActionRequest, WorkerDecision};
+use crate::model::{
+    AgentModelClient, GlmClient, KimiClient, MiniMaxClient, ModalClient, WorkerAction,
+    WorkerActionRequest, WorkerDecision,
+};
 use crate::policy::PolicyEngine;
 use crate::tools::{ToolCallInput, ToolRegistry};
 
@@ -132,7 +135,6 @@ struct DiagramTaskDefinition {
     description: &'static str,
     category: DiagramTaskCategory,
     max_turns: usize,
-    system_prompt: &'static str,
     initial_prompt: &'static str,
     setup_codebase: Vec<(&'static str, &'static str)>,
     validation_criteria: Vec<&'static str>,
@@ -146,7 +148,6 @@ fn diagram_tasks() -> Vec<DiagramTaskDefinition> {
             description: "Design a complete architecture for a REST API service with database",
             category: DiagramTaskCategory::ArchitectureDesign,
             max_turns: 8,
-            system_prompt: "You are an architecture planning agent. Use diagram tools to visualize the system design. Create nodes for each component and edges to show relationships.",
             initial_prompt: "Design an architecture for a user management API service. The system needs:\n- A REST API for CRUD operations on users\n- A PostgreSQL database for persistence\n- An authentication module\n- A caching layer\n\nUse the diagram tools to create a visual architecture showing all components and their relationships.",
             setup_codebase: vec![],
             validation_criteria: vec!["has_api_component", "has_database_component", "has_auth_component", "has_cache_component", "has_relationships"],
@@ -157,7 +158,6 @@ fn diagram_tasks() -> Vec<DiagramTaskDefinition> {
             description: "Design microservices architecture for e-commerce platform",
             category: DiagramTaskCategory::ArchitectureDesign,
             max_turns: 10,
-            system_prompt: "You are an architecture planning agent. Use diagram tools to visualize complex systems. Create nodes for each service and edges to show how they communicate.",
             initial_prompt: "Design a microservices architecture for an e-commerce platform with the following services:\n- User Service (authentication, profiles)\n- Product Catalog Service\n- Order Service\n- Payment Service\n- Notification Service\n\nUse the diagram tools to show all services and how they interact (sync via REST, async via message queue).",
             setup_codebase: vec![],
             validation_criteria: vec!["has_multiple_services", "has_service_relationships", "has_data_flow"],
@@ -168,7 +168,6 @@ fn diagram_tasks() -> Vec<DiagramTaskDefinition> {
             description: "Given codebase structure, create and expand architecture diagram",
             category: DiagramTaskCategory::DiagramExpansion,
             max_turns: 8,
-            system_prompt: "You are a codebase analysis agent. First explore the codebase structure, then use diagram tools to create an architecture diagram.",
             initial_prompt: "Analyze the provided codebase structure and create an architecture diagram showing:\n- Main entry points\n- Core modules\n- Data models\n- External dependencies\n\nThe codebase implements a simple task management API.",
             setup_codebase: vec![
                 ("src/main.rs", "use actix_web::{App, HttpServer, web};\n\n#[actix_web::main]\nasync fn main() -> std::io::Result<()> {\n    HttpServer::new(|| {\n        App::new()\n            .route(\"/tasks\", web::get().to(list_tasks))\n            .route(\"/tasks\", web::post().to(create_task))\n    })\n    .bind(\"127.0.0.1:8080\")?\n    .run()\n    .await\n}\n"),
@@ -184,7 +183,6 @@ fn diagram_tasks() -> Vec<DiagramTaskDefinition> {
             description: "Analyze a full-stack application and create architecture diagram",
             category: DiagramTaskCategory::CodeToDiagram,
             max_turns: 10,
-            system_prompt: "You are a software architect. Analyze the provided codebase and create a comprehensive architecture diagram using diagram tools.",
             initial_prompt: "Analyze this full-stack application and create an architecture diagram that shows:\n- Frontend components\n- Backend API\n- Database schema\n- External services\n\nThe application is a blog platform with React frontend and Node.js backend.",
             setup_codebase: vec![
                 ("frontend/src/App.jsx", "import React from 'react';\nimport { BrowserRouter, Routes, Route } from 'react-router-dom';\nimport PostList from './components/PostList';\nimport PostDetail from './components/PostDetail';\n\nexport default function App() {\n  return (\n    <BrowserRouter>\n      <Routes>\n        <Route path=\"/\" element={<PostList />} />\n        <Route path=\"/post/:id\" element={<PostDetail />} />\n      </Routes>\n    </BrowserRouter>\n  );\n}\n"),
@@ -325,35 +323,50 @@ impl DiagramState {
         }
     }
 
-    fn apply_ops(&mut self, operations: &[serde_json::Value], base_version: u64) -> OpResult {
+    fn apply_ops(&mut self, operations: &[serde_json::Value], _base_version: u64) -> OpResult {
         let mut applied_ops = Vec::new();
         let mut conflicts = Vec::new();
-        let mut errors = Vec::new();
+        let errors = Vec::new();
 
         for op in operations {
             let op_type = op.get("op").and_then(|v| v.as_str()).unwrap_or("");
-            let id = op.get("id").and_then(|v| v.as_str()).unwrap_or("").to_string();
-            
+            let id = op
+                .get("id")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string();
+
             if id.is_empty() && op_type != "setViewport" {
                 continue;
             }
 
             let result = match op_type {
                 "addNode" => {
-                    if self.nodes.iter().any(|n| n.get("id").and_then(|v| v.as_str()) == Some(&id)) {
+                    if self
+                        .nodes
+                        .iter()
+                        .any(|n| n.get("id").and_then(|v| v.as_str()) == Some(&id))
+                    {
                         Err(format!("Node '{}' already exists", id))
                     } else {
-                        let kind = op.get("node_type").and_then(|v| v.as_str()).unwrap_or("concept");
+                        let kind = op
+                            .get("node_type")
+                            .and_then(|v| v.as_str())
+                            .unwrap_or("concept");
                         let label = op.get("label").and_then(|v| v.as_str()).unwrap_or(&id);
-                        let description = op.get("description").and_then(|v| v.as_str()).unwrap_or("");
-                        
+                        let description =
+                            op.get("description").and_then(|v| v.as_str()).unwrap_or("");
+
                         let final_label = if label.is_empty() {
                             id.split('-')
                                 .map(|word| {
                                     let mut chars = word.chars();
                                     match chars.next() {
                                         None => String::new(),
-                                        Some(first) => first.to_uppercase().collect::<String>() + chars.as_str(),
+                                        Some(first) => {
+                                            first.to_uppercase().collect::<String>()
+                                                + chars.as_str()
+                                        }
                                     }
                                 })
                                 .collect::<Vec<_>>()
@@ -375,16 +388,24 @@ impl DiagramState {
                 "addEdge" => {
                     let source = op.get("source").and_then(|v| v.as_str()).unwrap_or("");
                     let target = op.get("target").and_then(|v| v.as_str()).unwrap_or("");
-                    
+
                     if source.is_empty() || target.is_empty() {
                         Err("Edge source and target required".to_string())
-                    } else if !self.nodes.iter().any(|n| n.get("id").and_then(|v| v.as_str()) == Some(&source)) {
+                    } else if !self
+                        .nodes
+                        .iter()
+                        .any(|n| n.get("id").and_then(|v| v.as_str()) == Some(&source))
+                    {
                         Err(format!("Source node '{}' not found", source))
-                    } else if !self.nodes.iter().any(|n| n.get("id").and_then(|v| v.as_str()) == Some(&target)) {
+                    } else if !self
+                        .nodes
+                        .iter()
+                        .any(|n| n.get("id").and_then(|v| v.as_str()) == Some(&target))
+                    {
                         Err(format!("Target node '{}' not found", target))
                     } else {
                         let label = op.get("label").and_then(|v| v.as_str()).unwrap_or("");
-                        let mut edge = serde_json::json!({
+                        let edge = serde_json::json!({
                             "id": id,
                             "source": source,
                             "target": target,
@@ -395,7 +416,8 @@ impl DiagramState {
                     }
                 }
                 "removeNode" => {
-                    self.nodes.retain(|n| n.get("id").and_then(|v| v.as_str()) != Some(&id));
+                    self.nodes
+                        .retain(|n| n.get("id").and_then(|v| v.as_str()) != Some(&id));
                     self.edges.retain(|e| {
                         e.get("source").and_then(|v| v.as_str()) != Some(&id)
                             && e.get("target").and_then(|v| v.as_str()) != Some(&id)
@@ -403,12 +425,11 @@ impl DiagramState {
                     Ok(())
                 }
                 "removeEdge" => {
-                    self.edges.retain(|e| e.get("id").and_then(|v| v.as_str()) != Some(&id));
+                    self.edges
+                        .retain(|e| e.get("id").and_then(|v| v.as_str()) != Some(&id));
                     Ok(())
                 }
-                "setViewport" => {
-                    Ok(())
-                }
+                "setViewport" => Ok(()),
                 _ => Err(format!("Unknown operation: {}", op_type)),
             };
 
@@ -438,13 +459,16 @@ impl DiagramState {
     }
 }
 
-pub async fn run_diagram_benchmark(
-    options: DiagramBenchOptions,
-) -> DiagramBenchReport {
+pub async fn run_diagram_benchmark(options: DiagramBenchOptions) -> DiagramBenchReport {
     let tasks = build_task_descriptors();
-    
-    let provider_id = options.providers.first().copied().unwrap_or(LlmProviderId::MiniMax);
-    let config = options.provider_configs
+
+    let provider_id = options
+        .providers
+        .first()
+        .copied()
+        .unwrap_or(LlmProviderId::MiniMax);
+    let config = options
+        .provider_configs
         .iter()
         .find(|c| c.provider == provider_id)
         .cloned()
@@ -478,17 +502,13 @@ pub async fn run_diagram_benchmark(
         }
     };
 
-    let without_result = run_diagram_benchmark_run(provider_id, &config, &options, &tasks, false).await;
+    let without_result =
+        run_diagram_benchmark_run(provider_id, &config, &options, &tasks, false).await;
 
     let comparison = calculate_comparison(&with_result, &without_result);
 
     DiagramBenchReport {
-        metadata: BenchmarkRunMetadata::new(
-            WorkloadKind::LlmAgenticCoding,
-            0,
-            1,
-            vec![],
-        ),
+        metadata: BenchmarkRunMetadata::new(WorkloadKind::LlmAgenticCoding, 0, 1, vec![]),
         tasks,
         with_diagram_tools: with_result,
         without_diagram_tools: without_result,
@@ -504,7 +524,7 @@ async fn run_diagram_benchmark_run(
     enable_diagram_tools: bool,
 ) -> DiagramToolsResult {
     let provider_start = Instant::now();
-    
+
     let client = match create_diagram_benchmark_client(provider_id, config).await {
         Ok(c) => c,
         Err(error) => {
@@ -541,14 +561,9 @@ async fn run_diagram_benchmark_run(
     let mut quality_sum = 0.0;
 
     for task_def in &task_definitions {
-        let task_result = run_diagram_task(
-            &client,
-            task_def,
-            &tool_list,
-            options,
-            enable_diagram_tools,
-        ).await;
-        
+        let task_result =
+            run_diagram_task(&client, task_def, &tool_list, options, enable_diagram_tools).await;
+
         total_tool_calls += task_result.tool_calls_made;
         if task_result.success {
             completed_count += 1;
@@ -582,7 +597,11 @@ async fn run_diagram_benchmark_run(
         enabled: enable_diagram_tools,
         provider: provider_id.to_string(),
         model: config.model.clone(),
-        status: if failed_count == 0 { "completed".to_string() } else { "partial".to_string() },
+        status: if failed_count == 0 {
+            "completed".to_string()
+        } else {
+            "partial".to_string()
+        },
         error: None,
         total_duration_ms: total_duration.as_secs_f64() * 1000.0,
         tasks: task_results,
@@ -605,7 +624,7 @@ async fn run_diagram_task(
     enable_diagram_tools: bool,
 ) -> DiagramTaskResult {
     let task_start = Instant::now();
-    
+
     let workspace = match create_temp_workspace(&task.setup_codebase).await {
         Ok(w) => w,
         Err(error) => {
@@ -628,7 +647,7 @@ async fn run_diagram_task(
 
     let mut context = format!("{}", task.initial_prompt);
     let mut prior_observations: Vec<serde_json::Value> = vec![];
-    
+
     let tool_registry = ToolRegistry::default();
     let mut diagram_state = DiagramState::new();
     let mut tool_calls_made = 0usize;
@@ -639,11 +658,11 @@ async fn run_diagram_task(
         if turn >= max_turns {
             break;
         }
-        
+
         if task_start.elapsed().as_secs() > options.timeout_seconds {
             break;
         }
-        
+
         let request = WorkerActionRequest {
             task_prompt: context.clone(),
             goal_summary: task.description.to_string(),
@@ -653,7 +672,7 @@ async fn run_diagram_task(
             prior_observations: prior_observations.clone(),
             max_tokens: Some(options.max_tokens),
         };
-        
+
         let decision = match client.decide_action(request).await {
             Ok(d) => d,
             Err(error) => {
@@ -673,9 +692,9 @@ async fn run_diagram_task(
                 };
             }
         };
-        
+
         turn += 1;
-        
+
         match decision.action {
             WorkerAction::Complete { summary: _ } => {
                 let quality = if enable_diagram_tools {
@@ -683,13 +702,17 @@ async fn run_diagram_task(
                 } else {
                     evaluate_text_output(&prior_observations, task)
                 };
-                
+
                 let duration = task_start.elapsed();
                 let _ = tokio::fs::remove_dir_all(&workspace).await;
-                
+
                 return DiagramTaskResult {
                     task_id: task.id.to_string(),
-                    status: if quality.overall_quality > 0.5 { "completed".to_string() } else { "completed_invalid".to_string() },
+                    status: if quality.overall_quality > 0.5 {
+                        "completed".to_string()
+                    } else {
+                        "completed_invalid".to_string()
+                    },
                     error: None,
                     duration_ms: duration.as_secs_f64() * 1000.0,
                     turns_taken: turn,
@@ -700,7 +723,7 @@ async fn run_diagram_task(
             }
             WorkerAction::ToolCalls { calls } => {
                 tool_calls_made += calls.len();
-                
+
                 let mut observations = Vec::new();
                 for call in &calls {
                     let observation = execute_diagram_tool_call(
@@ -710,27 +733,34 @@ async fn run_diagram_task(
                         &workspace,
                         enable_diagram_tools,
                         &mut diagram_state,
-                    ).await;
+                    )
+                    .await;
                     observations.push(observation);
                 }
-                
+
                 for observation in observations {
                     prior_observations.push(observation);
                 }
-                
+
                 let obs_content = prior_observations
                     .iter()
                     .filter(|obs| obs.get("tool_name").is_some())
                     .map(|obs| format!("{}", obs))
                     .collect::<Vec<_>>()
                     .join("\n\n");
-                
-                context = format!("{}\n\nTool calls executed: {}\n\nTool results:\n{}", 
-                    context, tool_calls_made, obs_content);
+
+                context = format!(
+                    "{}\n\nTool calls executed: {}\n\nTool results:\n{}",
+                    context, tool_calls_made, obs_content
+                );
             }
-            WorkerAction::ToolCall { tool_name, tool_args, .. } => {
+            WorkerAction::ToolCall {
+                tool_name,
+                tool_args,
+                ..
+            } => {
                 tool_calls_made += 1;
-                
+
                 let observation = execute_diagram_tool_call(
                     &tool_registry,
                     &tool_name,
@@ -738,35 +768,38 @@ async fn run_diagram_task(
                     &workspace,
                     enable_diagram_tools,
                     &mut diagram_state,
-                ).await;
-                
+                )
+                .await;
+
                 prior_observations.push(observation);
-                
+
                 let obs_content = prior_observations
                     .iter()
                     .filter(|obs| obs.get("tool_name").is_some())
                     .map(|obs| format!("{}", obs))
                     .collect::<Vec<_>>()
                     .join("\n\n");
-                
-                context = format!("{}\n\nTool call executed: {}\n\nTool results:\n{}", 
-                    context, tool_name, obs_content);
+
+                context = format!(
+                    "{}\n\nTool call executed: {}\n\nTool results:\n{}",
+                    context, tool_name, obs_content
+                );
             }
             WorkerAction::Delegate { .. } => {
                 context = format!("{}\n\n[Note: Sub-agent delegation is not available. Complete directly or use available tools.]", context);
             }
         }
     }
-    
+
     let quality = if enable_diagram_tools {
         evaluate_diagram_state(&diagram_state, task)
     } else {
         evaluate_text_output(&prior_observations, task)
     };
-    
+
     let duration = task_start.elapsed();
     let _ = tokio::fs::remove_dir_all(&workspace).await;
-    
+
     DiagramTaskResult {
         task_id: task.id.to_string(),
         status: "max_turns".to_string(),
@@ -783,11 +816,11 @@ async fn create_temp_workspace(setup_files: &[(&str, &str)]) -> Result<PathBuf, 
     let temp_dir = std::env::temp_dir();
     let workspace_name = format!("orchestrix_diagram_bench_{}", uuid::Uuid::new_v4());
     let workspace_path = temp_dir.join(&workspace_name);
-    
+
     fs::create_dir_all(&workspace_path)
         .await
         .map_err(|e| format!("Failed to create workspace: {e}"))?;
-    
+
     for (relative_path, content) in setup_files {
         let file_path = workspace_path.join(relative_path);
         if let Some(parent) = file_path.parent() {
@@ -799,7 +832,7 @@ async fn create_temp_workspace(setup_files: &[(&str, &str)]) -> Result<PathBuf, 
             .await
             .map_err(|e| format!("Failed to write file: {e}"))?;
     }
-    
+
     Ok(workspace_path)
 }
 
@@ -823,9 +856,12 @@ async fn execute_diagram_tool_call(
     }
 
     if tool_name == "diagram.apply_ops" && enable_diagram_tools {
-        let base_version = arguments.get("base_version").and_then(|v| v.as_u64()).unwrap_or(0);
+        let base_version = arguments
+            .get("base_version")
+            .and_then(|v| v.as_u64())
+            .unwrap_or(0);
         let operations = arguments.get("operations").and_then(|v| v.as_array());
-        
+
         if let Some(ops) = operations {
             let result = diagram_state.apply_ops(ops, base_version);
             return serde_json::json!({
@@ -876,7 +912,10 @@ async fn execute_diagram_tool_call(
     }
 }
 
-fn evaluate_diagram_state(state: &DiagramState, task: &DiagramTaskDefinition) -> DiagramQualityScore {
+fn evaluate_diagram_state(
+    state: &DiagramState,
+    task: &DiagramTaskDefinition,
+) -> DiagramQualityScore {
     let nodes = state.nodes.len();
     let edges = state.edges.len();
 
@@ -888,37 +927,59 @@ fn evaluate_diagram_state(state: &DiagramState, task: &DiagramTaskDefinition) ->
         let crit: &str = criterion;
         match crit {
             "has_api_component" => {
-                if nodes >= 1 { structural_score += 0.25; }
+                if nodes >= 1 {
+                    structural_score += 0.25;
+                }
             }
             "has_database_component" => {
-                if nodes >= 2 { structural_score += 0.25; }
+                if nodes >= 2 {
+                    structural_score += 0.25;
+                }
             }
             "has_auth_component" => {
-                if nodes >= 3 { structural_score += 0.25; }
+                if nodes >= 3 {
+                    structural_score += 0.25;
+                }
             }
             "has_cache_component" => {
-                if nodes >= 4 { structural_score += 0.25; }
+                if nodes >= 4 {
+                    structural_score += 0.25;
+                }
             }
             "has_multiple_services" => {
-                if nodes >= 4 { structural_score += 0.5; }
+                if nodes >= 4 {
+                    structural_score += 0.5;
+                }
             }
             "has_service_relationships" => {
-                if edges >= 3 { relationship_score += 0.5; }
+                if edges >= 3 {
+                    relationship_score += 0.5;
+                }
             }
             "has_data_flow" => {
-                if edges >= 5 { relationship_score += 0.5; }
+                if edges >= 5 {
+                    relationship_score += 0.5;
+                }
             }
             "has_components_from_codebase" => {
-                if nodes >= 2 { structural_score += 0.5; }
+                if nodes >= 2 {
+                    structural_score += 0.5;
+                }
             }
             "has_relationships" => {
-                if edges >= 1 { relationship_score += 0.5; }
+                if edges >= 1 {
+                    relationship_score += 0.5;
+                }
             }
             "has_frontend_component" => {
-                if nodes >= 1 { structural_score += 0.25; }
+                if nodes >= 1 {
+                    structural_score += 0.25;
+                }
             }
             "has_backend_component" => {
-                if nodes >= 2 { structural_score += 0.25; }
+                if nodes >= 2 {
+                    structural_score += 0.25;
+                }
             }
             _ => {}
         }
@@ -936,22 +997,28 @@ fn evaluate_diagram_state(state: &DiagramState, task: &DiagramTaskDefinition) ->
     }
 }
 
-fn evaluate_text_output(observations: &[serde_json::Value], task: &DiagramTaskDefinition) -> DiagramQualityScore {
+fn evaluate_text_output(
+    observations: &[serde_json::Value],
+    task: &DiagramTaskDefinition,
+) -> DiagramQualityScore {
     let mut has_components = false;
     let mut has_relationships = false;
     let mut has_description = false;
-    
+
     for obs in observations {
-        let content = obs.get("result").map(|r| {
-            if let Some(s) = r.as_str() {
-                s.to_string()
-            } else {
-                r.to_string()
-            }
-        }).unwrap_or_default();
-        
+        let content = obs
+            .get("result")
+            .map(|r| {
+                if let Some(s) = r.as_str() {
+                    s.to_string()
+                } else {
+                    r.to_string()
+                }
+            })
+            .unwrap_or_default();
+
         let content_lower = content.to_lowercase();
-        
+
         for criterion in &task.validation_criteria {
             let crit: &str = criterion;
             match crit {
@@ -961,7 +1028,10 @@ fn evaluate_text_output(observations: &[serde_json::Value], task: &DiagramTaskDe
                     }
                 }
                 "has_database_component" => {
-                    if content_lower.contains("database") || content_lower.contains("db") || content_lower.contains("postgresql") {
+                    if content_lower.contains("database")
+                        || content_lower.contains("db")
+                        || content_lower.contains("postgresql")
+                    {
                         has_components = true;
                     }
                 }
@@ -981,22 +1051,31 @@ fn evaluate_text_output(observations: &[serde_json::Value], task: &DiagramTaskDe
                     }
                 }
                 "has_service_relationships" | "has_data_flow" | "has_relationships" => {
-                    if content_lower.contains("communicate") || content_lower.contains("call") || 
-                       content_lower.contains("depend") || content_lower.contains("connect") ||
-                       content_lower.contains("->") || content_lower.contains("-->") {
+                    if content_lower.contains("communicate")
+                        || content_lower.contains("call")
+                        || content_lower.contains("depend")
+                        || content_lower.contains("connect")
+                        || content_lower.contains("->")
+                        || content_lower.contains("-->")
+                    {
                         has_relationships = true;
                     }
                 }
-                "has_components_from_codebase" | "has_frontend_component" | "has_backend_component" => {
-                    if content_lower.contains("frontend") || content_lower.contains("backend") ||
-                       content_lower.contains("api") || content_lower.contains("server") {
+                "has_components_from_codebase"
+                | "has_frontend_component"
+                | "has_backend_component" => {
+                    if content_lower.contains("frontend")
+                        || content_lower.contains("backend")
+                        || content_lower.contains("api")
+                        || content_lower.contains("server")
+                    {
                         has_components = true;
                     }
                 }
                 _ => {}
             }
         }
-        
+
         if !content.is_empty() {
             has_description = true;
         }
@@ -1004,7 +1083,11 @@ fn evaluate_text_output(observations: &[serde_json::Value], task: &DiagramTaskDe
 
     let structural_score = if has_components { 0.6 } else { 0.0 };
     let relationship_score = if has_relationships { 0.4 } else { 0.0 };
-    let overall = if has_description { structural_score + relationship_score } else { 0.0 };
+    let overall = if has_description {
+        structural_score + relationship_score
+    } else {
+        0.0
+    };
 
     DiagramQualityScore {
         structural_correctness: structural_score,
@@ -1013,12 +1096,15 @@ fn evaluate_text_output(observations: &[serde_json::Value], task: &DiagramTaskDe
     }
 }
 
-fn calculate_comparison(with: &DiagramToolsResult, without: &DiagramToolsResult) -> DiagramComparisonResult {
+fn calculate_comparison(
+    with: &DiagramToolsResult,
+    without: &DiagramToolsResult,
+) -> DiagramComparisonResult {
     let with_success = with.aggregate.success_rate;
     let without_success = without.aggregate.success_rate;
     let with_quality = with.aggregate.avg_quality;
     let without_quality = without.aggregate.avg_quality;
-    
+
     let quality_improvement = if without_quality > 0.0 {
         ((with_quality - without_quality) / without_quality) * 100.0
     } else if with_quality > 0.0 {
@@ -1026,13 +1112,13 @@ fn calculate_comparison(with: &DiagramToolsResult, without: &DiagramToolsResult)
     } else {
         0.0
     };
-    
+
     let efficiency_ratio = if without.aggregate.avg_duration_ms > 0.0 {
         with.aggregate.avg_duration_ms / without.aggregate.avg_duration_ms
     } else {
         1.0
     };
-    
+
     let winner = if with_success > without_success {
         "with_diagram_tools"
     } else if without_success > with_success {
@@ -1043,7 +1129,8 @@ fn calculate_comparison(with: &DiagramToolsResult, without: &DiagramToolsResult)
         "without_diagram_tools"
     } else {
         "tie"
-    }.to_string();
+    }
+    .to_string();
 
     DiagramComparisonResult {
         with_tools_success_rate: with_success,
@@ -1070,7 +1157,11 @@ fn build_task_descriptors() -> Vec<DiagramTaskDescriptor> {
             description: task.description.to_string(),
             category: task.category,
             max_turns: task.max_turns,
-            validation_criteria: task.validation_criteria.iter().map(|s| s.to_string()).collect(),
+            validation_criteria: task
+                .validation_criteria
+                .iter()
+                .map(|s| s.to_string())
+                .collect(),
         })
         .collect()
 }
@@ -1133,13 +1224,15 @@ async fn create_diagram_benchmark_client(
     provider_id: LlmProviderId,
     config: &LlmProviderConfig,
 ) -> Result<DiagramBenchmarkClient, String> {
-    let api_key = config.api_key.clone()
+    let api_key = config
+        .api_key
+        .clone()
         .or_else(|| get_api_key_from_env(provider_id))
         .ok_or_else(|| format!("No API key found for {}", provider_id.as_str()))?;
-    
+
     let model = config.model.clone();
     let base_url = config.base_url.clone();
-    
+
     match provider_id {
         LlmProviderId::MiniMax => {
             let client = MiniMaxClient::new(api_key, model);

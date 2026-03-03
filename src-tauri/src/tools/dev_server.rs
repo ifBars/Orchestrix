@@ -20,6 +20,9 @@ use uuid::Uuid;
 
 use crate::core::tool::ToolDescriptor;
 use crate::policy::{PolicyDecision, PolicyEngine};
+use crate::tools::args::{
+    schema_for_type, DevServerLogsArgs, DevServerStartArgs, DevServerStatusArgs, DevServerStopArgs,
+};
 use crate::tools::types::{Tool, ToolCallOutput, ToolError};
 
 const DEFAULT_LOG_BUFFER_SIZE: usize = 1000;
@@ -76,16 +79,6 @@ impl DevServerHandle {
     }
 }
 
-/// Input for dev_server.start tool.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct DevServerStartInput {
-    pub command: String,
-    pub port: Option<u16>,
-    pub workdir: Option<String>,
-    pub health_check_url: Option<String>,
-    pub max_wait_secs: Option<u64>,
-}
-
 /// Output for dev_server.start tool.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DevServerStartOutput {
@@ -120,33 +113,7 @@ impl Tool for DevServerStartTool {
                 "Returns a server_id that can be used to stop, check status, or get logs."
             )
             .into(),
-            input_schema: serde_json::json!({
-                "type": "object",
-                "properties": {
-                    "command": {
-                        "type": "string",
-                        "description": "Command to start the dev server (e.g., 'bun dev', 'npm run dev', 'vite')"
-                    },
-                    "port": {
-                        "type": "integer",
-                        "description": "Expected port number for health checking (optional, auto-detected if not provided)"
-                    },
-                    "workdir": {
-                        "type": "string",
-                        "description": "Working directory relative to workspace root (optional)"
-                    },
-                    "health_check_url": {
-                        "type": "string",
-                        "description": "URL to health check after starting (defaults to http://localhost:{port})"
-                    },
-                    "max_wait_secs": {
-                        "type": "integer",
-                        "description": "Max seconds to wait for server to be ready (default: 30)",
-                        "default": 30
-                    }
-                },
-                "required": ["command"]
-            }),
+            input_schema: schema_for_type::<DevServerStartArgs>(),
             output_schema: None,
         }
     }
@@ -157,7 +124,7 @@ impl Tool for DevServerStartTool {
         cwd: &Path,
         input: serde_json::Value,
     ) -> Result<ToolCallOutput, ToolError> {
-        let args: DevServerStartInput = serde_json::from_value(input)
+        let args: DevServerStartArgs = serde_json::from_value(input)
             .map_err(|e| ToolError::InvalidInput(format!("invalid input: {}", e)))?;
 
         // Resolve working directory
@@ -246,7 +213,6 @@ async fn start_dev_server(
     health_check_url: Option<String>,
     max_wait_secs: u64,
 ) -> Result<DevServerStartOutput, ToolError> {
-    // Parse command
     let parts: Vec<&str> = command.split_whitespace().collect();
     if parts.is_empty() {
         return Err(ToolError::InvalidInput("empty command".into()));
@@ -437,21 +403,7 @@ impl Tool for DevServerStopTool {
                 "Sends SIGTERM first, then SIGKILL after timeout if needed."
             )
             .into(),
-            input_schema: serde_json::json!({
-                "type": "object",
-                "properties": {
-                    "server_id": {
-                        "type": "string",
-                        "description": "The server ID returned by dev_server.start"
-                    },
-                    "graceful_timeout_secs": {
-                        "type": "integer",
-                        "description": "Seconds to wait for graceful shutdown before force kill (default: 5)",
-                        "default": 5
-                    }
-                },
-                "required": ["server_id"]
-            }),
+            input_schema: schema_for_type::<DevServerStopArgs>(),
             output_schema: None,
         }
     }
@@ -462,20 +414,15 @@ impl Tool for DevServerStopTool {
         _cwd: &Path,
         input: serde_json::Value,
     ) -> Result<ToolCallOutput, ToolError> {
-        let server_id = input
-            .get("server_id")
-            .and_then(|v| v.as_str())
-            .ok_or_else(|| ToolError::InvalidInput("server_id is required".into()))?
-            .to_string();
+        let args: DevServerStopArgs = serde_json::from_value(input)
+            .map_err(|e| ToolError::InvalidInput(format!("invalid input: {}", e)))?;
 
-        let graceful_timeout = input
-            .get("graceful_timeout_secs")
-            .and_then(|v| v.as_u64())
-            .unwrap_or(5);
+        let graceful_timeout = 5;
 
         let runtime = tokio::runtime::Handle::try_current()
             .map_err(|e| ToolError::Execution(format!("no async runtime: {}", e)))?;
 
+        let server_id = args.server_id.clone();
         let result = std::thread::spawn(move || {
             runtime.block_on(stop_dev_server(&server_id, graceful_timeout))
         })
@@ -581,16 +528,7 @@ impl Tool for DevServerStatusTool {
                 "Returns whether it's running, its uptime, current health, and recent errors."
             )
             .into(),
-            input_schema: serde_json::json!({
-                "type": "object",
-                "properties": {
-                    "server_id": {
-                        "type": "string",
-                        "description": "The server ID returned by dev_server.start"
-                    }
-                },
-                "required": ["server_id"]
-            }),
+            input_schema: schema_for_type::<DevServerStatusArgs>(),
             output_schema: None,
         }
     }
@@ -601,14 +539,12 @@ impl Tool for DevServerStatusTool {
         _cwd: &Path,
         input: serde_json::Value,
     ) -> Result<ToolCallOutput, ToolError> {
-        let server_id = input
-            .get("server_id")
-            .and_then(|v| v.as_str())
-            .ok_or_else(|| ToolError::InvalidInput("server_id is required".into()))?;
+        let args: DevServerStatusArgs = serde_json::from_value(input)
+            .map_err(|e| ToolError::InvalidInput(format!("invalid input: {}", e)))?;
 
-        let entry = dev_server_registry()
-            .get(server_id)
-            .ok_or_else(|| ToolError::InvalidInput(format!("server not found: {}", server_id)))?;
+        let entry = dev_server_registry().get(&args.server_id).ok_or_else(|| {
+            ToolError::InvalidInput(format!("server not found: {}", args.server_id))
+        })?;
 
         let handle = entry.value();
         let is_running = handle.is_running();
@@ -664,7 +600,7 @@ impl Tool for DevServerStatusTool {
         };
 
         let status = DevServerStatusOutput {
-            server_id: server_id.to_string(),
+            server_id: args.server_id.clone(),
             is_running,
             uptime_secs,
             exit_code,
@@ -712,27 +648,7 @@ impl Tool for DevServerLogsTool {
                 "Retrieve recent logs from a running or recently stopped development server."
             )
             .into(),
-            input_schema: serde_json::json!({
-                "type": "object",
-                "properties": {
-                    "server_id": {
-                        "type": "string",
-                        "description": "The server ID returned by dev_server.start"
-                    },
-                    "stream": {
-                        "type": "string",
-                        "enum": ["stdout", "stderr", "both"],
-                        "description": "Which log stream to retrieve (default: both)",
-                        "default": "both"
-                    },
-                    "lines": {
-                        "type": "integer",
-                        "description": "Number of lines to retrieve (default: 50, max: 500)",
-                        "default": 50
-                    }
-                },
-                "required": ["server_id"]
-            }),
+            input_schema: schema_for_type::<DevServerLogsArgs>(),
             output_schema: None,
         }
     }
@@ -743,26 +659,16 @@ impl Tool for DevServerLogsTool {
         _cwd: &Path,
         input: serde_json::Value,
     ) -> Result<ToolCallOutput, ToolError> {
-        let server_id = input
-            .get("server_id")
-            .and_then(|v| v.as_str())
-            .ok_or_else(|| ToolError::InvalidInput("server_id is required".into()))?;
+        let args: DevServerLogsArgs = serde_json::from_value(input)
+            .map_err(|e| ToolError::InvalidInput(format!("invalid input: {}", e)))?;
 
-        let stream = input
-            .get("stream")
-            .and_then(|v| v.as_str())
-            .unwrap_or("both");
+        let stream = args.stream.as_deref().unwrap_or("both");
 
-        let lines = input
-            .get("lines")
-            .and_then(|v| v.as_u64())
-            .map(|n| n as usize)
-            .unwrap_or(50)
-            .min(MAX_LOG_LINES_PER_REQUEST);
+        let lines = args.limit.unwrap_or(50).min(MAX_LOG_LINES_PER_REQUEST);
 
-        let entry = dev_server_registry()
-            .get(server_id)
-            .ok_or_else(|| ToolError::InvalidInput(format!("server not found: {}", server_id)))?;
+        let entry = dev_server_registry().get(&args.server_id).ok_or_else(|| {
+            ToolError::InvalidInput(format!("server not found: {}", args.server_id))
+        })?;
 
         let handle = entry.value();
 
@@ -803,7 +709,7 @@ impl Tool for DevServerLogsTool {
 
         let total_lines = stdout_lines.len() + stderr_lines.len();
         let output = DevServerLogsOutput {
-            server_id: server_id.to_string(),
+            server_id: args.server_id.clone(),
             stdout: if stdout_lines.is_empty() {
                 None
             } else {

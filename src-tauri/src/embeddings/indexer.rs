@@ -5,11 +5,13 @@ use std::sync::Arc;
 use chrono::Utc;
 use ignore::WalkBuilder;
 use tokio::sync::Mutex;
+use tracing::warn;
 
 use crate::bus::EventBus;
 use crate::db::queries;
 use crate::db::Database;
 use crate::embeddings::manager::EmbeddingManager;
+use crate::embeddings::types::EmbeddingProviderKind;
 use crate::embeddings::{cosine_similarity, EmbedOptions, EmbeddingError, EmbeddingTaskType};
 
 const MAX_FILE_BYTES: usize = 512 * 1024;
@@ -19,6 +21,10 @@ const EMBED_BATCH_SIZE: usize = 32;
 const MAX_SEARCH_QUERY_CHARS: usize = 6000;
 const MAX_INDEX_FILES: usize = 10_000;
 const MAX_INDEX_CHUNKS: usize = 80_000;
+/// Minimum delay between batch requests for remote embedding providers (ms).
+/// Keeps throughput well under the Gemini free-tier limit of 100 RPM (~600ms/req headroom).
+/// At EMBED_BATCH_SIZE=32 this yields ~2 batches/s, safely within Tier 1 limits too.
+const REMOTE_BATCH_DELAY_MS: u64 = 500;
 
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct EmbeddingIndexStatus {
@@ -73,6 +79,7 @@ struct ScoredChunk {
 #[async_trait::async_trait]
 pub trait EmbeddingClient: Send + Sync {
     async fn provider_id(&self) -> Result<String, EmbeddingError>;
+    async fn provider_kind(&self) -> Result<EmbeddingProviderKind, EmbeddingError>;
     async fn embed(
         &self,
         texts: &[String],
@@ -84,6 +91,10 @@ pub trait EmbeddingClient: Send + Sync {
 impl EmbeddingClient for EmbeddingManager {
     async fn provider_id(&self) -> Result<String, EmbeddingError> {
         Ok(self.provider_info().await?.id)
+    }
+
+    async fn provider_kind(&self) -> Result<EmbeddingProviderKind, EmbeddingError> {
+        Ok(self.provider_info().await?.kind)
     }
 
     async fn embed(
@@ -128,17 +139,37 @@ impl SemanticIndexService {
                 }
             };
 
-            if !service.needs_indexing(&normalized_root, &provider_id) {
-                return;
-            }
-
+            // Check and mark in-progress atomically under the same lock to eliminate
+            // the race window between needs_indexing and the insert.
             {
                 let mut guard = service.in_progress.lock().await;
                 if guard.contains(&normalized_root) {
                     return;
                 }
+                if !service.needs_indexing(&normalized_root, &provider_id) {
+                    return;
+                }
                 guard.insert(normalized_root.clone());
             }
+
+            // Guard ensures removal even if run_indexing panics.
+            struct InProgressGuard<'a> {
+                set: &'a tokio::sync::Mutex<HashSet<String>>,
+                key: String,
+            }
+            impl Drop for InProgressGuard<'_> {
+                fn drop(&mut self) {
+                    // best-effort synchronous removal; the async lock will be
+                    // available immediately after the task completes or panics.
+                    if let Ok(mut guard) = self.set.try_lock() {
+                        guard.remove(&self.key);
+                    }
+                }
+            }
+            let _guard = InProgressGuard {
+                set: &service.in_progress,
+                key: normalized_root.clone(),
+            };
 
             if let Err(error) = service
                 .run_indexing(
@@ -150,9 +181,6 @@ impl SemanticIndexService {
             {
                 service.mark_index_failed(&normalized_root, &provider_id, &error);
             }
-
-            let mut guard = service.in_progress.lock().await;
-            guard.remove(&normalized_root);
         });
     }
 
@@ -388,8 +416,19 @@ impl SemanticIndexService {
         let created_at = Utc::now().to_rfc3339();
         let mut dims: Option<usize> = None;
         let mut persisted_count: usize = 0;
+        let is_remote = matches!(
+            self.client.provider_kind().await?,
+            EmbeddingProviderKind::Remote
+        );
 
-        for batch in chunks.chunks(EMBED_BATCH_SIZE) {
+        for (batch_idx, batch) in chunks.chunks(EMBED_BATCH_SIZE).enumerate() {
+            // Pace remote providers to avoid 429s. The backoff in the provider handles
+            // transient bursts; this prevents hitting the limit in the first place.
+            // Skip the delay before the first batch.
+            if is_remote && batch_idx > 0 {
+                tokio::time::sleep(tokio::time::Duration::from_millis(REMOTE_BATCH_DELAY_MS)).await;
+            }
+
             let texts = batch
                 .iter()
                 .map(|chunk| chunk.content.clone())
@@ -411,31 +450,30 @@ impl SemanticIndexService {
                 )));
             }
 
+            // Build rows for the whole batch then insert them in one transaction.
+            let mut batch_rows = Vec::with_capacity(batch.len());
             for (chunk, vector) in batch.iter().zip(vectors.iter()) {
                 if dims.is_none() {
                     dims = Some(vector.len());
                 }
-
                 let embedding_json = serde_json::to_string(vector)
                     .map_err(|error| EmbeddingError::Runtime(error.to_string()))?;
-
-                queries::insert_embedding_chunk(
-                    &self.db,
-                    &queries::EmbeddingChunkRow {
-                        id: 0,
-                        workspace_root: workspace_key.clone(),
-                        path: chunk.path.clone(),
-                        chunk_idx: chunk.chunk_idx as i64,
-                        line_start: chunk.line_start.map(|value| value as i64),
-                        line_end: chunk.line_end.map(|value| value as i64),
-                        content: chunk.content.clone(),
-                        embedding_json,
-                        created_at: created_at.clone(),
-                    },
-                )
-                .map_err(|error| EmbeddingError::Runtime(error.to_string()))?;
-                persisted_count += 1;
+                batch_rows.push(queries::EmbeddingChunkRow {
+                    id: 0,
+                    workspace_root: workspace_key.clone(),
+                    path: chunk.path.clone(),
+                    chunk_idx: chunk.chunk_idx as i64,
+                    line_start: chunk.line_start.map(|value| value as i64),
+                    line_end: chunk.line_end.map(|value| value as i64),
+                    content: chunk.content.clone(),
+                    embedding_json,
+                    created_at: created_at.clone(),
+                });
             }
+            let inserted = batch_rows.len();
+            queries::insert_embedding_chunks_batch(&self.db, &batch_rows)
+                .map_err(|error| EmbeddingError::Runtime(error.to_string()))?;
+            persisted_count += inserted;
         }
 
         let updated_at = Utc::now().to_rfc3339();
@@ -476,6 +514,54 @@ impl SemanticIndexService {
     }
 }
 
+/// Directory names that are always excluded from indexing regardless of .gitignore.
+/// These are generated, vendored, or tooling-internal directories that contain no
+/// meaningful source content for semantic search.
+const EXCLUDED_DIRS: &[&str] = &[
+    // JS/TS ecosystem
+    "node_modules",
+    ".pnp",
+    ".yarn",
+    // Build outputs
+    "dist",
+    "build",
+    "out",
+    ".next",
+    ".nuxt",
+    ".svelte-kit",
+    ".astro",
+    ".output",
+    ".vercel",
+    ".netlify",
+    // Rust
+    "target",
+    // Python
+    "__pycache__",
+    ".venv",
+    "venv",
+    ".mypy_cache",
+    ".pytest_cache",
+    "site-packages",
+    // Coverage & test artefacts
+    "coverage",
+    ".nyc_output",
+    // Caches & tool state
+    ".turbo",
+    ".parcel-cache",
+    ".cache",
+    ".rollup.cache",
+    ".tsbuildinfo",
+    // VCS
+    ".git",
+    // IDE
+    ".idea",
+    ".vscode",
+];
+
+fn is_excluded_dir(name: &str) -> bool {
+    EXCLUDED_DIRS.contains(&name)
+}
+
 fn collect_workspace_chunks(workspace_root: &Path) -> Result<Vec<FileChunk>, EmbeddingError> {
     if !workspace_root.exists() || !workspace_root.is_dir() {
         return Err(EmbeddingError::Config(format!(
@@ -487,18 +573,31 @@ fn collect_workspace_chunks(workspace_root: &Path) -> Result<Vec<FileChunk>, Emb
     let mut chunks = Vec::new();
     let mut seen_files = 0usize;
     let walker = WalkBuilder::new(workspace_root)
-        .hidden(false)
+        // Skip hidden files/dirs (.git, .next, .cache, etc.) by default.
+        // Users can still override via their own .gitignore rules.
+        .hidden(true)
         .follow_links(false)
         .git_ignore(true)
         .git_exclude(true)
         .git_global(true)
         .require_git(false)
+        // Apply the directory exclusion filter before descending.
+        .filter_entry(|entry| {
+            if entry.file_type().map_or(false, |kind| kind.is_dir()) {
+                let name = entry.file_name().to_str().unwrap_or("");
+                return !is_excluded_dir(name);
+            }
+            true
+        })
         .build();
 
     for entry in walker {
         let entry = match entry {
             Ok(value) => value,
-            Err(_) => continue,
+            Err(error) => {
+                warn!("embedding indexer: walk error (skipping): {error}");
+                continue;
+            }
         };
 
         let path = entry.path();
@@ -611,14 +710,41 @@ fn is_supported_text_file(path: &Path) -> bool {
         return false;
     };
 
+    // Reject known generated/lock filenames regardless of extension.
+    if let Some(filename) = path.file_name().and_then(|value| value.to_str()) {
+        let lower = filename.to_ascii_lowercase();
+        // Exact filename matches.
+        if matches!(
+            lower.as_str(),
+            "package-lock.json"
+                | "yarn.lock"
+                | "pnpm-lock.yaml"
+                | "bun.lockb"
+                | "cargo.lock"
+                | "gemfile.lock"
+                | "poetry.lock"
+                | "composer.lock"
+                | "go.sum"
+                | "tsconfig.tsbuildinfo"
+        ) {
+            return false;
+        }
+        // Suffix matches for minified files.
+        if lower.ends_with(".min.js") || lower.ends_with(".min.css") || lower.ends_with(".d.ts") {
+            return false;
+        }
+    }
+
     matches!(
         ext.to_ascii_lowercase().as_str(),
         "rs" | "ts"
             | "tsx"
             | "js"
             | "jsx"
-            | "json"
+            | "mjs"
+            | "cjs"
             | "md"
+            | "mdx"
             | "toml"
             | "yaml"
             | "yml"
@@ -635,12 +761,24 @@ fn is_supported_text_file(path: &Path) -> bool {
             | "swift"
             | "kt"
             | "sh"
+            | "bash"
+            | "zsh"
             | "sql"
             | "css"
+            | "scss"
+            | "sass"
+            | "less"
             | "html"
+            | "htm"
             | "vue"
             | "svelte"
-            | "txt"
+            | "astro"
+            | "graphql"
+            | "gql"
+            | "prisma"
+            | "proto"
+            | "tf"
+            | "hcl"
     )
 }
 
@@ -657,7 +795,12 @@ fn parse_embedding_json(raw: &str) -> Result<Vec<f32>, EmbeddingError> {
 
 fn normalize_workspace_key(path: &Path) -> String {
     let canonical = path.canonicalize().unwrap_or_else(|_| path.to_path_buf());
-    canonical.to_string_lossy().replace('\\', "/")
+    let normalized = canonical.to_string_lossy().replace('\\', "/");
+    // On Windows the filesystem is case-insensitive; lowercase the key so that
+    // "C:/Users/Foo" and "c:/users/foo" map to the same index entry.
+    #[cfg(target_os = "windows")]
+    let normalized = normalized.to_ascii_lowercase();
+    normalized
 }
 
 fn truncate_chars(text: &str, max_chars: usize) -> String {
@@ -791,6 +934,10 @@ mod tests {
             Ok(self.provider.read().await.clone())
         }
 
+        async fn provider_kind(&self) -> Result<EmbeddingProviderKind, EmbeddingError> {
+            Ok(EmbeddingProviderKind::Local)
+        }
+
         async fn embed(
             &self,
             texts: &[String],
@@ -807,5 +954,108 @@ mod tests {
             if lower.contains("beta") { 1.0 } else { 0.0 },
             (lower.len() as f32 % 13.0) / 13.0,
         ]
+    }
+
+    /// node_modules and other excluded dirs must never appear in the index.
+    #[tokio::test]
+    async fn indexer_excludes_node_modules_and_other_noise() {
+        let temp = tempfile::tempdir().expect("tempdir");
+
+        // Source file that should be indexed.
+        std::fs::create_dir_all(temp.path().join("src")).expect("src dir");
+        std::fs::write(
+            temp.path().join("src").join("app.ts"),
+            "export function app() { return 'hello'; }\n",
+        )
+        .expect("write app.ts");
+
+        // node_modules — must never be indexed.
+        let nm = temp.path().join("node_modules").join("lodash");
+        std::fs::create_dir_all(&nm).expect("node_modules dir");
+        std::fs::write(nm.join("lodash.js"), "var _ = {};\n").expect("write lodash");
+
+        // dist — must never be indexed.
+        std::fs::create_dir_all(temp.path().join("dist")).expect("dist dir");
+        std::fs::write(
+            temp.path().join("dist").join("bundle.js"),
+            "!function(e){}\n",
+        )
+        .expect("write bundle");
+
+        // package-lock.json — must never be indexed (filename deny-list).
+        std::fs::write(
+            temp.path().join("package-lock.json"),
+            r#"{"lockfileVersion":3}"#,
+        )
+        .expect("write lock");
+
+        // .d.ts file — must never be indexed.
+        std::fs::write(
+            temp.path().join("src").join("types.d.ts"),
+            "export declare function app(): string;\n",
+        )
+        .expect("write dts");
+
+        let db = Arc::new(Database::open_in_memory().expect("db"));
+        let bus = Arc::new(EventBus::new());
+        let client = Arc::new(MockEmbeddingClient::new("mock"));
+        let service = SemanticIndexService::new(db, bus, client);
+
+        let workspace_key = normalize_workspace_key(temp.path());
+        service
+            .run_indexing(temp.path().to_path_buf(), workspace_key, "mock".to_string())
+            .await
+            .expect("indexing should succeed");
+
+        let status = service.index_status(temp.path()).expect("status");
+        assert_eq!(status.status, "ready");
+
+        // Only app.ts should have been indexed.
+        assert_eq!(status.file_count, 1, "only app.ts should be indexed");
+        assert!(status.chunk_count > 0);
+    }
+
+    /// Indexing more than EMBED_BATCH_SIZE chunks uses the batch transaction path
+    /// and produces correct counts.
+    #[tokio::test]
+    async fn indexer_batch_transaction_produces_correct_chunk_count() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        std::fs::create_dir_all(temp.path().join("src")).expect("src dir");
+
+        // Write enough files to exceed one batch (EMBED_BATCH_SIZE = 32).
+        // Each file is tiny so each produces exactly 1 chunk.
+        for i in 0..50 {
+            std::fs::write(
+                temp.path().join("src").join(format!("file{i:02}.rs")),
+                format!("fn func_{i}() {{ }}\n"),
+            )
+            .expect("write file");
+        }
+
+        let db = Arc::new(Database::open_in_memory().expect("db"));
+        let bus = Arc::new(EventBus::new());
+        let client = Arc::new(MockEmbeddingClient::new("mock"));
+        let service = SemanticIndexService::new(db.clone(), bus, client);
+
+        let workspace_key = normalize_workspace_key(temp.path());
+        service
+            .run_indexing(
+                temp.path().to_path_buf(),
+                workspace_key.clone(),
+                "mock".to_string(),
+            )
+            .await
+            .expect("indexing should succeed");
+
+        let status = service.index_status(temp.path()).expect("status");
+        assert_eq!(status.status, "ready");
+        assert_eq!(status.file_count, 50);
+        // Each file produces 1 chunk, so chunk_count == file_count.
+        assert_eq!(status.chunk_count, 50);
+
+        // Verify the DB actually has all 50 rows.
+        let rows = crate::db::queries::list_embedding_chunks_for_workspace(&db, &workspace_key)
+            .expect("list chunks");
+        assert_eq!(rows.len(), 50, "all chunks must be persisted");
     }
 }

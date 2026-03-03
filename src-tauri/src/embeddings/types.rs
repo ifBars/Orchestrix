@@ -1,5 +1,6 @@
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
+use tracing::warn;
 
 use crate::embeddings::error::EmbeddingError;
 
@@ -17,6 +18,10 @@ pub enum EmbeddingTaskType {
     RetrievalDocument,
     SemanticSimilarity,
     Classification,
+    Clustering,
+    CodeRetrievalQuery,
+    QuestionAnswering,
+    FactVerification,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -87,7 +92,16 @@ pub fn l2_normalize_in_place(vectors: &mut [Vec<f32>]) {
 }
 
 pub fn cosine_similarity(a: &[f32], b: &[f32]) -> f32 {
-    if a.len() != b.len() || a.is_empty() {
+    if a.is_empty() || b.is_empty() {
+        return 0.0;
+    }
+    if a.len() != b.len() {
+        warn!(
+            "cosine_similarity: dimension mismatch ({} vs {}) — returning 0. \
+             Re-index the workspace after changing the embedding provider or model.",
+            a.len(),
+            b.len()
+        );
         return 0.0;
     }
 

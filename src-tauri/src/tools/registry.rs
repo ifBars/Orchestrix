@@ -13,8 +13,9 @@ use crate::core::mcp::{call_mcp_tool_by_server_and_name, load_mcp_tools_cache};
 use crate::core::tool::ToolDescriptor;
 use crate::policy::PolicyEngine;
 use crate::tools::agent::{
-    AgentAskUserTool, AgentCompleteTool, AgentMemoryUpsertTool, AgentTaskTool, CreateArtifactTool,
-    RequestBuildModeTool, RequestPlanModeTool, SubAgentSpawnTool,
+    AgentAskUserTool, AgentCompleteTool, AgentCreatePresetTool, AgentMemoryUpsertTool,
+    AgentTaskTool, CreateArtifactTool, RequestBuildModeTool, RequestPlanModeTool,
+    SubAgentSpawnTool,
 };
 use crate::tools::canvas::{CanvasApplyOpsTool, CanvasReadStateTool};
 use crate::tools::cmd::CommandExecTool;
@@ -105,6 +106,10 @@ impl ToolRegistry {
             Box::new(AgentMemoryUpsertTool),
         );
         tools.insert("agent.complete".to_string(), Box::new(AgentCompleteTool));
+        tools.insert(
+            "agent.create_preset".to_string(),
+            Box::new(AgentCreatePresetTool),
+        );
         tools.insert("subagent.spawn".to_string(), Box::new(SubAgentSpawnTool));
         tools.insert(
             "agent.request_build_mode".to_string(),
@@ -151,114 +156,6 @@ impl ToolRegistry {
             .collect()
     }
 
-    /// Get tools available for PLAN mode.
-    ///
-    /// DEPRECATED: Use list_all() instead for-safe execution cache.
-    /// Mode-specific restrictions are enforced at execution time.
-    ///
-    /// Only includes read-only tools and plan-specific agent tools:
-    /// fs.read, fs.list, search.rg, git.*, skills.*, agent.task,
-    /// agent.create_artifact, agent.request_build_mode
-    ///
-    /// If `include_embeddings` is false, excludes search.embeddings.
-    #[deprecated(since = "0.1.0", note = "Use list_all() for cache-safe execution")]
-    pub fn list_for_plan_mode(&self, include_embeddings: bool) -> Vec<ToolDescriptor> {
-        let mut allowed_tools: std::collections::HashSet<&str> = [
-            "fs.read",
-            "fs.list",
-            "search.rg",
-            "search.files",
-            "git.status",
-            "git.diff",
-            "git.log",
-            "skills.list_installed",
-            "skills.search",
-            "skills.load",
-            "memory.list",
-            "memory.read",
-            "agent.ask_user",
-            "agent.task",
-            "agent.create_artifact",
-            "agent.request_build_mode",
-            "diagram.read_graph",
-            "diagram.apply_ops",
-        ]
-        .iter()
-        .cloned()
-        .collect();
-
-        if include_embeddings {
-            allowed_tools.insert("search.embeddings");
-        }
-
-        self.list()
-            .into_iter()
-            .filter(|t| allowed_tools.contains(t.name.as_str()))
-            .collect()
-    }
-
-    /// Get tools available for BUILD mode.
-    ///
-    /// DEPRECATED: Use list_all() instead for cache-safe execution.
-    /// Mode-specific restrictions are enforced at execution time.
-    ///
-    /// Includes all tools except request_build_mode, create_artifact, and agent.complete.
-    /// Note: agent.complete is exclusive to subagents spawned via subagent.spawn.
-    ///
-    /// If `include_embeddings` is false, excludes search.embeddings.
-    #[deprecated(since = "0.1.0", note = "Use list_all() for cache-safe execution")]
-    pub fn list_for_build_mode(&self, include_embeddings: bool) -> Vec<ToolDescriptor> {
-        self.list()
-            .into_iter()
-            .filter(|t| {
-                if !include_embeddings && t.name == "search.embeddings" {
-                    return false;
-                }
-                t.name != "agent.request_build_mode"
-                    && t.name != "agent.create_artifact"
-                    && t.name != "agent.complete"
-            })
-            .collect()
-    }
-
-    /// Generate a detailed tool reference string for PLAN mode.
-    /// If `include_embeddings` is false, excludes search.embeddings.
-    #[allow(dead_code)]
-    pub fn tool_reference_for_plan_mode(&self, include_embeddings: bool) -> String {
-        let mut tools: Vec<_> = self.list_all(include_embeddings);
-        tools.sort_by(|a, b| a.name.cmp(&b.name));
-
-        let mut out = String::new();
-        for tool in &tools {
-            out.push_str(&format!("### {}\n", tool.name));
-            out.push_str(&format!("{}\n", tool.description));
-            out.push_str(&format!(
-                "Input schema: {}\n\n",
-                serde_json::to_string(&tool.input_schema).unwrap_or_else(|_| "{}".to_string())
-            ));
-        }
-        out
-    }
-
-    /// Generate a detailed tool reference string for BUILD mode.
-    /// If `include_embeddings` is false, excludes search.embeddings.
-    #[allow(dead_code)]
-    pub fn tool_reference_for_build_mode(&self, include_embeddings: bool) -> String {
-        let mut tools: Vec<_> = self.list_all(include_embeddings);
-        tools.sort_by(|a, b| a.name.cmp(&b.name));
-
-        let mut out = String::new();
-        for tool in &tools {
-            out.push_str(&format!("### {}\n", tool.name));
-            out.push_str(&format!("{}\n", tool.description));
-            out.push_str(&format!(
-                "Input schema: {}\n\n",
-                serde_json::to_string(&tool.input_schema).unwrap_or_else(|_| "{}".to_string())
-            ));
-        }
-        out
-    }
-
     /// List all available tools including MCP tools.
     pub fn list(&self) -> Vec<ToolDescriptor> {
         let mut descriptors: Vec<ToolDescriptor> =
@@ -277,24 +174,6 @@ impl ToolRegistry {
 
         descriptors.extend(mcp_descriptors);
         descriptors
-    }
-
-    /// Generate a detailed tool reference string for inclusion in LLM prompts.
-    #[allow(dead_code)]
-    pub fn tool_reference_for_prompt(&self) -> String {
-        let mut tools: Vec<_> = self.tools.values().map(|t| t.descriptor()).collect();
-        tools.sort_by(|a, b| a.name.cmp(&b.name));
-
-        let mut out = String::new();
-        for tool in &tools {
-            out.push_str(&format!("### {}\n", tool.name));
-            out.push_str(&format!("{}\n", tool.description));
-            out.push_str(&format!(
-                "Input schema: {}\n\n",
-                serde_json::to_string(&tool.input_schema).unwrap_or_else(|_| "{}".to_string())
-            ));
-        }
-        out
     }
 
     /// Invoke a tool by name with the given arguments.

@@ -6,7 +6,7 @@ mod diagram_benchmark {
     #[tokio::test]
     async fn run_diagram_benchmark_test() {
         let api_key = crate::tests::load_api_key();
-        
+
         let options = DiagramBenchOptions {
             providers: vec![LlmProviderId::MiniMax],
             provider_configs: vec![crate::bench::llm::LlmProviderConfig {
@@ -26,31 +26,52 @@ mod diagram_benchmark {
 
         println!("\n=== DIAGRAM BENCHMARK RESULTS ===\n");
         println!("Tasks: {}", report.tasks.len());
-        
+
         println!("\n--- WITH Diagram Tools ---");
         println!("Provider: {}", report.with_diagram_tools.provider);
         println!("Status: {}", report.with_diagram_tools.status);
-        println!("Success Rate: {:.1}%", report.with_diagram_tools.aggregate.success_rate * 100.0);
-        println!("Avg Quality: {:.2}", report.with_diagram_tools.aggregate.avg_quality);
-        
+        println!(
+            "Success Rate: {:.1}%",
+            report.with_diagram_tools.aggregate.success_rate * 100.0
+        );
+        println!(
+            "Avg Quality: {:.2}",
+            report.with_diagram_tools.aggregate.avg_quality
+        );
+
         println!("\n--- WITHOUT Diagram Tools ---");
         println!("Provider: {}", report.without_diagram_tools.provider);
         println!("Status: {}", report.without_diagram_tools.status);
-        println!("Success Rate: {:.1}%", report.without_diagram_tools.aggregate.success_rate * 100.0);
-        println!("Avg Quality: {:.2}", report.without_diagram_tools.aggregate.avg_quality);
-        
+        println!(
+            "Success Rate: {:.1}%",
+            report.without_diagram_tools.aggregate.success_rate * 100.0
+        );
+        println!(
+            "Avg Quality: {:.2}",
+            report.without_diagram_tools.aggregate.avg_quality
+        );
+
         println!("\n=== COMPARISON ===");
         println!("Winner: {}", report.comparison.winner);
-        println!("Quality Improvement: {:.1}%", report.comparison.quality_improvement);
-        
+        println!(
+            "Quality Improvement: {:.1}%",
+            report.comparison.quality_improvement
+        );
+
         println!("\n=== PER-TASK RESULTS (WITH Tools) ===");
         for task in &report.with_diagram_tools.tasks {
-            println!("{}: {} - Quality: {:.2}", task.task_id, task.status, task.diagram_quality.overall_quality);
+            println!(
+                "{}: {} - Quality: {:.2}",
+                task.task_id, task.status, task.diagram_quality.overall_quality
+            );
         }
-        
+
         println!("\n=== PER-TASK RESULTS (WITHOUT Tools) ===");
         for task in &report.without_diagram_tools.tasks {
-            println!("{}: {} - Quality: {:.2}", task.task_id, task.status, task.diagram_quality.overall_quality);
+            println!(
+                "{}: {} - Quality: {:.2}",
+                task.task_id, task.status, task.diagram_quality.overall_quality
+            );
         }
     }
 }

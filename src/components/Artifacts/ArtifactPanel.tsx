@@ -2,8 +2,7 @@ import { useEffect, useState, useCallback } from "react";
 import { ExternalLink, FileText, X, Edit3, Check } from "lucide-react";
 import { invoke } from "@tauri-apps/api/core";
 import { openUrl } from "@tauri-apps/plugin-opener";
-import { Streamdown } from "streamdown";
-import { code } from "@streamdown/code";
+import { SafeStreamdown } from "@/components/Chat/ConversationTimeline/messages/SafeStreamdown";
 import { useAppStore } from "@/stores/appStore";
 import { CodeEditor } from "@/components/ui/CodeEditor";
 import type { ArtifactContentView, ArtifactRow } from "@/types";
@@ -188,7 +187,7 @@ export function ArtifactPanel({ taskId, onOpenReview }: ArtifactPanelProps) {
           <div className="max-h-64 overflow-auto border-t border-border/40">
             {preview.is_markdown ? (
               <div className="prose prose-sm max-w-none p-3 text-foreground dark:prose-invert prose-p:my-2 prose-headings:my-2">
-                <Streamdown plugins={{ code }}>{preview.content}</Streamdown>
+                <SafeStreamdown content={preview.content} mermaid />
               </div>
             ) : isEditing ? (
               <CodeEditor

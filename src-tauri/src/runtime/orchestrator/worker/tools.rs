@@ -93,17 +93,18 @@ pub async fn execute_tool_call(
     let mut invocation = if tool_name == "diagram.read_graph" {
         crate::tools::canvas::handle_read_graph(db, task_id)
     } else if tool_name == "diagram.apply_ops" {
-        let batch: crate::tools::canvas::DiagramOpBatch = match serde_json::from_value(tool_args.clone()) {
-            Ok(b) => b,
-            Err(e) => {
-                return serde_json::json!({
-                    "tool_name": tool_name,
-                    "status": "error",
-                    "error": format!("Invalid operation batch: {}", e),
-                });
-            }
-        };
-        crate::tools::canvas::handle_apply_ops(db, task_id, batch)
+        let batch: crate::tools::canvas::DiagramOpBatch =
+            match serde_json::from_value(tool_args.clone()) {
+                Ok(b) => b,
+                Err(e) => {
+                    return serde_json::json!({
+                        "tool_name": tool_name,
+                        "status": "error",
+                        "error": format!("Invalid operation batch: {}", e),
+                    });
+                }
+            };
+        crate::tools::canvas::handle_apply_ops(db, bus, task_id, batch)
     } else {
         tool_registry.invoke(
             policy,
@@ -179,9 +180,14 @@ pub async fn execute_tool_call(
             invocation = if tool_name == "diagram.read_graph" {
                 crate::tools::canvas::handle_read_graph(db, task_id)
             } else if tool_name == "diagram.apply_ops" {
-                match serde_json::from_value::<crate::tools::canvas::DiagramOpBatch>(tool_args.clone()) {
-                    Ok(batch) => crate::tools::canvas::handle_apply_ops(db, task_id, batch),
-                    Err(e) => Err(crate::tools::ToolError::InvalidInput(format!("Invalid operation batch: {}", e))),
+                match serde_json::from_value::<crate::tools::canvas::DiagramOpBatch>(
+                    tool_args.clone(),
+                ) {
+                    Ok(batch) => crate::tools::canvas::handle_apply_ops(db, bus, task_id, batch),
+                    Err(e) => Err(crate::tools::ToolError::InvalidInput(format!(
+                        "Invalid operation batch: {}",
+                        e
+                    ))),
                 }
             } else {
                 tool_registry.invoke(

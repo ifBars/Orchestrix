@@ -62,6 +62,12 @@ export interface ProviderConfigView {
 export interface ModelInfo {
   name: string;
   context_window: number;
+  output_limit: number;
+  description: string;
+  deprecated: boolean;
+  deprecation_reason?: string | null;
+  suggested_alternative?: string | null;
+  capabilities: string[];
 }
 
 export interface ModelCatalogEntry {

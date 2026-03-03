@@ -62,7 +62,7 @@ impl OllamaEmbeddingProvider {
                 }
                 Ok(finalized)
             }
-            Err(EmbeddingError::Request(error)) if error.contains("status 404") => {
+            Err(EmbeddingError::NotFound(_)) => {
                 let vectors = self.embed_legacy_endpoint(texts).await?;
                 let finalized = finalize_embeddings(vectors, self.normalize_l2)?;
                 if let Some(dim) = finalized.first().map(|vector| vector.len()) {
@@ -96,6 +96,13 @@ impl OllamaEmbeddingProvider {
                 "failed to parse Ollama /api/embed JSON: {error}"
             ))
         })?;
+
+        if status.as_u16() == 404 {
+            return Err(EmbeddingError::NotFound(format!(
+                "ollama /api/embed endpoint not found (status 404) — server may be an older version: {}",
+                payload
+            )));
+        }
 
         if !status.is_success() {
             return Err(EmbeddingError::Request(format!(

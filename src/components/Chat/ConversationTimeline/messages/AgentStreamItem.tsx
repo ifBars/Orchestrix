@@ -17,7 +17,7 @@ export const AgentStreamItem = memo(function AgentStreamItem({ stream }: AgentSt
       <div className="min-w-0 flex-1 rounded-xl border border-border/70 bg-card/55 px-3 py-2.5">
         <div className="text-sm leading-relaxed text-foreground">
           <div className="prose prose-sm max-w-none dark:prose-invert prose-p:my-1 prose-code:text-xs [&>*:not(:last-child)]:block [&>*:last-child]:inline">
-            <SafeStreamdown content={stream.content} isStreaming={stream.isStreaming} />
+            <SafeStreamdown content={stream.content} isStreaming={stream.isStreaming} mermaid />
           </div>
           {stream.isStreaming && <TypingCursor />}
         </div>

@@ -1,14 +1,14 @@
-import { ArrowUp, Bot, FileText, Folder, Loader2, Paperclip, Sparkles, X, XCircle } from "lucide-react";
+import { ArrowUp, Bot, FileText, Folder, Loader2, Paperclip, Sparkles, X, XCircle, AlertTriangle } from "lucide-react";
 import { invoke } from "@tauri-apps/api/core";
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useShallow } from "zustand/shallow";
-import { ContextUsageChip, ContextUsagePopover } from "@/components/Chat/ContextUsage";
+import { ContextUsageChip } from "@/components/Chat/ContextUsage";
 import { useTaskContextSnapshot } from "@/components/Chat/ChatInterface/useTaskContextSnapshot";
 import { useAppStore } from "@/stores/appStore";
 import { useCanvasStore } from "@/stores/canvasStore";
-import { firstModelForProvider, providerOptionsFromCatalog } from "@/lib/providers";
-import type { CanvasNode, WorkspaceReferenceCandidate } from "@/types";
+import { firstModelForProvider, providerOptionsFromCatalog, getModelInfo } from "@/lib/providers";
+import type { CanvasNode, WorkspaceReferenceCandidate, ModelCatalogEntry } from "@/types";
 
 export function Composer() {
   const [prompt, setPrompt] = useState("");
@@ -20,9 +20,7 @@ export function Composer() {
   const [mentionStart, setMentionStart] = useState<number | null>(null);
   const [mentionItems, setMentionItems] = useState<WorkspaceReferenceCandidate[]>([]);
   const [mentionIndex, setMentionIndex] = useState(0);
-  const [contextOpen, setContextOpen] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
-  const contextPopoverRef = useRef<HTMLDivElement>(null);
   const mentionRequestSeq = useRef(0);
 
   const [
@@ -88,6 +86,13 @@ export function Composer() {
     setMentionOpen(false);
     setPrompt("");
     setAttachments([]);
+    
+    // Reset textarea height after sending
+    const textarea = textareaRef.current;
+    if (textarea) {
+      textarea.style.height = "auto";
+      textarea.style.height = "42px";
+    }
 
     const presetIdFromPrompt = extractAgentPresetId(value);
     const effectivePresetId = presetIdFromPrompt ?? selectedAgentPresetId;
@@ -158,23 +163,6 @@ export function Composer() {
 
     return () => clearTimeout(timer);
   }, [mentionOpen, mentionQuery]);
-
-  useEffect(() => {
-    setContextOpen(false);
-  }, [selectedTask?.id]);
-
-  useEffect(() => {
-    if (!contextOpen) return;
-    const handlePointerDown = (event: MouseEvent) => {
-      const target = event.target as Node;
-      if (!contextPopoverRef.current?.contains(target)) {
-        setContextOpen(false);
-      }
-    };
-
-    document.addEventListener("mousedown", handlePointerDown);
-    return () => document.removeEventListener("mousedown", handlePointerDown);
-  }, [contextOpen]);
 
   const insertMention = (item: WorkspaceReferenceCandidate) => {
     if (mentionStart == null) return;
@@ -467,25 +455,17 @@ export function Composer() {
                   </option>
                 ))}
               </select>
+              <ModelDeprecationWarning 
+                catalog={modelCatalog}
+                provider={selectedProvider}
+                model={selectedModel}
+                onSwitchAlternative={(alt) => selectProviderModel(selectedProvider, alt)}
+              />
             </div>
           </div>
 
           <div className="flex items-center gap-2">
-            {contextSnapshot && (
-              <div ref={contextPopoverRef} className="relative">
-                <ContextUsageChip
-                  snapshot={contextSnapshot}
-                  active={contextOpen}
-                  onClick={() => setContextOpen((prev) => !prev)}
-                />
-                {contextOpen && (
-                  <ContextUsagePopover
-                    snapshot={contextSnapshot}
-                    className="absolute right-0 bottom-9 z-30"
-                  />
-                )}
-              </div>
-            )}
+            {contextSnapshot && <ContextUsageChip snapshot={contextSnapshot} />}
 
             <span className="hidden pr-1 text-[10px] text-muted-foreground/75 lg:inline">
               Use @ to reference files, folders, skills, and agents
@@ -565,6 +545,51 @@ function extractAgentPresetId(content: string): string | null {
  * - **Inventory** (component)
  * ---
  */
+interface ModelDeprecationWarningProps {
+  catalog: ModelCatalogEntry[];
+  provider: string;
+  model: string;
+  onSwitchAlternative: (alternative: string) => void;
+}
+
+function ModelDeprecationWarning({ catalog, provider, model, onSwitchAlternative }: ModelDeprecationWarningProps) {
+  const modelInfo = getModelInfo(catalog, provider, model);
+  
+  if (!modelInfo?.deprecated) {
+    return null;
+  }
+
+  const reason = modelInfo.deprecation_reason;
+  const alternative = modelInfo.suggested_alternative;
+
+  return (
+    <div className="group relative flex items-center">
+      <AlertTriangle 
+        size={14} 
+        className="text-warning cursor-help" 
+      />
+      <div className="absolute bottom-full left-1/2 mb-2 hidden w-64 -translate-x-1/2 rounded-lg border border-border/80 bg-background/95 p-2.5 text-[11px] shadow-lg elevation-2 group-hover:block z-50">
+        <div className="mb-1.5 flex items-center gap-1.5 text-warning">
+          <AlertTriangle size={12} />
+          <span className="font-medium">Deprecated Model</span>
+        </div>
+        {reason && (
+          <p className="mb-1.5 text-muted-foreground">{reason}</p>
+        )}
+        {alternative && (
+          <button
+            type="button"
+            onClick={() => onSwitchAlternative(alternative)}
+            className="mt-1 inline-flex items-center gap-1 rounded bg-primary/15 px-2 py-0.5 text-primary hover:bg-primary/20 transition-colors"
+          >
+            Switch to {alternative}
+          </button>
+        )}
+      </div>
+    </div>
+  );
+}
+
 function buildNodeContextBlock(nodes: CanvasNode[]): string {
   const lines = nodes.map((n) => {
     const kind = n.kind ? ` (${n.kind})` : "";

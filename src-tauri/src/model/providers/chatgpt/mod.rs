@@ -5,4 +5,7 @@ pub mod oauth;
 
 pub use client::ChatGPTClient;
 #[allow(unused_imports)]
-pub use oauth::{PkceCodes, TokenResponse, exchange_code_for_tokens, refresh_access_token, build_authorize_url, generate_state, calculate_expires_at, extract_account_id_from_tokens};
+pub use oauth::{
+    build_authorize_url, calculate_expires_at, exchange_code_for_tokens,
+    extract_account_id_from_tokens, generate_state, refresh_access_token, PkceCodes, TokenResponse,
+};

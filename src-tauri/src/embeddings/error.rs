@@ -8,6 +8,10 @@ pub enum EmbeddingError {
     Auth(String),
     #[error("request timeout: {0}")]
     Timeout(String),
+    #[error("rate limited: {0}")]
+    RateLimit(String),
+    #[error("endpoint not found: {0}")]
+    NotFound(String),
     #[error("invalid response: {0}")]
     InvalidResponse(String),
     #[error("bridge error: {0}")]

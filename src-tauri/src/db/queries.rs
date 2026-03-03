@@ -93,22 +93,6 @@ pub struct UserMessageRow {
     pub created_at: String,
 }
 
-/// Row type for API request tracking (added in migration 9)
-#[derive(Debug, Clone, Serialize)]
-pub struct ApiRequestRow {
-    pub id: String,
-    pub run_id: String,
-    pub step_idx: Option<i64>,
-    pub provider: String,
-    pub model: String,
-    pub tokens_in: i64,
-    pub tokens_out: i64,
-    pub tokens_cached: i64,
-    pub cache_hit: bool,
-    pub latency_ms: Option<i64>,
-    pub created_at: String,
-}
-
 #[derive(Debug, Clone, Serialize)]
 pub struct CheckpointRow {
     pub run_id: String,
@@ -920,6 +904,7 @@ pub fn delete_embedding_chunks_for_workspace(
     Ok(())
 }
 
+#[allow(dead_code)]
 pub fn insert_embedding_chunk(db: &Database, row: &EmbeddingChunkRow) -> Result<(), DbError> {
     let conn = db.conn();
     conn.execute(
@@ -937,6 +922,41 @@ pub fn insert_embedding_chunk(db: &Database, row: &EmbeddingChunkRow) -> Result<
             row.created_at,
         ],
     )?;
+    Ok(())
+}
+
+/// Insert a batch of embedding chunks in a single transaction.
+/// This is dramatically faster than calling `insert_embedding_chunk` in a loop,
+/// since SQLite only fsyncs once per transaction instead of once per row.
+pub fn insert_embedding_chunks_batch(
+    db: &Database,
+    rows: &[EmbeddingChunkRow],
+) -> Result<(), DbError> {
+    if rows.is_empty() {
+        return Ok(());
+    }
+    let mut conn = db.conn();
+    let tx = conn.transaction()?;
+    {
+        let mut stmt = tx.prepare_cached(
+            "INSERT INTO embedding_chunks (
+                workspace_root, path, chunk_idx, line_start, line_end, content, embedding_json, created_at
+             ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+        )?;
+        for row in rows {
+            stmt.execute(params![
+                row.workspace_root,
+                row.path,
+                row.chunk_idx,
+                row.line_start,
+                row.line_end,
+                row.content,
+                row.embedding_json,
+                row.created_at,
+            ])?;
+        }
+    }
+    tx.commit()?;
     Ok(())
 }
 
@@ -1372,83 +1392,4 @@ pub fn get_events_after_seq(
         })?
         .collect::<Result<Vec<_>, _>>()?;
     Ok(rows)
-}
-
-// ---------------------------------------------------------------------------
-// API request tracking (added in migration 9)
-// ---------------------------------------------------------------------------
-
-/// Insert an API request record for usage tracking.
-pub fn insert_api_request(db: &Database, row: &ApiRequestRow) -> Result<(), DbError> {
-    let conn = db.conn();
-    conn.execute(
-        "INSERT INTO api_requests (id, run_id, step_idx, provider, model, tokens_in, tokens_out, tokens_cached, cache_hit, latency_ms, created_at)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
-        params![
-            row.id,
-            row.run_id,
-            row.step_idx,
-            row.provider,
-            row.model,
-            row.tokens_in,
-            row.tokens_out,
-            row.tokens_cached,
-            if row.cache_hit { 1i64 } else { 0i64 },
-            row.latency_ms,
-            row.created_at,
-        ],
-    )?;
-    Ok(())
-}
-
-/// Update run usage statistics after a new API request is added.
-pub fn update_run_usage_stats(db: &Database, run_id: &str) -> Result<(), DbError> {
-    let conn = db.conn();
-    conn.execute(
-        "UPDATE runs 
-         SET total_tokens_in = (SELECT COALESCE(SUM(tokens_in), 0) FROM api_requests WHERE run_id = ?1),
-             total_tokens_out = (SELECT COALESCE(SUM(tokens_out), 0) FROM api_requests WHERE run_id = ?1),
-             total_tokens_cached = (SELECT COALESCE(SUM(tokens_cached), 0) FROM api_requests WHERE run_id = ?1),
-             api_request_count = (SELECT COUNT(*) FROM api_requests WHERE run_id = ?1),
-             cache_hit_count = (SELECT COUNT(*) FROM api_requests WHERE run_id = ?1 AND cache_hit = 1),
-             cache_hit_rate = CASE 
-                 WHEN (SELECT COUNT(*) FROM api_requests WHERE run_id = ?1) > 0 
-                 THEN CAST((SELECT COUNT(*) FROM api_requests WHERE run_id = ?1 AND cache_hit = 1) AS REAL) / (SELECT COUNT(*) FROM api_requests WHERE run_id = ?1)
-                 ELSE 0.0
-             END
-         WHERE id = ?1",
-        params![run_id],
-    )?;
-    Ok(())
-}
-
-/// Get cache statistics for a run.
-pub fn get_run_cache_stats(db: &Database, run_id: &str) -> Result<RunCacheStats, DbError> {
-    let conn = db.conn();
-    let mut stmt = conn.prepare(
-        "SELECT total_tokens_in, total_tokens_out, total_tokens_cached, api_request_count, cache_hit_count, cache_hit_rate
-         FROM runs WHERE id = ?1"
-    )?;
-    let stats = stmt.query_row(params![run_id], |row| {
-        Ok(RunCacheStats {
-            total_tokens_in: row.get(0)?,
-            total_tokens_out: row.get(1)?,
-            total_tokens_cached: row.get(2)?,
-            api_request_count: row.get(3)?,
-            cache_hit_count: row.get(4)?,
-            cache_hit_rate: row.get(5)?,
-        })
-    })?;
-    Ok(stats)
-}
-
-/// Cache statistics for a run.
-#[derive(Debug, Clone, Serialize)]
-pub struct RunCacheStats {
-    pub total_tokens_in: Option<i64>,
-    pub total_tokens_out: Option<i64>,
-    pub total_tokens_cached: Option<i64>,
-    pub api_request_count: Option<i64>,
-    pub cache_hit_count: Option<i64>,
-    pub cache_hit_rate: Option<f64>,
 }

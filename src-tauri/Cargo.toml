@@ -41,6 +41,7 @@ dotenvy = "0.15"
 base64 = "0.22"
 sha2 = "0.10"
 rand = "0.8"
+schemars = "0.8"
 urlencoding = "2"
 
 [dev-dependencies]

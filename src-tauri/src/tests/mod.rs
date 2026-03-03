@@ -31,11 +31,20 @@ mod glm_integration_tests;
 /// via the ORCHESTRIX_SKILLS_PATH environment variable.
 pub static SKILLS_TEST_MUTEX: Mutex<()> = Mutex::new(());
 
-/// Load the API key from the well-known path.
+/// Load the MiniMax API key from the well-known path.
 pub fn load_api_key() -> String {
     let path = r"C:\Users\ghost\Desktop\Coding\minimax-key.txt";
     std::fs::read_to_string(path)
         .expect("API key file not found")
+        .trim()
+        .to_string()
+}
+
+/// Load the Gemini API key from the well-known path.
+pub fn load_gemini_api_key() -> String {
+    let path = r"C:\Users\ghost\Desktop\Coding\gemini-key.txt";
+    std::fs::read_to_string(path)
+        .expect("Gemini API key file not found")
         .trim()
         .to_string()
 }

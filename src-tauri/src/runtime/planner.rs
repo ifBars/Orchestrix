@@ -278,9 +278,10 @@ async fn handle_planning_tool_calls(
         let mut invocation = if tool_name == "diagram.read_graph" {
             crate::tools::canvas::handle_read_graph(db, task_id)
         } else if tool_name == "diagram.apply_ops" {
-            let batch: crate::tools::canvas::DiagramOpBatch = serde_json::from_value(tool_args.clone())
-                .map_err(|e| format!("Invalid operation batch: {}", e))?;
-            crate::tools::canvas::handle_apply_ops(db, task_id, batch)
+            let batch: crate::tools::canvas::DiagramOpBatch =
+                serde_json::from_value(tool_args.clone())
+                    .map_err(|e| format!("Invalid operation batch: {}", e))?;
+            crate::tools::canvas::handle_apply_ops(db, bus, task_id, batch)
         } else {
             tool_registry.invoke(
                 policy,
@@ -355,9 +356,10 @@ async fn handle_planning_tool_calls(
                 invocation = if tool_name == "diagram.read_graph" {
                     crate::tools::canvas::handle_read_graph(db, task_id)
                 } else if tool_name == "diagram.apply_ops" {
-                    let batch: crate::tools::canvas::DiagramOpBatch = serde_json::from_value(tool_args.clone())
-                        .map_err(|e| format!("Invalid operation batch: {}", e))?;
-                    crate::tools::canvas::handle_apply_ops(db, task_id, batch)
+                    let batch: crate::tools::canvas::DiagramOpBatch =
+                        serde_json::from_value(tool_args.clone())
+                            .map_err(|e| format!("Invalid operation batch: {}", e))?;
+                    crate::tools::canvas::handle_apply_ops(db, bus, task_id, batch)
                 } else {
                     tool_registry.invoke(
                         policy,

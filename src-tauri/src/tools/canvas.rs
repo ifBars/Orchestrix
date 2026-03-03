@@ -40,13 +40,6 @@ pub struct DiagramEdge {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct DiagramRevision {
-    pub version: u64,
-    pub updated_at: String,
-    pub operations: Vec<DiagramOp>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "op")]
 pub enum DiagramOp {
     #[serde(rename = "addNode")]
@@ -54,9 +47,9 @@ pub enum DiagramOp {
         id: String,
         label: String,
         node_type: String,
-        description: String,
+        description: Option<String>,
         position: Option<NodePosition>,
-        data: serde_json::Value,
+        data: Option<serde_json::Value>,
     },
     #[serde(rename = "updateNode")]
     UpdateNode {
@@ -74,8 +67,8 @@ pub enum DiagramOp {
         id: String,
         source: String,
         target: String,
-        label: String,
-        edge_type: String,
+        label: Option<String>,
+        edge_type: Option<String>,
     },
     #[serde(rename = "updateEdge")]
     UpdateEdge {
@@ -91,7 +84,9 @@ pub enum DiagramOp {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DiagramOpBatch {
+    #[serde(default)]
     pub base_version: u64,
+    #[serde(default)]
     pub author: String,
     pub operations: Vec<DiagramOp>,
 }
@@ -309,9 +304,9 @@ impl DiagramState {
                     id: id.clone(),
                     label: label.clone(),
                     node_type: node_type.clone(),
-                    description: description.clone(),
+                    description: description.clone().unwrap_or_default(),
                     position: position.clone(),
-                    data: data.clone(),
+                    data: data.clone().unwrap_or_default(),
                 });
             }
             DiagramOp::UpdateNode {
@@ -355,8 +350,8 @@ impl DiagramState {
                     id: id.clone(),
                     source: source.clone(),
                     target: target.clone(),
-                    label: label.clone(),
-                    edge_type: edge_type.clone(),
+                    label: label.clone().unwrap_or_default(),
+                    edge_type: edge_type.clone().unwrap_or_default(),
                     data: serde_json::json!({}),
                 });
             }
@@ -410,6 +405,7 @@ pub fn handle_read_graph(db: &Database, task_id: &str) -> Result<ToolCallOutput,
 
 pub fn handle_apply_ops(
     db: &Database,
+    bus: &EventBus,
     task_id: &str,
     batch: DiagramOpBatch,
 ) -> Result<ToolCallOutput, ToolError> {
@@ -474,6 +470,16 @@ pub fn handle_apply_ops(
 
         queries::upsert_task_canvas(db, task_id, &state_json, &now)
             .map_err(|e| ToolError::Execution(format!("failed to save canvas state: {e}")))?;
+
+        bus.emit(
+            "canvas",
+            "canvas.updated",
+            None,
+            serde_json::json!({
+                "task_id": task_id,
+                "state_json": state_json,
+            }),
+        );
     }
 
     Ok(ToolCallOutput {
@@ -549,26 +555,26 @@ Include base_version to enable conflict detection.
 
 Example:
 {
-  "base_version": 3,
-  "author": "ai",
   "operations": [
     {"op": "addNode", "id": "api", "label": "API Server", "node_type": "service"},
     {"op": "addNode", "id": "db", "label": "Database", "node_type": "database"},
-    {"op": "addEdge", "id": "api-db", "source": "api", "target": "db", "label": "calls"}
+    {"op": "addEdge", "id": "api-db", "source": "api", "target": "db"}
   ]
 }"#
             .into(),
             input_schema: serde_json::json!({
                 "type": "object",
+                "required": ["operations"],
                 "properties": {
                     "base_version": {
                         "type": "integer",
+                        "default": 0,
                         "description": "Version number from last read_graph to enable conflict detection"
                     },
                     "author": {
                         "type": "string",
-                        "enum": ["ai", "human"],
-                        "default": "ai"
+                        "default": "",
+                        "description": "Author of the changes"
                     },
                     "operations": {
                         "type": "array",

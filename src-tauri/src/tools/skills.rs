@@ -14,6 +14,10 @@ use crate::core::skills::search_agent_skills;
 use crate::core::tool::ToolDescriptor;
 use crate::core::workspace_skills::{scan_workspace_skills, WorkspaceSkill};
 use crate::policy::PolicyEngine;
+use crate::tools::args::{
+    schema_for_type, SkillsInstallArgs, SkillsListInstalledArgs, SkillsLoadArgs, SkillsRemoveArgs,
+    SkillsSearchArgs,
+};
 use crate::tools::types::{Tool, ToolCallOutput, ToolError};
 
 /// Lightweight skill info for listing (without full content)
@@ -36,16 +40,7 @@ impl Tool for SkillsListInstalledTool {
         ToolDescriptor {
             name: "skills.list_installed".into(),
             description: "List all installed workspace skills with lightweight metadata. Use this to discover available skills before loading one.".into(),
-            input_schema: serde_json::json!({
-                "type": "object",
-                "properties": {
-                    "source": {
-                        "type": "string",
-                        "enum": ["all", "builtin", "workspace", "global"],
-                        "description": "Filter by skill source (default: all)"
-                    }
-                }
-            }),
+            input_schema: schema_for_type::<SkillsListInstalledArgs>(),
             output_schema: None,
         }
     }
@@ -56,10 +51,10 @@ impl Tool for SkillsListInstalledTool {
         cwd: &Path,
         input: serde_json::Value,
     ) -> Result<ToolCallOutput, ToolError> {
-        let source_filter = input
-            .get("source")
-            .and_then(|v| v.as_str())
-            .unwrap_or("all");
+        let args: SkillsListInstalledArgs = serde_json::from_value(input)
+            .map_err(|e| ToolError::InvalidInput(format!("invalid input: {}", e)))?;
+
+        let source_filter = args.source.as_deref().unwrap_or("all");
 
         let skills = scan_workspace_skills(cwd);
 
@@ -102,20 +97,7 @@ impl Tool for SkillsSearchTool {
         ToolDescriptor {
             name: "skills.search".into(),
             description: "Search for skills from remote sources (e.g., vercel-labs/agent-skills). Returns ranked results with confidence and suggestions.".into(),
-            input_schema: serde_json::json!({
-                "type": "object",
-                "required": ["query"],
-                "properties": {
-                    "query": {
-                        "type": "string",
-                        "description": "Search query (e.g., 'react', 'rust', 'documentation')"
-                    },
-                    "limit": {
-                        "type": "number",
-                        "description": "Max results to return (default: 10)"
-                    }
-                }
-            }),
+            input_schema: schema_for_type::<SkillsSearchArgs>(),
             output_schema: None,
         }
     }
@@ -126,20 +108,15 @@ impl Tool for SkillsSearchTool {
         _cwd: &Path,
         input: serde_json::Value,
     ) -> Result<ToolCallOutput, ToolError> {
-        let query = input
-            .get("query")
-            .and_then(|v| v.as_str())
-            .ok_or_else(|| ToolError::InvalidInput("query is required".to_string()))?;
+        let args: SkillsSearchArgs = serde_json::from_value(input)
+            .map_err(|e| ToolError::InvalidInput(format!("invalid input: {}", e)))?;
 
-        let limit = input.get("limit").and_then(|v| v.as_u64()).unwrap_or(10) as usize;
+        let limit = args.limit.unwrap_or(10) as usize;
 
-        // Use spawn_blocking to run async code from sync context
-        // This avoids "Cannot start a runtime from within a runtime" panic
-        let query = query.to_string();
+        let query = args.query.clone();
         let results = tokio::task::block_in_place(|| {
-            tokio::runtime::Handle::current().block_on(async {
-                search_agent_skills(&query, limit).await
-            })
+            tokio::runtime::Handle::current()
+                .block_on(async { search_agent_skills(&query, limit).await })
         });
 
         match results {
@@ -188,23 +165,7 @@ impl Tool for SkillsLoadTool {
         ToolDescriptor {
             name: "skills.load".into(),
             description: "Load a skill's full content into the current context. The skill content will be returned for you to incorporate into your instructions. Always use skills.list_installed or skills.search first to discover available skills.".into(),
-            input_schema: serde_json::json!({
-                "type": "object",
-                "properties": {
-                    "skill_id": {
-                        "type": "string",
-                        "description": "The skill ID to load (from skills.list_installed or skills.search)"
-                    },
-                    "name": {
-                        "type": "string",
-                        "description": "Fuzzy name match (alternative to skill_id)"
-                    },
-                    "query": {
-                        "type": "string",
-                        "description": "Search query to auto-discover skill (alternative to skill_id)"
-                    }
-                }
-            }),
+            input_schema: schema_for_type::<SkillsLoadArgs>(),
             output_schema: None,
         }
     }
@@ -215,9 +176,12 @@ impl Tool for SkillsLoadTool {
         cwd: &Path,
         input: serde_json::Value,
     ) -> Result<ToolCallOutput, ToolError> {
-        let skill_id = input.get("skill_id").and_then(|v| v.as_str());
-        let name = input.get("name").and_then(|v| v.as_str());
-        let query = input.get("query").and_then(|v| v.as_str());
+        let args: SkillsLoadArgs = serde_json::from_value(input)
+            .map_err(|e| ToolError::InvalidInput(format!("invalid input: {}", e)))?;
+
+        let skill_id = args.skill_id.as_deref();
+        let name = args.name.as_deref();
+        let query = args.query.as_deref();
 
         if skill_id.is_none() && name.is_none() && query.is_none() {
             return Err(ToolError::InvalidInput(
@@ -312,20 +276,7 @@ impl Tool for SkillsInstallTool {
         ToolDescriptor {
             name: "skills.install".into(),
             description: "Install a skill from remote sources (vercel-labs/agent-skills). After installing, use skills.load to activate it.".into(),
-            input_schema: serde_json::json!({
-                "type": "object",
-                "required": ["skill_name"],
-                "properties": {
-                    "skill_name": {
-                        "type": "string",
-                        "description": "Name of the skill to install (e.g., 'react-best-practices')"
-                    },
-                    "repo": {
-                        "type": "string",
-                        "description": "Optional repo URL (defaults to vercel-labs/agent-skills)"
-                    }
-                }
-            }),
+            input_schema: schema_for_type::<SkillsInstallArgs>(),
             output_schema: None,
         }
     }
@@ -357,13 +308,7 @@ impl Tool for SkillsRemoveTool {
         ToolDescriptor {
             name: "skills.remove".into(),
             description: "Remove a workspace skill. Cannot remove built-in skills.".into(),
-            input_schema: serde_json::json!({
-                "type": "object",
-                "properties": {
-                    "skill_id": {"type": "string", "description": "ID of the skill to remove"}
-                },
-                "required": ["skill_id"]
-            }),
+            input_schema: schema_for_type::<SkillsRemoveArgs>(),
             output_schema: None,
         }
     }

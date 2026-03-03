@@ -3,15 +3,72 @@ use serde::{Deserialize, Serialize};
 
 use crate::core::tool::ToolDescriptor;
 use crate::model::shared::{
-    preferred_response_text, strip_tool_call_markup,
-    worker_system_prompt, worker_user_prompt,
+    preferred_response_text, strip_tool_call_markup, worker_system_prompt, worker_user_prompt,
 };
 use crate::model::{
     AgentModelClient, ModelError, StreamDelta, WorkerAction, WorkerActionRequest, WorkerDecision,
+    WorkerToolCall,
 };
 use crate::runtime::plan_mode_settings::WORKER_MAX_TOKENS;
 
 const DEFAULT_GEMINI_BASE_URL: &str = "https://generativelanguage.googleapis.com/v1beta";
+
+/// Sanitizes JSON schema for Gemini API compatibility.
+/// Removes fields that Gemini doesn't support: $schema, const, $ref, additionalProperties, definitions.
+/// Converts type arrays to single type strings.
+/// Handles items: true by converting to a proper schema object.
+fn sanitize_schema_for_gemini(schema: &serde_json::Value) -> serde_json::Value {
+    match schema {
+        serde_json::Value::Object(obj) => {
+            let mut sanitized = serde_json::Map::new();
+
+            for (key, value) in obj.iter() {
+                // Skip fields that Gemini doesn't support
+                if key == "$schema"
+                    || key == "const"
+                    || key == "$ref"
+                    || key == "definitions"
+                    || key == "additionalProperties"
+                {
+                    continue;
+                }
+
+                // Handle "type" field - Gemini doesn't support arrays like ["string", "null"]
+                if key == "type" {
+                    if let serde_json::Value::Array(types) = value {
+                        // If type is an array, use the first non-null type
+                        let first_type = types
+                            .iter()
+                            .find(|t| t.as_str() != Some("null"))
+                            .cloned()
+                            .unwrap_or_else(|| types.first().cloned().unwrap_or_default());
+                        sanitized.insert(key.clone(), first_type);
+                    } else {
+                        sanitized.insert(key.clone(), value.clone());
+                    }
+                } else if key == "items" {
+                    // Gemini doesn't support items: true (boolean), it must be a schema object
+                    if value.is_boolean() {
+                        // Convert items: true to items: { type: "object" }
+                        sanitized.insert(key.clone(), serde_json::json!({ "type": "object" }));
+                    } else {
+                        // Recursively sanitize the items schema
+                        sanitized.insert(key.clone(), sanitize_schema_for_gemini(value));
+                    }
+                } else {
+                    // Recursively sanitize nested objects
+                    sanitized.insert(key.clone(), sanitize_schema_for_gemini(value));
+                }
+            }
+
+            serde_json::Value::Object(sanitized)
+        }
+        serde_json::Value::Array(arr) => {
+            serde_json::Value::Array(arr.iter().map(|v| sanitize_schema_for_gemini(v)).collect())
+        }
+        _ => schema.clone(),
+    }
+}
 
 #[derive(Debug, Clone)]
 pub struct GeminiClient {
@@ -41,7 +98,9 @@ impl GeminiClient {
         user: &str,
         max_tokens: u32,
     ) -> Result<String, ModelError> {
-        let response = self.run_chat(system, user, max_tokens, None, false, None).await?;
+        let response = self
+            .run_chat(system, user, max_tokens, None, false, None)
+            .await?;
         Ok(preferred_response_text(
             response.content,
             response.reasoning_content,
@@ -62,10 +121,16 @@ impl GeminiClient {
         } else {
             format!("models/{}", self.model)
         };
+        let method = if stream {
+            "streamGenerateContent"
+        } else {
+            "generateContent"
+        };
         let endpoint = format!(
-            "{}/{}:generateContent",
+            "{}/{}:{}",
             self.base_url.trim_end_matches('/'),
-            model_name
+            model_name,
+            method
         );
 
         let system_instruction = if !system.is_empty() {
@@ -90,13 +155,23 @@ impl GeminiClient {
             if t.is_empty() {
                 return None;
             }
-            Some(serde_json::json!(t.iter().map(|d| {
-                serde_json::json!({
-                    "name": d.name,
-                    "description": d.description,
-                    "parameters": d.input_schema
+            // Gemini API expects tools wrapped in function_declarations
+            // and requires sanitized JSON schema (no $schema, const, $ref, etc.)
+            let function_declarations: Vec<_> = t
+                .iter()
+                .map(|d| {
+                    let sanitized_schema = sanitize_schema_for_gemini(&d.input_schema);
+                    serde_json::json!({
+                        "name": d.name,
+                        "description": d.description,
+                        "parameters": sanitized_schema
+                    })
                 })
-            }).collect::<Vec<_>>()))
+                .collect();
+
+            Some(serde_json::json!([{
+                "function_declarations": function_declarations
+            }]))
         });
 
         let body = GeminiGenerateRequest {
@@ -106,8 +181,6 @@ impl GeminiClient {
             generation_config: GeminiGenerationConfig {
                 temperature: 0.1,
                 max_output_tokens: max_tokens as i32,
-                stream: if stream { Some(true) } else { None },
-                ..Default::default()
             },
         };
 
@@ -122,7 +195,10 @@ impl GeminiClient {
             request = request.header("Accept", "text/event-stream");
         }
 
-        let response = request.send().await.map_err(|e| ModelError::Request(e.to_string()))?;
+        let response = request
+            .send()
+            .await
+            .map_err(|e| ModelError::Request(e.to_string()))?;
 
         let status = response.status();
 
@@ -138,7 +214,9 @@ impl GeminiClient {
         }
         if !status.is_success() {
             let text = response.text().await.unwrap_or_default();
-            return Err(ModelError::Request(format!("Gemini error {status}: {text}")));
+            return Err(ModelError::Request(format!(
+                "Gemini error {status}: {text}"
+            )));
         }
 
         if stream {
@@ -158,25 +236,32 @@ impl GeminiClient {
         }
     }
 
-    fn parse_response(&self, response: GeminiGenerateResponse) -> Result<GeminiResponseMessage, ModelError> {
-        let candidate = response
-            .candidates
-            .into_iter()
-            .next()
-            .ok_or_else(|| {
-                ModelError::InvalidResponse("No candidates in Gemini response".to_string())
-            })?;
+    fn parse_response(
+        &self,
+        response: GeminiGenerateResponse,
+    ) -> Result<GeminiResponseMessage, ModelError> {
+        let candidate = response.candidates.into_iter().next().ok_or_else(|| {
+            ModelError::InvalidResponse("No candidates in Gemini response".to_string())
+        })?;
 
-        let content = candidate
-            .content
-            .parts
-            .iter()
-            .filter_map(|p| match p {
-                GeminiPart::Text { text } => Some(text.clone()),
-                _ => None,
-            })
-            .collect::<Vec<_>>()
-            .join("\n");
+        let mut content = String::new();
+        let mut tool_calls = Vec::new();
+
+        for part in &candidate.content.parts {
+            match part {
+                GeminiPart::Text { text } => {
+                    content.push_str(text);
+                }
+                GeminiPart::FunctionCall { function_call } => {
+                    tool_calls.push(GeminiToolCall {
+                        id: uuid::Uuid::new_v4().to_string(),
+                        name: function_call.name.clone(),
+                        arguments: function_call.args.clone(),
+                    });
+                }
+                _ => {}
+            }
+        }
 
         let reasoning_content = candidate
             .grounding_metadata
@@ -186,9 +271,17 @@ impl GeminiClient {
             .unwrap_or(None);
 
         Ok(GeminiResponseMessage {
-            content: if content.is_empty() { None } else { Some(content) },
+            content: if content.is_empty() {
+                None
+            } else {
+                Some(content)
+            },
             reasoning_content,
-            tool_calls: None,
+            tool_calls: if tool_calls.is_empty() {
+                None
+            } else {
+                Some(tool_calls)
+            },
         })
     }
 
@@ -211,15 +304,29 @@ impl GeminiClient {
                 let line = buffer[..newline_idx].to_string();
                 buffer.drain(..=newline_idx);
 
-                if let Some(ref mut on_delta) = on_delta {
-                    if let Ok(parsed) = serde_json::from_str::<serde_json::Value>(&line) {
-                        if let Some(candidates) = parsed.get("candidates").and_then(|c| c.as_array()) {
-                            for candidate in candidates {
-                                if let Some(content_obj) = candidate.get("content").and_then(|c| c.get("parts")).and_then(|p| p.as_array()) {
-                                    for part in content_obj {
-                                        if let Some(text) = part.get("text").and_then(|t| t.as_str()) {
-                                            content.push_str(text);
-                                            let _ = on_delta(StreamDelta::Content(text.to_string()));
+                // Handle SSE format - lines may start with "data: "
+                let line = line.trim_start_matches("data: ").trim();
+
+                // Skip empty lines and SSE markers
+                if line.is_empty() || line == "[DONE]" {
+                    continue;
+                }
+
+                // Parse the JSON and extract content
+                if let Ok(parsed) = serde_json::from_str::<serde_json::Value>(line) {
+                    if let Some(candidates) = parsed.get("candidates").and_then(|c| c.as_array()) {
+                        for candidate in candidates {
+                            if let Some(content_obj) = candidate
+                                .get("content")
+                                .and_then(|c| c.get("parts"))
+                                .and_then(|p| p.as_array())
+                            {
+                                for part in content_obj {
+                                    if let Some(text) = part.get("text").and_then(|t| t.as_str()) {
+                                        content.push_str(text);
+                                        if let Some(ref mut on_delta) = on_delta {
+                                            let _ =
+                                                on_delta(StreamDelta::Content(text.to_string()));
                                         }
                                     }
                                 }
@@ -231,8 +338,16 @@ impl GeminiClient {
         }
 
         Ok(GeminiResponseMessage {
-            content: if content.is_empty() { None } else { Some(content) },
-            reasoning_content: if reasoning.is_empty() { None } else { Some(reasoning) },
+            content: if content.is_empty() {
+                None
+            } else {
+                Some(content)
+            },
+            reasoning_content: if reasoning.is_empty() {
+                None
+            } else {
+                Some(reasoning)
+            },
             tool_calls: None,
         })
     }
@@ -240,7 +355,7 @@ impl GeminiClient {
     pub async fn decide_action_streaming<F>(
         &self,
         req: WorkerActionRequest,
-        mut on_delta: F,
+        _on_delta: F,
     ) -> Result<WorkerDecision, ModelError>
     where
         F: FnMut(StreamDelta) -> Result<(), String> + Send,
@@ -268,8 +383,9 @@ impl GeminiClient {
         };
         let max_tokens = req.max_tokens.unwrap_or(WORKER_MAX_TOKENS);
 
+        // Use non-streaming for decide_action to get complete response reliably
         let response = self
-            .run_chat(&system, &user, max_tokens, tools_arg, true, Some(&mut on_delta))
+            .run_chat(&system, &user, max_tokens, tools_arg, false, None)
             .await?;
 
         tracing::debug!(
@@ -280,6 +396,25 @@ impl GeminiClient {
         );
 
         let raw_response = serde_json::to_string(&response).ok();
+
+        // Check if there are tool calls
+        if let Some(tool_calls) = response.tool_calls {
+            let calls = tool_calls
+                .into_iter()
+                .map(|tc| WorkerToolCall {
+                    tool_name: tc.name,
+                    tool_args: tc.arguments,
+                    rationale: None,
+                })
+                .collect();
+
+            return Ok(WorkerDecision {
+                action: WorkerAction::ToolCalls { calls },
+                reasoning: None,
+                raw_response,
+            });
+        }
+
         let raw = if response.content.as_deref().unwrap_or("").trim().is_empty() {
             response.reasoning_content.unwrap_or_default()
         } else {
@@ -328,12 +463,6 @@ struct GeminiGenerationConfig {
     temperature: f32,
     #[serde(rename = "maxOutputTokens")]
     max_output_tokens: i32,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    stream: Option<bool>,
-    #[serde(rename = "responseModalities")]
-    response_modalities: Option<String>,
-    #[serde(rename = "thoughts")]
-    thoughts: Option<serde_json::Value>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, Default)]
@@ -345,40 +474,59 @@ struct GeminiContent {
 #[derive(Debug, Serialize, Deserialize, Clone)]
 #[serde(untagged)]
 enum GeminiPart {
-    Text { text: String },
+    Text {
+        text: String,
+    },
     #[serde(rename = "inlineData")]
     InlineData {
         #[serde(rename = "mimeType")]
         mime_type: String,
         data: String,
     },
+    FunctionCall {
+        #[serde(rename = "functionCall")]
+        function_call: GeminiFunctionCall,
+    },
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+struct GeminiFunctionCall {
+    name: String,
+    args: serde_json::Value,
 }
 
 #[derive(Debug, Deserialize)]
+#[allow(dead_code)]
 struct GeminiGenerateResponse {
     #[serde(default)]
     candidates: Vec<GeminiCandidate>,
     #[serde(default)]
+    #[allow(dead_code)]
     prompt_feedback: Option<serde_json::Value>,
 }
 
 #[derive(Debug, Deserialize)]
+#[allow(dead_code)]
 struct GeminiCandidate {
     #[serde(default)]
     content: GeminiContent,
     #[serde(default)]
     grounding_metadata: Option<GeminiGroundingMetadata>,
     #[serde(default)]
+    #[allow(dead_code)]
     finish_reason: Option<String>,
     #[serde(default)]
+    #[allow(dead_code)]
     index: Option<i32>,
 }
 
 #[derive(Debug, Deserialize, Default)]
+#[allow(dead_code)]
 struct GeminiGroundingMetadata {
     #[serde(default)]
     grounding_chunk: Option<serde_json::Value>,
     #[serde(default)]
+    #[allow(dead_code)]
     web_search_queries: Option<Vec<String>>,
 }
 

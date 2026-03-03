@@ -1,4 +1,4 @@
-import { ChevronDown, Folder, LoaderCircle, Minus, Moon, PanelRight, Square, Sun, X } from "lucide-react";
+import { ChevronDown, Command, Folder, LoaderCircle, Minus, Moon, PanelRight, Square, Sun, X } from "lucide-react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
 import { type MouseEvent, useEffect } from "react";
@@ -11,9 +11,10 @@ type HeaderProps = {
   artifactsOpen: boolean;
   onToggleTheme: () => void;
   onToggleArtifacts: () => void;
+  onOpenCommandPalette?: () => void;
 };
 
-export function Header({ darkMode, artifactsOpen, onToggleTheme, onToggleArtifacts }: HeaderProps) {
+export function Header({ darkMode, artifactsOpen, onToggleTheme, onToggleArtifacts, onOpenCommandPalette }: HeaderProps) {
   const [workspaceRoot, embeddingIndexStatus, setWorkspaceRoot, refreshEmbeddingIndexStatus] = useAppStore(
     useShallow((state) => [
       state.workspaceRoot,
@@ -128,6 +129,19 @@ export function Header({ darkMode, artifactsOpen, onToggleTheme, onToggleArtifac
       </div>
 
       <div className="no-drag flex items-center gap-2">
+        {onOpenCommandPalette && (
+          <button
+            type="button"
+            onClick={onOpenCommandPalette}
+            className="inline-flex h-7 items-center gap-1.5 rounded-md border border-border/70 bg-background/55 px-2 text-[11px] text-muted-foreground transition-colors hover:bg-accent/55 hover:text-foreground"
+            title="Command Palette (Ctrl+Shift+P)"
+          >
+            <Command size={12} />
+            <span className="hidden sm:inline">Command</span>
+            <kbd className="ml-1 hidden rounded bg-muted px-1 py-0.5 font-mono text-[9px] lg:inline">Ctrl+Shift+P</kbd>
+          </button>
+        )}
+
         <div className="flex items-center rounded-md border border-border/70 bg-background/55 p-0.5">
           <button
             type="button"

@@ -18,6 +18,7 @@ use std::path::Path;
 
 use crate::core::tool::ToolDescriptor;
 use crate::policy::{PolicyDecision, PolicyEngine};
+use crate::tools::args::{schema_for_type, FsPatchArgs};
 use crate::tools::types::{Tool, ToolCallOutput, ToolError};
 
 pub use parser::{parse_patch, Hunk, UpdateFileChunk};
@@ -35,25 +36,7 @@ impl Tool for FsPatchTool {
                 "Does not require git. Preferred over fs.write for incremental edits."
             )
             .into(),
-            input_schema: serde_json::json!({
-                "type": "object",
-                "properties": {
-                    "patch": {
-                        "type": "string",
-                        "description": concat!(
-                            "The patch text in apply-patch format. Envelope: ",
-                            "*** Begin Patch\\n[operations]\\n*** End Patch. ",
-                            "Operations: *** Add File: <path> (lines prefixed with +), ",
-                            "*** Delete File: <path>, ",
-                            "*** Update File: <path> with @@ context markers and +/- lines. ",
-                            "CRITICAL: Text after @@ must MATCH actual file content (used to find the change location). ",
-                            "Use @@ alone (no context) if uncertain, or use fs.read to verify file content first. ",
-                            "Context lines (prefixed with space) provide additional matching context."
-                        )
-                    }
-                },
-                "required": ["patch"]
-            }),
+            input_schema: schema_for_type::<FsPatchArgs>(),
             output_schema: None,
         }
     }
@@ -64,13 +47,10 @@ impl Tool for FsPatchTool {
         cwd: &Path,
         input: serde_json::Value,
     ) -> Result<ToolCallOutput, ToolError> {
-        let patch_text = input
-            .get("patch")
-            .and_then(|v| v.as_str())
-            .ok_or_else(|| ToolError::InvalidInput("patch required".into()))?;
+        let args: FsPatchArgs = serde_json::from_value(input)
+            .map_err(|e| ToolError::InvalidInput(format!("invalid input: {}", e)))?;
 
-        // Parse the patch
-        let hunks = parse_patch(patch_text).map_err(|e| ToolError::InvalidInput(e.to_string()))?;
+        let hunks = parse_patch(&args.patch).map_err(|e| ToolError::InvalidInput(e.to_string()))?;
 
         if hunks.is_empty() {
             return Err(ToolError::InvalidInput(

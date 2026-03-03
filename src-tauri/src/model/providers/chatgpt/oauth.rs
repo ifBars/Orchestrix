@@ -1,5 +1,5 @@
 //! ChatGPT OAuth authentication for ChatGPT Plus/Pro subscriptions
-//! 
+//!
 //! Implements PKCE OAuth flow to authenticate with OpenAI and obtain
 //! access tokens for the ChatGPT Codex API.
 
@@ -24,7 +24,10 @@ impl PkceCodes {
     pub fn generate() -> Self {
         let verifier = generate_random_string(128);
         let challenge = base64_url_encode(&sha256_hash(&verifier));
-        Self { verifier, challenge }
+        Self {
+            verifier,
+            challenge,
+        }
     }
 }
 
@@ -42,6 +45,7 @@ pub struct TokenResponse {
 pub struct IdTokenClaims {
     pub chatgpt_account_id: Option<String>,
     pub organizations: Option<Vec<Organization>>,
+    #[allow(dead_code)]
     pub email: Option<String>,
     #[serde(rename = "https://api.openai.com/auth")]
     pub openai_auth: Option<OpenAIAuth>,
@@ -59,7 +63,9 @@ pub struct OpenAIAuth {
 
 /// Extract account ID from token claims
 pub fn extract_account_id(claims: &IdTokenClaims) -> Option<String> {
-    claims.chatgpt_account_id.clone()
+    claims
+        .chatgpt_account_id
+        .clone()
         .or_else(|| claims.openai_auth.as_ref()?.chatgpt_account_id.clone())
         .or_else(|| Some(claims.organizations.as_ref()?.first()?.id.clone()))
 }
@@ -70,13 +76,11 @@ pub fn parse_jwt_claims(token: &str) -> Option<IdTokenClaims> {
     if parts.len() != 3 {
         return None;
     }
-    
+
     let payload = parts[1];
-    let decoded = base64::Engine::decode(
-        &base64::engine::general_purpose::URL_SAFE_NO_PAD,
-        payload
-    ).ok()?;
-    
+    let decoded =
+        base64::Engine::decode(&base64::engine::general_purpose::URL_SAFE_NO_PAD, payload).ok()?;
+
     serde_json::from_slice(&decoded).ok()
 }
 
@@ -88,12 +92,12 @@ pub fn extract_account_id_from_tokens(tokens: &TokenResponse) -> Option<String> 
             return Some(account_id);
         }
     }
-    
+
     // Fall back to access token
     if let Some(claims) = parse_jwt_claims(&tokens.access_token) {
         return extract_account_id(&claims);
     }
-    
+
     None
 }
 
@@ -111,13 +115,13 @@ pub fn build_authorize_url(redirect_uri: &str, pkce: &PkceCodes, state: &str) ->
         ("state", state),
         ("originator", "orchestrix"),
     ];
-    
+
     let query = params
         .iter()
         .map(|(k, v)| format!("{}={}", k, urlencoding::encode(v)))
         .collect::<Vec<_>>()
         .join("&");
-    
+
     format!("{}/oauth/authorize?{}", ISSUER, query)
 }
 
@@ -134,7 +138,7 @@ pub async fn exchange_code_for_tokens(
         ("client_id", CLIENT_ID),
         ("code_verifier", &pkce.verifier),
     ];
-    
+
     let client = reqwest::Client::new();
     let response = client
         .post(format!("{}/oauth/token", ISSUER))
@@ -143,12 +147,12 @@ pub async fn exchange_code_for_tokens(
         .send()
         .await
         .map_err(|e| format!("Token request failed: {}", e))?;
-    
+
     if !response.status().is_success() {
         let text = response.text().await.unwrap_or_default();
         return Err(format!("Token exchange failed: {}", text));
     }
-    
+
     response
         .json::<TokenResponse>()
         .await
@@ -162,7 +166,7 @@ pub async fn refresh_access_token(refresh_token: &str) -> Result<TokenResponse, 
         ("refresh_token", refresh_token),
         ("client_id", CLIENT_ID),
     ];
-    
+
     let client = reqwest::Client::new();
     let response = client
         .post(format!("{}/oauth/token", ISSUER))
@@ -171,12 +175,12 @@ pub async fn refresh_access_token(refresh_token: &str) -> Result<TokenResponse, 
         .send()
         .await
         .map_err(|e| format!("Refresh request failed: {}", e))?;
-    
+
     if !response.status().is_success() {
         let text = response.text().await.unwrap_or_default();
         return Err(format!("Token refresh failed: {}", text));
     }
-    
+
     response
         .json::<TokenResponse>()
         .await

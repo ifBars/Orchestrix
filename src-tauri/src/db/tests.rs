@@ -3,7 +3,6 @@
 #[cfg(test)]
 mod tests {
     use crate::db::{queries, Database};
-    use chrono;
     use uuid::Uuid;
 
     #[test]

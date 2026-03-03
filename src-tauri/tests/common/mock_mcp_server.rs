@@ -22,6 +22,7 @@ pub struct MockMcpServer {
     response_delay_ms: std::sync::Mutex<u64>,
 }
 
+#[allow(dead_code)]
 impl MockMcpServer {
     /// Create a new empty mock server.
     pub fn new() -> Self {
@@ -384,7 +385,7 @@ impl MockMcpServer {
             data: None,
         })?;
 
-        let uri = params
+        let _uri = params
             .get("uri")
             .and_then(|u| u.as_str())
             .ok_or_else(|| JsonRpcError {
@@ -407,7 +408,7 @@ impl MockMcpServer {
             data: None,
         })?;
 
-        let uri = params
+        let _uri = params
             .get("uri")
             .and_then(|u| u.as_str())
             .ok_or_else(|| JsonRpcError {

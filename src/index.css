@@ -192,4 +192,55 @@
   .prose code {
     @apply text-foreground/80;
   }
+
+  /* Streamdown / Shiki code block theming for dark mode */
+  .dark .prose pre[data-theme="light"] {
+    display: none;
+  }
+  
+  .prose pre[data-theme="dark"] {
+    display: none;
+  }
+  
+  .dark .prose pre[data-theme="dark"] {
+    display: block;
+  }
+  
+  /* Fallback: ensure code blocks are visible */
+  .prose pre[data-theme] {
+    @apply bg-muted/50 border border-border/50;
+  }
+  
+  .dark .prose pre[data-theme] {
+    @apply bg-muted/70 border-border/70;
+  }
+
+  /* Mermaid diagram theming — background adapts to light/dark mode */
+  .prose svg[id^="mermaid-"] {
+    background: transparent;
+    max-width: 100%;
+    height: auto;
+  }
+
+  /* Mermaid container controls (fullscreen, download, copy) */
+  [data-sd-mermaid] {
+    @apply rounded-lg border border-border/50 bg-muted/30 p-3;
+  }
+
+  .dark [data-sd-mermaid] {
+    @apply bg-muted/50 border-border/60;
+  }
+
+  /* Screen reader only - accessible but visually hidden */
+  .sr-only {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+    border-width: 0;
+  }
 }

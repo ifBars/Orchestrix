@@ -10,11 +10,13 @@ use super::event_types::should_flush_immediately;
 const DEFAULT_FLUSH_INTERVAL: Duration = Duration::from_millis(100);
 const DEFAULT_MAX_BATCH: usize = 50;
 
+const EVENT_CHANNEL_NAME: &str = "orchestrix-events";
+
 pub struct EventBatcher;
 
 impl EventBatcher {
     /// Spawn a background task that batches events and emits them to the Tauri
-    /// frontend via `orchestrix://events`.
+    /// frontend via `orchestrix-events`.
     ///
     /// Events for which [should_flush_immediately] returns true are sent
     /// immediately (after flushing the current buffer to preserve order).
@@ -37,7 +39,7 @@ impl EventBatcher {
                                     if !buffer.is_empty() {
                                         flush(&app_handle, &mut buffer);
                                     }
-                                    let _ = app_handle.emit("orchestrix://events", vec![&event]);
+                                    let _ = app_handle.emit(EVENT_CHANNEL_NAME, vec![&event]);
                                 } else {
                                     buffer.push(event);
                                     if buffer.len() >= DEFAULT_MAX_BATCH {
@@ -68,7 +70,7 @@ impl EventBatcher {
 }
 
 fn flush(app_handle: &tauri::AppHandle, buffer: &mut Vec<BusEvent>) {
-    if let Err(e) = app_handle.emit("orchestrix://events", &*buffer) {
+    if let Err(e) = app_handle.emit(EVENT_CHANNEL_NAME, &*buffer) {
         tracing::warn!("failed to emit event batch to frontend: {e}");
     }
     buffer.clear();

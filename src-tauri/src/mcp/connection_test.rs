@@ -2,8 +2,6 @@
 //!
 //! These tests verify connection pooling, health monitoring, and lifecycle management.
 
-#![cfg(test)]
-
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::Arc;
@@ -93,10 +91,12 @@ impl McpTransport for MockTransport {
 }
 
 // Factory for creating mock transports in tests
+#[allow(dead_code)]
 struct MockTransportFactory {
     transports: Arc<Mutex<Vec<Arc<MockTransport>>>>,
 }
 
+#[allow(dead_code)]
 impl MockTransportFactory {
     fn new() -> Self {
         Self {

@@ -5,6 +5,7 @@ use std::path::Path;
 use crate::core::preferences_memory;
 use crate::core::tool::ToolDescriptor;
 use crate::policy::PolicyEngine;
+use crate::tools::args::{schema_for_type, MemoryDeleteArgs, MemoryUpsertArgs};
 use crate::tools::types::{Tool, ToolCallOutput, ToolError};
 
 pub struct MemoryListTool;
@@ -75,15 +76,7 @@ impl Tool for MemoryUpsertTool {
         ToolDescriptor {
             name: "memory.upsert".into(),
             description: "Store or update a durable preference in auto memory.".into(),
-            input_schema: serde_json::json!({
-                "type": "object",
-                "properties": {
-                    "key": {"type": "string"},
-                    "value": {"type": "string"},
-                    "category": {"type": "string"}
-                },
-                "required": ["key", "value"]
-            }),
+            input_schema: schema_for_type::<MemoryUpsertArgs>(),
             output_schema: None,
         }
     }
@@ -94,21 +87,20 @@ impl Tool for MemoryUpsertTool {
         cwd: &Path,
         input: serde_json::Value,
     ) -> Result<ToolCallOutput, ToolError> {
-        let key = input
-            .get("key")
-            .and_then(|v| v.as_str())
-            .map(str::trim)
-            .filter(|v| !v.is_empty())
-            .ok_or_else(|| ToolError::InvalidInput("key is required".to_string()))?;
-        let value = input
-            .get("value")
-            .and_then(|v| v.as_str())
-            .map(str::trim)
-            .filter(|v| !v.is_empty())
-            .ok_or_else(|| ToolError::InvalidInput("value is required".to_string()))?;
-        let category = input
-            .get("category")
-            .and_then(|v| v.as_str())
+        let args: MemoryUpsertArgs = serde_json::from_value(input)
+            .map_err(|e| ToolError::InvalidInput(format!("invalid input: {}", e)))?;
+
+        let key = args.key.trim();
+        if key.is_empty() {
+            return Err(ToolError::InvalidInput("key is required".to_string()));
+        }
+        let value = args.value.trim();
+        if value.is_empty() {
+            return Err(ToolError::InvalidInput("value is required".to_string()));
+        }
+        let category = args
+            .category
+            .as_deref()
             .map(str::trim)
             .filter(|v| !v.is_empty());
 
@@ -127,13 +119,7 @@ impl Tool for MemoryDeleteTool {
         ToolDescriptor {
             name: "memory.delete".into(),
             description: "Delete a durable preference from auto memory by key.".into(),
-            input_schema: serde_json::json!({
-                "type": "object",
-                "properties": {
-                    "key": {"type": "string"}
-                },
-                "required": ["key"]
-            }),
+            input_schema: schema_for_type::<MemoryDeleteArgs>(),
             output_schema: None,
         }
     }
@@ -144,12 +130,13 @@ impl Tool for MemoryDeleteTool {
         cwd: &Path,
         input: serde_json::Value,
     ) -> Result<ToolCallOutput, ToolError> {
-        let key = input
-            .get("key")
-            .and_then(|v| v.as_str())
-            .map(str::trim)
-            .filter(|v| !v.is_empty())
-            .ok_or_else(|| ToolError::InvalidInput("key is required".to_string()))?;
+        let args: MemoryDeleteArgs = serde_json::from_value(input)
+            .map_err(|e| ToolError::InvalidInput(format!("invalid input: {}", e)))?;
+
+        let key = args.key.trim();
+        if key.is_empty() {
+            return Err(ToolError::InvalidInput("key is required".to_string()));
+        }
 
         let deleted =
             preferences_memory::delete_preference(cwd, key).map_err(ToolError::Execution)?;

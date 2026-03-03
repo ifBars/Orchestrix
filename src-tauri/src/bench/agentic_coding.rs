@@ -12,7 +12,10 @@ use tokio::fs;
 use crate::bench::core::{BenchmarkRunMetadata, WorkloadKind};
 use crate::bench::llm::{api_key_env_keys, first_non_empty_env, LlmProviderConfig, LlmProviderId};
 use crate::core::tool::ToolDescriptor;
-use crate::model::{AgentModelClient, GlmClient, KimiClient, MiniMaxClient, ModalClient, WorkerAction, WorkerActionRequest, WorkerDecision};
+use crate::model::{
+    AgentModelClient, GlmClient, KimiClient, MiniMaxClient, ModalClient, WorkerAction,
+    WorkerActionRequest, WorkerDecision,
+};
 use crate::policy::PolicyEngine;
 use crate::tools::{ToolCallInput, ToolRegistry};
 
@@ -116,6 +119,7 @@ struct CodingTaskDefinition {
     description: &'static str,
     category: AgenticCodingCategory,
     max_turns: usize,
+    #[allow(dead_code)]
     system_prompt: &'static str,
     initial_prompt: &'static str,
     setup_files: Vec<(&'static str, &'static str)>,
@@ -233,7 +237,9 @@ fn agentic_coding_tools() -> Vec<ToolDescriptor> {
     vec![
         ToolDescriptor {
             name: "fs.read".to_string(),
-            description: "Read the contents of a file. Provide the relative path from workspace root.".to_string(),
+            description:
+                "Read the contents of a file. Provide the relative path from workspace root."
+                    .to_string(),
             input_schema: serde_json::json!({
                 "type": "object",
                 "properties": {
@@ -305,29 +311,26 @@ pub async fn run_agentic_coding_benchmark(
 ) -> AgenticCodingBenchReport {
     let _start_time = Instant::now();
     let tasks = build_task_descriptors();
-    
+
     let mut provider_results = Vec::new();
-    
+
     for provider_id in &options.providers {
-        let provider_result = run_provider_coding_benchmark(
-            *provider_id,
-            &options,
-            &tasks,
-        ).await;
+        let provider_result = run_provider_coding_benchmark(*provider_id, &options, &tasks).await;
         provider_results.push(provider_result);
     }
-    
+
     // Determine overall winner based on success rate
     let overall_winner = provider_results
         .iter()
         .filter(|p| p.aggregate.success_rate > 0.5)
         .max_by(|a, b| {
-            a.aggregate.success_rate
+            a.aggregate
+                .success_rate
                 .partial_cmp(&b.aggregate.success_rate)
                 .unwrap_or(std::cmp::Ordering::Equal)
         })
         .map(|p| p.provider.clone());
-    
+
     AgenticCodingBenchReport {
         metadata: BenchmarkRunMetadata::new(
             WorkloadKind::LlmAgentLoop,
@@ -347,9 +350,10 @@ async fn run_provider_coding_benchmark(
     _task_descriptors: &[AgenticCodingTaskDescriptor],
 ) -> AgenticCodingProviderResult {
     let provider_start = Instant::now();
-    
+
     // Get provider config
-    let config = options.provider_configs
+    let config = options
+        .provider_configs
         .iter()
         .find(|c| c.provider == provider_id)
         .cloned()
@@ -360,7 +364,7 @@ async fn run_provider_coding_benchmark(
             base_url: None,
             max_tokens: Some(options.max_tokens),
         });
-    
+
     // Create the model client
     let client = match create_agentic_coding_client(provider_id, &config).await {
         Ok(client) => client,
@@ -382,23 +386,18 @@ async fn run_provider_coding_benchmark(
             };
         }
     };
-    
+
     let tools = agentic_coding_tools();
     let task_definitions = coding_tasks();
     let mut task_results = Vec::new();
     let mut total_tool_calls = 0usize;
     let mut completed_count = 0usize;
     let mut failed_count = 0usize;
-    
+
     // Run each task
     for task_def in &task_definitions {
-        let task_result = run_coding_task(
-            &client,
-            task_def,
-            &tools,
-            options,
-        ).await;
-        
+        let task_result = run_coding_task(&client, task_def, &tools, options).await;
+
         total_tool_calls += task_result.tool_calls_made;
         if task_result.success {
             completed_count += 1;
@@ -407,24 +406,28 @@ async fn run_provider_coding_benchmark(
         }
         task_results.push(task_result);
     }
-    
+
     let total_duration = provider_start.elapsed();
     let avg_duration = if !task_results.is_empty() {
         total_duration.as_secs_f64() * 1000.0 / task_results.len() as f64
     } else {
         0.0
     };
-    
+
     let success_rate = if !task_results.is_empty() {
         completed_count as f64 / task_results.len() as f64
     } else {
         0.0
     };
-    
+
     AgenticCodingProviderResult {
         provider: provider_id.to_string(),
         model: config.model.clone(),
-        status: if failed_count == 0 { "completed".to_string() } else { "partial".to_string() },
+        status: if failed_count == 0 {
+            "completed".to_string()
+        } else {
+            "partial".to_string()
+        },
         error: None,
         total_duration_ms: total_duration.as_secs_f64() * 1000.0,
         tasks: task_results,
@@ -460,27 +463,27 @@ async fn run_coding_task(
             };
         }
     };
-    
+
     let mut context = format!("{}", task.initial_prompt);
     let mut prior_observations: Vec<serde_json::Value> = vec![];
-    
+
     let mut tool_calls_made = 0usize;
     let mut turn = 0usize;
     let max_turns = task.max_turns;
-    
+
     // Tool registry for executing real tools
     let tool_registry = ToolRegistry::default();
-    
+
     loop {
         if turn >= max_turns {
             break;
         }
-        
+
         // Check timeout
         if task_start.elapsed().as_secs() > options.timeout_seconds {
             break;
         }
-        
+
         // Get model decision
         let request = WorkerActionRequest {
             task_prompt: context.clone(),
@@ -491,7 +494,7 @@ async fn run_coding_task(
             prior_observations: prior_observations.clone(),
             max_tokens: Some(options.max_tokens),
         };
-        
+
         let decision = match client.decide_action(request).await {
             Ok(d) => d,
             Err(error) => {
@@ -507,21 +510,25 @@ async fn run_coding_task(
                 };
             }
         };
-        
+
         turn += 1;
-        
+
         match decision.action {
             WorkerAction::Complete { summary: _ } => {
                 // Task claims completion, validate it
                 let validation_passed = validate_task_completion(&workspace, task).await;
                 let duration = task_start.elapsed();
-                
+
                 // Cleanup workspace
                 let _ = tokio::fs::remove_dir_all(&workspace).await;
-                
+
                 return AgenticCodingTaskResult {
                     task_id: task.id.to_string(),
-                    status: if validation_passed { "completed".to_string() } else { "completed_invalid".to_string() },
+                    status: if validation_passed {
+                        "completed".to_string()
+                    } else {
+                        "completed_invalid".to_string()
+                    },
                     error: None,
                     duration_ms: duration.as_secs_f64() * 1000.0,
                     turns_taken: turn,
@@ -532,7 +539,7 @@ async fn run_coding_task(
             }
             WorkerAction::ToolCalls { calls } => {
                 tool_calls_made += calls.len();
-                
+
                 // Execute tool calls
                 let mut observations = Vec::new();
                 for call in calls {
@@ -541,15 +548,16 @@ async fn run_coding_task(
                         &call.tool_name,
                         &call.tool_args,
                         &workspace,
-                    ).await;
+                    )
+                    .await;
                     observations.push(observation);
                 }
-                
+
                 // Add observations to prior_observations
                 for observation in observations {
                     prior_observations.push(observation);
                 }
-                
+
                 // Update context with tool results
                 let obs_content = prior_observations
                     .iter()
@@ -557,23 +565,25 @@ async fn run_coding_task(
                     .map(|obs| format!("{}", obs))
                     .collect::<Vec<_>>()
                     .join("\n\n");
-                
-                context = format!("{}\n\nTool calls executed: {}\n\nTool results:\n{}", 
-                    context, tool_calls_made, obs_content);
+
+                context = format!(
+                    "{}\n\nTool calls executed: {}\n\nTool results:\n{}",
+                    context, tool_calls_made, obs_content
+                );
             }
-            WorkerAction::ToolCall { tool_name, tool_args, .. } => {
+            WorkerAction::ToolCall {
+                tool_name,
+                tool_args,
+                ..
+            } => {
                 // Single tool call (legacy format, convert to batch)
                 tool_calls_made += 1;
-                
-                let observation = execute_tool_call(
-                    &tool_registry,
-                    &tool_name,
-                    &tool_args,
-                    &workspace,
-                ).await;
-                
+
+                let observation =
+                    execute_tool_call(&tool_registry, &tool_name, &tool_args, &workspace).await;
+
                 prior_observations.push(observation);
-                
+
                 // Update context
                 let obs_content = prior_observations
                     .iter()
@@ -581,9 +591,11 @@ async fn run_coding_task(
                     .map(|obs| format!("{}", obs))
                     .collect::<Vec<_>>()
                     .join("\n\n");
-                
-                context = format!("{}\n\nTool call executed: {}\n\nTool results:\n{}", 
-                    context, tool_name, obs_content);
+
+                context = format!(
+                    "{}\n\nTool call executed: {}\n\nTool results:\n{}",
+                    context, tool_name, obs_content
+                );
             }
             WorkerAction::Delegate { .. } => {
                 // Delegation not supported in benchmark
@@ -591,14 +603,14 @@ async fn run_coding_task(
             }
         }
     }
-    
+
     // Max turns reached
     let validation_passed = validate_task_completion(&workspace, task).await;
     let duration = task_start.elapsed();
-    
+
     // Cleanup
     let _ = tokio::fs::remove_dir_all(&workspace).await;
-    
+
     AgenticCodingTaskResult {
         task_id: task.id.to_string(),
         status: "max_turns".to_string(),
@@ -619,11 +631,11 @@ async fn create_temp_workspace(setup_files: &[(&str, &str)]) -> Result<PathBuf, 
     let temp_dir = std::env::temp_dir();
     let workspace_name = format!("orchestrix_agentic_bench_{}", uuid::Uuid::new_v4());
     let workspace_path = temp_dir.join(&workspace_name);
-    
+
     fs::create_dir_all(&workspace_path)
         .await
         .map_err(|e| format!("Failed to create workspace: {e}"))?;
-    
+
     // Create setup files
     for (relative_path, content) in setup_files {
         let file_path = workspace_path.join(relative_path);
@@ -636,7 +648,7 @@ async fn create_temp_workspace(setup_files: &[(&str, &str)]) -> Result<PathBuf, 
             .await
             .map_err(|e| format!("Failed to write file: {e}"))?;
     }
-    
+
     Ok(workspace_path)
 }
 
@@ -701,7 +713,7 @@ async fn validate_task_completion(workspace: &PathBuf, task: &CodingTaskDefiniti
             return false;
         }
     }
-    
+
     // Run validation commands
     for command in &task.validation_commands {
         let full_command = format!("cd \"{}\" && {}", workspace.display(), command);
@@ -710,7 +722,7 @@ async fn validate_task_completion(workspace: &PathBuf, task: &CodingTaskDefiniti
             .arg(&full_command)
             .output()
             .await;
-        
+
         match output {
             Ok(result) => {
                 if !result.status.success() {
@@ -720,7 +732,7 @@ async fn validate_task_completion(workspace: &PathBuf, task: &CodingTaskDefiniti
             Err(_) => return false,
         }
     }
-    
+
     true
 }
 
@@ -739,7 +751,11 @@ fn build_task_descriptors() -> Vec<AgenticCodingTaskDescriptor> {
             category: task.category,
             max_turns: task.max_turns,
             expected_files: task.expected_files.iter().map(|s| s.to_string()).collect(),
-            validation_commands: task.validation_commands.iter().map(|s| s.to_string()).collect(),
+            validation_commands: task
+                .validation_commands
+                .iter()
+                .map(|s| s.to_string())
+                .collect(),
         })
         .collect()
 }
@@ -810,13 +826,15 @@ async fn create_agentic_coding_client(
     provider_id: LlmProviderId,
     config: &LlmProviderConfig,
 ) -> Result<AgenticCodingClient, String> {
-    let api_key = config.api_key.clone()
+    let api_key = config
+        .api_key
+        .clone()
         .or_else(|| get_api_key_from_env(provider_id))
         .ok_or_else(|| format!("No API key found for {}", provider_id.as_str()))?;
-    
+
     let model = config.model.clone();
     let base_url = config.base_url.clone();
-    
+
     match provider_id {
         LlmProviderId::MiniMax => {
             let client = MiniMaxClient::new(api_key, model);

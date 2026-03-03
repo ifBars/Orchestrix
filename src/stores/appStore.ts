@@ -325,7 +325,7 @@ export const useAppStore = create<AppStoreState>((set, get) => ({
         .bumpBatch(planTaskIds, timelineTaskIds, agentStreamTaskIds);
     }
 
-    unlistenEvents = await listen<BusEvent[]>("orchestrix://events", (e) => {
+    unlistenEvents = await listen<BusEvent[]>("orchestrix-events", (e) => {
       const batch = e.payload;
       if (!Array.isArray(batch) || batch.length === 0) return;
 

@@ -1,15 +1,15 @@
-//! Agent-related tools for task management and mode switching.
-
 use std::path::Path;
 
+use crate::core::agent_presets::{self, AgentMode, AgentPreset, ToolPermission};
 use crate::core::preferences_memory;
 use crate::core::tool::ToolDescriptor;
 use crate::policy::{PolicyDecision, PolicyEngine};
 use crate::runtime::questions::{UserQuestionOption, UserQuestionRequest};
+use crate::tools::args::{
+    schema_for_type, AgentAskUserArgs, AgentCompleteArgs, AgentCreatePresetArgs, AgentTaskArgs,
+    CreateArtifactArgs, MemoryUpsertArgs, SubAgentSpawnArgs,
+};
 use crate::tools::types::{Tool, ToolCallOutput, ToolError};
-
-/// Tool for managing agent task lists.
-pub struct AgentTaskTool;
 
 /// Tool for asking the user targeted preference questions.
 pub struct AgentAskUserTool;
@@ -19,27 +19,7 @@ impl Tool for AgentAskUserTool {
         ToolDescriptor {
             name: "agent.ask_user".into(),
             description: "Ask the user a clarification/preference question and pause execution until answered.".into(),
-            input_schema: serde_json::json!({
-                "type": "object",
-                "properties": {
-                    "question": {"type": "string"},
-                    "options": {
-                        "type": "array",
-                        "items": {
-                            "type": "object",
-                            "properties": {
-                                "id": {"type": "string"},
-                                "label": {"type": "string"},
-                                "description": {"type": "string"}
-                            },
-                            "required": ["id", "label"]
-                        }
-                    },
-                    "multiple": {"type": "boolean"},
-                    "allow_custom": {"type": "boolean"}
-                },
-                "required": ["question", "options"]
-            }),
+            input_schema: schema_for_type::<AgentAskUserArgs>(),
             output_schema: None,
         }
     }
@@ -50,63 +30,43 @@ impl Tool for AgentAskUserTool {
         _cwd: &Path,
         input: serde_json::Value,
     ) -> Result<ToolCallOutput, ToolError> {
-        let question_text = input
-            .get("question")
-            .and_then(|v| v.as_str())
-            .map(str::trim)
-            .filter(|v| !v.is_empty())
-            .ok_or_else(|| ToolError::InvalidInput("question is required".to_string()))?;
+        let args: AgentAskUserArgs = serde_json::from_value(input)
+            .map_err(|e| ToolError::InvalidInput(format!("invalid input: {}", e)))?;
 
-        let options = input
-            .get("options")
-            .and_then(|v| v.as_array())
-            .ok_or_else(|| ToolError::InvalidInput("options array is required".to_string()))?
-            .iter()
-            .map(|raw| {
-                let id = raw
-                    .get("id")
-                    .and_then(|v| v.as_str())
-                    .map(str::trim)
-                    .filter(|v| !v.is_empty())
-                    .ok_or_else(|| {
-                        ToolError::InvalidInput("each option requires non-empty id".to_string())
-                    })?;
-                let label = raw
-                    .get("label")
-                    .and_then(|v| v.as_str())
-                    .map(str::trim)
-                    .filter(|v| !v.is_empty())
-                    .ok_or_else(|| {
-                        ToolError::InvalidInput("each option requires non-empty label".to_string())
-                    })?;
-                let description = raw
-                    .get("description")
-                    .and_then(|v| v.as_str())
-                    .map(str::trim)
-                    .filter(|v| !v.is_empty())
-                    .map(str::to_string);
-                Ok(UserQuestionOption {
-                    id: id.to_string(),
-                    label: label.to_string(),
-                    description,
-                })
-            })
-            .collect::<Result<Vec<UserQuestionOption>, ToolError>>()?;
+        let question_text = args.question.trim();
+        if question_text.is_empty() {
+            return Err(ToolError::InvalidInput("question is required".to_string()));
+        }
 
-        if options.is_empty() {
+        if args.options.is_empty() {
             return Err(ToolError::InvalidInput(
                 "options array cannot be empty".to_string(),
             ));
         }
 
-        let multiple = input
-            .get("multiple")
-            .and_then(|v| v.as_bool())
-            .unwrap_or(false);
-        let allow_custom = input
-            .get("allow_custom")
-            .and_then(|v| v.as_bool())
-            .unwrap_or(true);
+        let options: Vec<UserQuestionOption> = args
+            .options
+            .into_iter()
+            .map(|opt| {
+                let id = opt.id.trim().to_string();
+                if id.is_empty() {
+                    return Err(ToolError::InvalidInput(
+                        "each option requires non-empty id".to_string(),
+                    ));
+                }
+                let label = opt.label.trim().to_string();
+                if label.is_empty() {
+                    return Err(ToolError::InvalidInput(
+                        "each option requires non-empty label".to_string(),
+                    ));
+                }
+                Ok(UserQuestionOption {
+                    id,
+                    label,
+                    description: opt.description,
+                })
+            })
+            .collect::<Result<Vec<UserQuestionOption>, ToolError>>()?;
 
         Err(ToolError::UserQuestionRequired {
             question: UserQuestionRequest {
@@ -117,8 +77,8 @@ impl Tool for AgentAskUserTool {
                 tool_call_id: String::new(),
                 question: question_text.to_string(),
                 options,
-                multiple,
-                allow_custom,
+                multiple: args.multiple.unwrap_or(false),
+                allow_custom: args.allow_custom.unwrap_or(true),
                 created_at: String::new(),
             },
         })
@@ -134,15 +94,7 @@ impl Tool for AgentMemoryUpsertTool {
             name: "agent.memory_upsert".into(),
             description: "Store or update a durable user preference in auto memory (MEMORY.md) for future runs."
                 .into(),
-            input_schema: serde_json::json!({
-                "type": "object",
-                "properties": {
-                    "key": {"type": "string"},
-                    "value": {"type": "string"},
-                    "category": {"type": "string"}
-                },
-                "required": ["key", "value"]
-            }),
+            input_schema: schema_for_type::<MemoryUpsertArgs>(),
             output_schema: None,
         }
     }
@@ -153,21 +105,20 @@ impl Tool for AgentMemoryUpsertTool {
         cwd: &Path,
         input: serde_json::Value,
     ) -> Result<ToolCallOutput, ToolError> {
-        let key = input
-            .get("key")
-            .and_then(|v| v.as_str())
-            .map(str::trim)
-            .filter(|v| !v.is_empty())
-            .ok_or_else(|| ToolError::InvalidInput("key is required".to_string()))?;
-        let value = input
-            .get("value")
-            .and_then(|v| v.as_str())
-            .map(str::trim)
-            .filter(|v| !v.is_empty())
-            .ok_or_else(|| ToolError::InvalidInput("value is required".to_string()))?;
-        let category = input
-            .get("category")
-            .and_then(|v| v.as_str())
+        let args: MemoryUpsertArgs = serde_json::from_value(input)
+            .map_err(|e| ToolError::InvalidInput(format!("invalid input: {}", e)))?;
+
+        let key = args.key.trim();
+        if key.is_empty() {
+            return Err(ToolError::InvalidInput("key is required".to_string()));
+        }
+        let value = args.value.trim();
+        if value.is_empty() {
+            return Err(ToolError::InvalidInput("value is required".to_string()));
+        }
+        let category = args
+            .category
+            .as_deref()
             .map(str::trim)
             .filter(|v| !v.is_empty());
 
@@ -185,6 +136,9 @@ impl Tool for AgentMemoryUpsertTool {
     }
 }
 
+/// Tool for managing agent task lists.
+pub struct AgentTaskTool;
+
 impl Tool for AgentTaskTool {
     fn descriptor(&self) -> ToolDescriptor {
         ToolDescriptor {
@@ -194,16 +148,7 @@ impl Tool for AgentTaskTool {
                 "For 'update', pass a 'tasks' array where position determines which task to update. ",
                 "Use 'list_id' to scope tasks to a specific agent/run. Tasks help communicate dependencies and share updates across agents."
             ).into(),
-            input_schema: serde_json::json!({
-                "type": "object",
-                "properties": {
-                    "action": {"type": "string", "enum": ["list", "set", "add", "update", "clear"]},
-                    "tasks": {"type": "array", "items": {"type": "object"}, "description": "For 'set' or 'update' actions. For update, array position determines which task to update."},
-                    "item": {"type": "object", "description": "For 'add' action or 'update' with index"},
-                    "index": {"type": "integer", "description": "Optional: specific index for update (legacy)"},
-                    "list_id": {"type": "string", "description": "Optional: scope this task list to a specific ID (e.g., agent/run identifier). Prevents conflicts between parent and sub-agent tasks."}
-                }
-            }),
+            input_schema: schema_for_type::<AgentTaskArgs>(),
             output_schema: None,
         }
     }
@@ -214,11 +159,11 @@ impl Tool for AgentTaskTool {
         cwd: &Path,
         input: serde_json::Value,
     ) -> Result<ToolCallOutput, ToolError> {
-        let action = input
-            .get("action")
-            .and_then(|v| v.as_str())
-            .unwrap_or("list");
-        let list_id = input.get("list_id").and_then(|v| v.as_str());
+        let args: AgentTaskArgs = serde_json::from_value(input)
+            .map_err(|e| ToolError::InvalidInput(format!("invalid input: {}", e)))?;
+
+        let action = args.action.as_deref().unwrap_or("list");
+        let list_id = args.list_id.as_deref();
 
         let state_dir = cwd.join(".orchestrix");
         std::fs::create_dir_all(&state_dir).map_err(|e| ToolError::Execution(e.to_string()))?;
@@ -242,30 +187,27 @@ impl Tool for AgentTaskTool {
 
         match action {
             "set" => {
-                let next = input
-                    .get("tasks")
-                    .and_then(|v| v.as_array())
-                    .ok_or_else(|| {
-                        ToolError::InvalidInput("tasks array is required for set".to_string())
-                    })?;
-                tasks = next.clone();
+                let next = args.tasks.clone().ok_or_else(|| {
+                    ToolError::InvalidInput("tasks array is required for set".to_string())
+                })?;
+                tasks = next;
             }
             "add" => {
-                let item = input.get("item").ok_or_else(|| {
+                let item = args.item.as_ref().ok_or_else(|| {
                     ToolError::InvalidInput("item is required for add".to_string())
                 })?;
                 tasks.push(item.clone());
             }
             "update" => {
-                if let Some(items) = input.get("tasks").and_then(|v| v.as_array()) {
+                if let Some(items) = args.tasks.as_ref() {
                     for (idx, item) in items.iter().enumerate() {
                         if idx < tasks.len() {
                             tasks[idx] = item.clone();
                         }
                     }
-                } else if let Some(idx) = input.get("index").and_then(|v| v.as_u64()) {
+                } else if let Some(idx) = args.index {
                     let idx = idx as usize;
-                    let item = input.get("item").ok_or_else(|| {
+                    let item = args.item.as_ref().ok_or_else(|| {
                         ToolError::InvalidInput("item is required when using index".to_string())
                     })?;
                     if idx >= tasks.len() {
@@ -396,15 +338,7 @@ impl Tool for CreateArtifactTool {
         ToolDescriptor {
             name: "agent.create_artifact".into(),
             description: "Create an artifact (e.g., a plan document). The content will be saved to the workspace.".into(),
-            input_schema: serde_json::json!({
-                "type": "object",
-                "properties": {
-                    "filename": {"type": "string", "description": "Name of the artifact file"},
-                    "content": {"type": "string", "description": "Content of the artifact"},
-                    "kind": {"type": "string", "description": "Type of artifact (e.g., 'plan', 'summary')"}
-                },
-                "required": ["filename", "content"]
-            }),
+            input_schema: schema_for_type::<CreateArtifactArgs>(),
             output_schema: None,
         }
     }
@@ -415,22 +349,14 @@ impl Tool for CreateArtifactTool {
         cwd: &Path,
         input: serde_json::Value,
     ) -> Result<ToolCallOutput, ToolError> {
-        let filename = input
-            .get("filename")
-            .and_then(|v| v.as_str())
-            .map(str::trim)
-            .filter(|v| !v.is_empty())
-            .ok_or_else(|| ToolError::InvalidInput("filename is required".to_string()))?;
-        let content = input
-            .get("content")
-            .and_then(|v| v.as_str())
-            .ok_or_else(|| ToolError::InvalidInput("content is required".to_string()))?;
-        let kind = input
-            .get("kind")
-            .and_then(|v| v.as_str())
-            .map(str::trim)
-            .filter(|v| !v.is_empty())
-            .unwrap_or("note");
+        let args: CreateArtifactArgs = serde_json::from_value(input)
+            .map_err(|e| ToolError::InvalidInput(format!("invalid input: {}", e)))?;
+
+        let filename = args.filename.trim();
+        if filename.is_empty() {
+            return Err(ToolError::InvalidInput("filename is required".to_string()));
+        }
+        let kind = args.kind.as_deref().unwrap_or("note");
 
         let relative = std::path::Path::new(filename);
         if relative.is_absolute()
@@ -462,7 +388,8 @@ impl Tool for CreateArtifactTool {
         if let Some(parent) = artifact_path.parent() {
             std::fs::create_dir_all(parent).map_err(|e| ToolError::Execution(e.to_string()))?;
         }
-        std::fs::write(&artifact_path, content).map_err(|e| ToolError::Execution(e.to_string()))?;
+        std::fs::write(&artifact_path, &args.content)
+            .map_err(|e| ToolError::Execution(e.to_string()))?;
 
         Ok(ToolCallOutput {
             ok: true,
@@ -470,7 +397,7 @@ impl Tool for CreateArtifactTool {
                 "path": artifact_path.to_string_lossy().to_string(),
                 "filename": filename,
                 "kind": kind,
-                "bytes": content.as_bytes().len(),
+                "bytes": args.content.as_bytes().len(),
             }),
             error: None,
         })
@@ -485,15 +412,7 @@ impl Tool for SubAgentSpawnTool {
         ToolDescriptor {
             name: "subagent.spawn".into(),
             description: "Delegate a focused objective to a child sub-agent. Use this instead of implicit delegation actions.".into(),
-            input_schema: serde_json::json!({
-                "type": "object",
-                "properties": {
-                    "objective": {"type": "string", "description": "Focused delegated objective"},
-                    "agent_preset_id": {"type": "string", "description": "Optional agent preset reference for delegated execution constraints/prompt. Accepts preset id (e.g. code-reviewer) or @agent:code-reviewer"},
-                    "max_retries": {"type": "integer", "description": "Optional retries for delegated objective"}
-                },
-                "required": ["objective"]
-            }),
+            input_schema: schema_for_type::<SubAgentSpawnArgs>(),
             output_schema: None,
         }
     }
@@ -518,26 +437,7 @@ impl Tool for AgentCompleteTool {
         ToolDescriptor {
             name: "agent.complete".into(),
             description: "Mark the current delegated objective as complete and stop further tool calls for this agent turn loop.".into(),
-            input_schema: serde_json::json!({
-                "type": "object",
-                "properties": {
-                    "summary": {
-                        "type": "string",
-                        "description": "Required concise completion summary"
-                    },
-                    "outputs": {
-                        "type": "array",
-                        "items": { "type": "string" },
-                        "description": "Optional output paths or artifacts produced"
-                    },
-                    "confidence": {
-                        "type": "string",
-                        "enum": ["low", "medium", "high"],
-                        "description": "Optional completion confidence"
-                    }
-                },
-                "required": ["summary"]
-            }),
+            input_schema: schema_for_type::<AgentCompleteArgs>(),
             output_schema: None,
         }
     }
@@ -548,28 +448,20 @@ impl Tool for AgentCompleteTool {
         _cwd: &Path,
         input: serde_json::Value,
     ) -> Result<ToolCallOutput, ToolError> {
-        let summary = input
-            .get("summary")
-            .and_then(|v| v.as_str())
-            .map(str::trim)
-            .filter(|v| !v.is_empty())
-            .ok_or_else(|| {
-                ToolError::InvalidInput("summary is required for agent.complete".to_string())
-            })?;
+        let args: AgentCompleteArgs = serde_json::from_value(input)
+            .map_err(|e| ToolError::InvalidInput(format!("invalid input: {}", e)))?;
 
-        let outputs = input
-            .get("outputs")
-            .and_then(|v| v.as_array())
-            .map(|arr| {
-                arr.iter()
-                    .filter_map(|v| v.as_str().map(str::to_string))
-                    .collect::<Vec<String>>()
-            })
-            .unwrap_or_default();
+        let summary = args.summary.trim();
+        if summary.is_empty() {
+            return Err(ToolError::InvalidInput(
+                "summary is required for agent.complete".to_string(),
+            ));
+        }
 
-        let confidence = input
-            .get("confidence")
-            .and_then(|v| v.as_str())
+        let outputs = args.outputs.unwrap_or_default();
+        let confidence = args
+            .confidence
+            .as_deref()
             .filter(|v| matches!(*v, "low" | "medium" | "high"))
             .unwrap_or("medium");
 
@@ -580,6 +472,161 @@ impl Tool for AgentCompleteTool {
                 "summary": summary,
                 "outputs": outputs,
                 "confidence": confidence,
+            }),
+            error: None,
+        })
+    }
+}
+
+/// Tool for creating agent presets.
+pub struct AgentCreatePresetTool;
+
+impl Tool for AgentCreatePresetTool {
+    fn descriptor(&self) -> ToolDescriptor {
+        ToolDescriptor {
+            name: "agent.create_preset".into(),
+            description: "Create a new agent preset that can be used with @agent:id mentions or for subagent delegation. The preset will be saved to the workspace and can be referenced in prompts or delegated to as a subagent.".into(),
+            input_schema: schema_for_type::<AgentCreatePresetArgs>(),
+            output_schema: None,
+        }
+    }
+
+    fn invoke(
+        &self,
+        _policy: &PolicyEngine,
+        cwd: &Path,
+        input: serde_json::Value,
+    ) -> Result<ToolCallOutput, ToolError> {
+        let args: AgentCreatePresetArgs = serde_json::from_value(input)
+            .map_err(|e| ToolError::InvalidInput(format!("invalid input: {}", e)))?;
+
+        // Extract required fields
+        let id = args.id.trim();
+        if id.is_empty() {
+            return Err(ToolError::InvalidInput(
+                "id is required and must be non-empty".to_string(),
+            ));
+        }
+
+        let name = args.name.trim();
+        if name.is_empty() {
+            return Err(ToolError::InvalidInput(
+                "name is required and must be non-empty".to_string(),
+            ));
+        }
+
+        let prompt = args.prompt.trim();
+        if prompt.is_empty() {
+            return Err(ToolError::InvalidInput(
+                "prompt is required and must be non-empty".to_string(),
+            ));
+        }
+
+        // Validate ID format (kebab-case, alphanumeric, hyphens, underscores)
+        let valid_id = id
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_');
+        if !valid_id {
+            return Err(ToolError::InvalidInput(format!(
+                "invalid agent ID '{}': must be alphanumeric with hyphens/underscores only",
+                id
+            )));
+        }
+
+        // Parse mode
+        let mode_str = args.mode.as_deref().map(|m| m.to_ascii_lowercase());
+
+        let mode = match mode_str.as_deref() {
+            Some("primary") => AgentMode::Primary,
+            Some("subagent") => AgentMode::Subagent,
+            Some(m) => {
+                return Err(ToolError::InvalidInput(format!(
+                    "invalid mode '{}': must be 'primary' or 'subagent'",
+                    m
+                )))
+            }
+            None => AgentMode::Subagent,
+        };
+        let mode_clone = mode.clone();
+
+        // Optional fields
+        let description = args.description.as_deref().unwrap_or("").to_string();
+
+        let model = args
+            .model
+            .as_deref()
+            .filter(|v| !v.is_empty())
+            .map(|v| v.to_string());
+
+        let temperature = args
+            .temperature
+            .map(|t| t as f32)
+            .filter(|&t| t >= 0.0 && t <= 2.0);
+
+        let steps = args.steps.filter(|&s| s <= 1000);
+
+        let tags = args
+            .tags
+            .unwrap_or_default()
+            .into_iter()
+            .filter(|s| !s.is_empty())
+            .collect();
+
+        // Parse tool permissions
+        let tools = args.tools.map(|obj| {
+            let mut tools_map = std::collections::HashMap::new();
+
+            if let Some(write) = obj.write {
+                tools_map.insert("write".to_string(), ToolPermission::Bool(write));
+            }
+            if let Some(edit) = obj.edit {
+                tools_map.insert("edit".to_string(), ToolPermission::Bool(edit));
+            }
+            if let Some(bash) = obj.bash {
+                tools_map.insert("bash".to_string(), ToolPermission::Bool(bash));
+            }
+
+            tools_map
+        });
+
+        // Build the preset
+        let preset = AgentPreset {
+            id: id.to_string(),
+            name: name.to_string(),
+            description,
+            mode: mode_clone,
+            model,
+            temperature,
+            steps,
+            tools,
+            permission: None,
+            prompt: prompt.to_string(),
+            tags,
+            file_path: String::new(), // Will be set by write_agent_preset
+            source: "workspace".to_string(),
+            enabled: true,
+            validation_issues: vec![],
+        };
+
+        // Write to file
+        let file_path = agent_presets::write_agent_preset(cwd, id, &preset)
+            .map_err(|e| ToolError::Execution(format!("failed to write agent preset: {}", e)))?;
+
+        Ok(ToolCallOutput {
+            ok: true,
+            data: serde_json::json!({
+                "id": id,
+                "name": name,
+                "mode": match mode {
+                    AgentMode::Primary => "primary",
+                    AgentMode::Subagent => "subagent",
+                },
+                "file_path": file_path,
+                "mention_token": format!("@agent:{}", id),
+                "message": format!(
+                    "Agent preset '{}' created successfully. You can reference it with @agent:{} in prompts or delegate to it via subagent.spawn.",
+                    name, id
+                ),
             }),
             error: None,
         })

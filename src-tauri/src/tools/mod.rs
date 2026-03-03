@@ -43,6 +43,7 @@ pub use types::{ToolCallInput, ToolCallOutput, ToolError};
 
 // Submodules
 mod agent;
+pub mod args;
 pub mod canvas;
 mod cmd;
 pub mod dev_server;

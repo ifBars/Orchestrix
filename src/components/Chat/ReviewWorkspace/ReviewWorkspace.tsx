@@ -1,6 +1,5 @@
 import { CheckCircle2, FileCode2, Loader2, X, Edit3, Eye } from "lucide-react";
-import { Streamdown } from "streamdown";
-import { code } from "@streamdown/code";
+import { SafeStreamdown } from "@/components/Chat/ConversationTimeline/messages/SafeStreamdown";
 import { useRef, useCallback, useState, useEffect } from "react";
 import type { ArtifactRow } from "@/types";
 import type { ReviewComment } from "@/hooks/useArtifactReview";
@@ -188,7 +187,7 @@ export function ReviewWorkspace(props: ReviewWorkspaceProps) {
                 ref={proseRef}
                 className="prose prose-sm max-w-none rounded-xl border border-border/60 bg-background/55 p-5 text-foreground dark:prose-invert"
               >
-                <Streamdown plugins={{ code }}>{props.previewText}</Streamdown>
+                <SafeStreamdown content={props.previewText} mermaid />
               </div>
             )}
 

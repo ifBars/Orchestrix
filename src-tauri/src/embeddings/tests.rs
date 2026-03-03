@@ -40,6 +40,7 @@ async fn gemini_provider_builds_expected_request_and_shape() {
             model: "gemini-embedding-001".to_string(),
             timeout_ms: 5_000,
             base_url: Some(format!("{}/v1beta", server.base_url())),
+            output_dimensionality: None,
         },
         Some("test-key".to_string()),
         false,
@@ -132,6 +133,87 @@ async fn ollama_provider_falls_back_to_legacy_endpoint() {
     assert!(legacy.hits() >= 2);
 }
 
+/// Provider exhausts all MAX_ATTEMPTS retries and returns RateLimit error.
+/// In test builds BACKOFF_BASE_MS = 1 ms so all retries complete in < 100 ms.
+#[tokio::test]
+async fn gemini_provider_exhausts_retries_and_returns_rate_limit_error() {
+    let server = MockServer::start();
+    let path = "/v1beta/models/gemini-embedding-001:batchEmbedContents";
+
+    // Always respond 429 instantly. Use a generous reqwest timeout (60 s) so it
+    // never fires before the retry loop exhausts itself.
+    let mock = server.mock(|when, then| {
+        when.method(POST).path(path);
+        then.status(429).body("quota exceeded");
+    });
+
+    let provider = GeminiEmbeddingProvider::new(
+        GeminiEmbeddingConfig {
+            api_key: Some("test-key".to_string()),
+            model: "gemini-embedding-001".to_string(),
+            timeout_ms: 5_000,
+            base_url: Some(format!("{}/v1beta", server.base_url())),
+            output_dimensionality: None,
+        },
+        Some("test-key".to_string()),
+        false,
+    )
+    .expect("provider should initialize");
+
+    let result = provider
+        .embed(
+            &["hello".to_string()],
+            Some(EmbedOptions {
+                task: Some(EmbeddingTaskType::RetrievalDocument),
+            }),
+        )
+        .await;
+
+    // Must fail with RateLimit after exhausting all attempts.
+    assert!(
+        matches!(result, Err(crate::embeddings::EmbeddingError::RateLimit(_))),
+        "expected RateLimit error, got: {:?}",
+        result
+    );
+
+    // MAX_ATTEMPTS = 5: 1 initial + 4 retries = 5 total HTTP calls.
+    mock.assert_hits(5);
+}
+
+/// Auth error from a bad API key surfaces as EmbeddingError::Auth, not a JSON parse error.
+#[tokio::test]
+async fn gemini_provider_returns_auth_error_on_401() {
+    let server = MockServer::start();
+    let path = "/v1beta/models/gemini-embedding-001:batchEmbedContents";
+
+    // 401 with a non-JSON body (common with API gateways).
+    server.mock(|when, then| {
+        when.method(POST).path(path);
+        then.status(401).body("Unauthorized — check your API key");
+    });
+
+    let provider = GeminiEmbeddingProvider::new(
+        GeminiEmbeddingConfig {
+            api_key: Some("bad-key".to_string()),
+            model: "gemini-embedding-001".to_string(),
+            timeout_ms: 5_000,
+            base_url: Some(format!("{}/v1beta", server.base_url())),
+            output_dimensionality: None,
+        },
+        Some("bad-key".to_string()),
+        false,
+    )
+    .expect("provider should initialize");
+
+    let result = provider.embed(&["hello".to_string()], None).await;
+
+    assert!(
+        matches!(result, Err(crate::embeddings::EmbeddingError::Auth(_))),
+        "expected Auth error, got: {:?}",
+        result
+    );
+}
+
 #[tokio::test]
 async fn transformers_provider_uses_transport_contract() {
     let transport = Arc::new(MockTransformersTransport::default());
@@ -218,6 +300,7 @@ async fn provider_agnostic_integration_suite_mock_default() {
             model: "gemini-embedding-001".to_string(),
             timeout_ms: 5_000,
             base_url: Some(format!("{}/v1beta", gemini_server.base_url())),
+            output_dimensionality: None,
         },
         Some("mock-gemini".to_string()),
         false,
@@ -292,6 +375,7 @@ async fn optional_real_gemini_provider_when_enabled() {
             model: "gemini-embedding-001".to_string(),
             timeout_ms: 30_000,
             base_url: None,
+            output_dimensionality: None,
         },
         Some(api_key),
         false,

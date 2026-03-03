@@ -65,9 +65,7 @@ impl WorkerModelClient {
             )),
             "openai-chatgpt" | "chatgpt" => {
                 // api_key field carries JSON-encoded OAuth data: {access_token, refresh_token, expires_at, account_id}
-                if let Ok(auth) =
-                    serde_json::from_str::<serde_json::Value>(&config.api_key)
-                {
+                if let Ok(auth) = serde_json::from_str::<serde_json::Value>(&config.api_key) {
                     let access_token = auth
                         .get("access_token")
                         .and_then(|v| v.as_str())
@@ -78,10 +76,7 @@ impl WorkerModelClient {
                         .and_then(|v| v.as_str())
                         .unwrap_or("")
                         .to_string();
-                    let expires_at = auth
-                        .get("expires_at")
-                        .and_then(|v| v.as_i64())
-                        .unwrap_or(0);
+                    let expires_at = auth.get("expires_at").and_then(|v| v.as_i64()).unwrap_or(0);
                     let account_id = auth
                         .get("account_id")
                         .and_then(|v| v.as_str())

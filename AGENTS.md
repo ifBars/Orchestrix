@@ -223,6 +223,59 @@ Crash recovery is mandatory.
 
 ---
 
+## UI Implementation Standards
+
+### Tech Stack
+
+- **Tailwind CSS v4**: Primary styling framework using the new `@theme` directive and OKLCH colors
+- **shadcn/ui**: Component library built on Radix UI primitives (use `npx shadcn add <component>`)
+- **Lucide Icons**: Icon library (already configured in components.json)
+
+### Required Patterns
+
+**1. Prefer shadcn/ui Components**
+- Always check if a shadcn component exists before building custom UI
+- Install with: `bunx shadcn add <component>`
+- Common components: `popover`, `command`, `dropdown-menu`, `tooltip`, `tabs`, `switch`, `badge`, `card`, `separator`, `scroll-area`, `dialog`
+
+**2. Custom Component Guidelines**
+- When custom components are needed, use shadcn primitives internally where applicable:
+  - Use `<Popover>` for floating panels (e.g., ContextUsagePopover)
+  - Use `<Command>` + `<Combobox>` for searchable dropdowns
+  - Use `<Tooltip>` for icon-only buttons
+- Wrap shadcn components rather than rebuilding from scratch
+- Maintain `data-slot` attributes for styling hooks (shadcn v4 standard)
+
+**3. Tailwind v4 Standards**
+- Use `@theme inline` for custom CSS variables (already in `src/index.css`)
+- Use OKLCH color format for new variables
+- Leverage dynamic spacing utilities (no arbitrary values needed in v4)
+- Avoid `@layer base` for variables; use `:root` + `@theme`
+
+**4. Design System Compliance**
+- All UI must align with `DESIGN_SYSTEM.md`:
+  - Use semantic tokens (`primary`, `muted`, `accent`, `success`, `warning`, `info`, `destructive`)
+  - 8pt grid system (spacing divisible by 4 or 8)
+  - 4 font sizes, 2 weights (semibold, regular)
+  - 60/30/10 color distribution
+  - Professional, minimal aesthetic
+
+**5. Component Architecture**
+- Use CVA (class-variance-authority) for variant styling (shadcn standard)
+- Keep components in `src/components/ui/` for primitives
+- Use `cn()` helper from `@/lib/utils` for class merging
+- Add `data-slot` attributes to component root elements
+
+### Anti-Patterns to Avoid
+
+- ❌ Building custom dropdowns when `<DropdownMenu>` exists
+- ❌ Using native `<select>` when `<Select>` or `<Combobox>` is available
+- ❌ Creating popovers from scratch instead of using `<Popover>`
+- ❌ Hardcoding colors instead of using CSS variables
+- ❌ Creating one-off components that could use shadcn primitives
+
+---
+
 ## Frontend Contract
 
 The frontend:

@@ -651,131 +651,290 @@ pub async fn execute_step_with_tools(
                     }),
                 );
 
-                // If the model requested multiple sub-agent spawns in one turn,
-                // execute them concurrently for real parallel delegation.
-                let all_subagent_spawns =
-                    calls.iter().all(|call| call.tool_name == "subagent.spawn");
-                if all_subagent_spawns && calls.len() > 1 {
-                    let spawn_observations = futures::future::join_all(calls.iter().map(|call| {
-                        let objective = call
-                            .tool_args
-                            .get("objective")
-                            .and_then(|v| v.as_str())
-                            .unwrap_or("")
-                            .trim();
-                        let agent_preset_id = call
-                            .tool_args
-                            .get("agent_preset_id")
-                            .and_then(|v| v.as_str())
-                            .map(str::trim)
-                            .filter(|v| !v.is_empty());
+                // Helper to check if a tool is read-only (safe for parallel execution)
+                let is_read_only_tool = |tool_name: &str| -> bool {
+                    matches!(
+                        tool_name,
+                        "fs.read"
+                            | "search.rg"
+                            | "search.files"
+                            | "git.status"
+                            | "git.diff"
+                            | "git.log"
+                            | "git.show"
+                            | "git.branch"
+                            | "agent.ask_user"
+                            | "agent.memory_read"
+                            | "memory.list"
+                            | "memory.read"
+                            | "skills.list_installed"
+                            | "skills.search"
+                            | "session.recall"
+                            | "web_search"
+                            | "web_fetch"
+                    )
+                };
 
-                        execute_subagent_spawn_observation(
-                            db,
-                            bus,
-                            workspace_root,
-                            tool_registry,
-                            worktree_manager,
-                            approval_gate,
-                            question_gate,
-                            run_id,
-                            task_id,
-                            &sub_agent.id,
-                            step.idx,
-                            turn,
-                            objective,
-                            agent_preset_id,
-                            &task_prompt,
-                            &goal_summary,
-                            skills_context,
-                            &available_tools,
-                            model_config.as_ref(),
-                            contract.permissions.can_spawn_children,
-                            contract.permissions.max_delegation_depth,
-                            delegation_depth,
-                        )
-                    }))
-                    .await;
-                    observations.extend(spawn_observations);
+                // Helper to check if tool might have side effects (need sequential execution)
+                let has_side_effects = |tool_name: &str| -> bool {
+                    matches!(
+                        tool_name,
+                        "fs.write"
+                            | "fs.patch"
+                            | "fs.delete"
+                            | "fs.mkdir"
+                            | "cmd.exec"
+                            | "subagent.spawn"
+                            | "agent.create_artifact"
+                            | "agent.ask_user"
+                            | "memory.upsert"
+                            | "memory.delete"
+                            | "skills.load"
+                            | "skills.remove"
+                    )
+                };
+
+                // Strategy: Parallelize read-only tools, sequential for side-effect tools
+                let read_only_calls: Vec<_> = calls
+                    .iter()
+                    .filter(|call| is_read_only_tool(&call.tool_name))
+                    .collect();
+                let side_effect_calls: Vec<_> = calls
+                    .iter()
+                    .filter(|call| has_side_effects(&call.tool_name))
+                    .collect();
+
+                // If we have multiple independent read-only calls, execute in parallel
+                let use_parallel = read_only_calls.len() > 1
+                    && side_effect_calls.is_empty()
+                    && calls.iter().all(|c| {
+                        c.tool_name == "subagent.spawn" || is_read_only_tool(&c.tool_name)
+                    });
+
+                if use_parallel {
+                    // Parallel execution for independent read-only tools
+                    // Clone values needed for the closures
+                    let task_prompt_clone = task_prompt.clone();
+                    let goal_summary_clone = goal_summary.clone();
+                    let skills_context_clone = skills_context.to_string();
+                    let available_tools_clone = available_tools.clone();
+                    let model_config_ref = model_config.as_ref();
+                    let step_idx_val = step.idx;
+
+                    let tool_call_futures: Vec<_> = calls
+                        .iter()
+                        .map(|call| {
+                            let tool_name = call.tool_name.clone();
+                            let tool_args = call.tool_args.clone();
+                            let rationale = call.rationale.clone();
+
+                            let task_prompt = task_prompt_clone.clone();
+                            let goal_summary = goal_summary_clone.clone();
+                            let skills_context = skills_context_clone.clone();
+                            let available_tools = available_tools_clone.clone();
+
+                            async move {
+                                if tool_name == "subagent.spawn" {
+                                    let objective = tool_args
+                                        .get("objective")
+                                        .and_then(|v| v.as_str())
+                                        .unwrap_or("")
+                                        .trim();
+                                    let agent_preset_id = tool_args
+                                        .get("agent_preset_id")
+                                        .and_then(|v| v.as_str())
+                                        .map(str::trim)
+                                        .filter(|v| !v.is_empty());
+
+                                    execute_subagent_spawn_observation(
+                                        db,
+                                        bus,
+                                        workspace_root,
+                                        tool_registry,
+                                        worktree_manager,
+                                        approval_gate,
+                                        question_gate,
+                                        run_id,
+                                        task_id,
+                                        &sub_agent.id,
+                                        step_idx_val,
+                                        turn,
+                                        objective,
+                                        agent_preset_id,
+                                        &task_prompt,
+                                        &goal_summary,
+                                        &skills_context,
+                                        &available_tools,
+                                        model_config_ref,
+                                        contract.permissions.can_spawn_children,
+                                        contract.permissions.max_delegation_depth,
+                                        delegation_depth,
+                                    )
+                                    .await
+                                } else {
+                                    execute_tool_call(
+                                        db,
+                                        bus,
+                                        tool_registry,
+                                        policy,
+                                        approval_gate,
+                                        question_gate,
+                                        run_id,
+                                        task_id,
+                                        &sub_agent.id,
+                                        step_idx_val as usize,
+                                        turn,
+                                        &tool_name,
+                                        &tool_args,
+                                        rationale.as_deref(),
+                                        worktree_path,
+                                        &available_tools,
+                                    )
+                                    .await
+                                }
+                            }
+                        })
+                        .collect();
+
+                    let results = futures::future::join_all(tool_call_futures).await;
+
+                    for result in results {
+                        if let Some(summary) = completion_summary_from_observation(&result) {
+                            completion_summary = Some(summary);
+                        }
+                        observations.push(result);
+                    }
                 } else {
-                    let mut completion_requested = false;
-                    // Execute each tool call sequentially when there are mixed tool
-                    // dependencies in the same turn.
-                    for call in calls {
-                        if call.tool_name == "subagent.spawn" {
-                            let objective = call
-                                .tool_args
-                                .get("objective")
-                                .and_then(|v| v.as_str())
-                                .unwrap_or("")
-                                .trim();
-                            let agent_preset_id = call
-                                .tool_args
-                                .get("agent_preset_id")
-                                .and_then(|v| v.as_str())
-                                .map(str::trim)
-                                .filter(|v| !v.is_empty());
+                    // Check if all calls are subagent spawns (for parallel delegation)
+                    let all_subagent_spawns =
+                        calls.iter().all(|call| call.tool_name == "subagent.spawn");
 
-                            let observation = execute_subagent_spawn_observation(
+                    if all_subagent_spawns && calls.len() > 1 {
+                        // If the model requested multiple sub-agent spawns in one turn,
+                        // execute them concurrently for real parallel delegation.
+                        let spawn_observations =
+                            futures::future::join_all(calls.iter().map(|call| {
+                                let objective = call
+                                    .tool_args
+                                    .get("objective")
+                                    .and_then(|v| v.as_str())
+                                    .unwrap_or("")
+                                    .trim();
+                                let agent_preset_id = call
+                                    .tool_args
+                                    .get("agent_preset_id")
+                                    .and_then(|v| v.as_str())
+                                    .map(str::trim)
+                                    .filter(|v| !v.is_empty());
+
+                                execute_subagent_spawn_observation(
+                                    db,
+                                    bus,
+                                    workspace_root,
+                                    tool_registry,
+                                    worktree_manager,
+                                    approval_gate,
+                                    question_gate,
+                                    run_id,
+                                    task_id,
+                                    &sub_agent.id,
+                                    step.idx,
+                                    turn,
+                                    objective,
+                                    agent_preset_id,
+                                    &task_prompt,
+                                    &goal_summary,
+                                    skills_context,
+                                    &available_tools,
+                                    model_config.as_ref(),
+                                    contract.permissions.can_spawn_children,
+                                    contract.permissions.max_delegation_depth,
+                                    delegation_depth,
+                                )
+                            }))
+                            .await;
+                        observations.extend(spawn_observations);
+                    } else {
+                        let mut completion_requested = false;
+                        // Execute each tool call sequentially when there are mixed tool
+                        // dependencies in the same turn.
+                        for call in calls {
+                            if call.tool_name == "subagent.spawn" {
+                                let objective = call
+                                    .tool_args
+                                    .get("objective")
+                                    .and_then(|v| v.as_str())
+                                    .unwrap_or("")
+                                    .trim();
+                                let agent_preset_id = call
+                                    .tool_args
+                                    .get("agent_preset_id")
+                                    .and_then(|v| v.as_str())
+                                    .map(str::trim)
+                                    .filter(|v| !v.is_empty());
+
+                                let observation = execute_subagent_spawn_observation(
+                                    db,
+                                    bus,
+                                    workspace_root,
+                                    tool_registry,
+                                    worktree_manager,
+                                    approval_gate,
+                                    question_gate,
+                                    run_id,
+                                    task_id,
+                                    &sub_agent.id,
+                                    step.idx,
+                                    turn,
+                                    objective,
+                                    agent_preset_id,
+                                    &task_prompt,
+                                    &goal_summary,
+                                    skills_context,
+                                    &available_tools,
+                                    model_config.as_ref(),
+                                    contract.permissions.can_spawn_children,
+                                    contract.permissions.max_delegation_depth,
+                                    delegation_depth,
+                                )
+                                .await;
+                                observations.push(observation);
+                                continue;
+                            }
+
+                            let observation = execute_tool_call(
                                 db,
                                 bus,
-                                workspace_root,
                                 tool_registry,
-                                worktree_manager,
+                                policy,
                                 approval_gate,
                                 question_gate,
                                 run_id,
                                 task_id,
                                 &sub_agent.id,
-                                step.idx,
+                                step.idx as usize,
                                 turn,
-                                objective,
-                                agent_preset_id,
-                                &task_prompt,
-                                &goal_summary,
-                                skills_context,
+                                &call.tool_name,
+                                &call.tool_args,
+                                call.rationale.as_deref(),
+                                worktree_path,
                                 &available_tools,
-                                model_config.as_ref(),
-                                contract.permissions.can_spawn_children,
-                                contract.permissions.max_delegation_depth,
-                                delegation_depth,
                             )
                             .await;
+                            if let Some(summary) = completion_summary_from_observation(&observation)
+                            {
+                                completion_summary = Some(summary);
+                                completion_requested = true;
+                            }
                             observations.push(observation);
-                            continue;
+                            if completion_requested {
+                                break;
+                            }
                         }
 
-                        let observation = execute_tool_call(
-                            db,
-                            bus,
-                            tool_registry,
-                            policy,
-                            approval_gate,
-                            question_gate,
-                            run_id,
-                            task_id,
-                            &sub_agent.id,
-                            step.idx as usize,
-                            turn,
-                            &call.tool_name,
-                            &call.tool_args,
-                            call.rationale.as_deref(),
-                            worktree_path,
-                            &available_tools,
-                        )
-                        .await;
-                        if let Some(summary) = completion_summary_from_observation(&observation) {
-                            completion_summary = Some(summary);
-                            completion_requested = true;
-                        }
-                        observations.push(observation);
                         if completion_requested {
                             break;
                         }
-                    }
-
-                    if completion_requested {
-                        break;
                     }
                 }
             }

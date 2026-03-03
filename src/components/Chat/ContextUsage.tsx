@@ -1,24 +1,12 @@
 import { Gauge, Sparkles } from "lucide-react";
 import { memo, useMemo } from "react";
 import { cn } from "@/lib/utils";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
 import type { TaskContextSnapshotView } from "@/types";
-
-type ContextUsageChipProps = {
-  snapshot: TaskContextSnapshotView;
-  onClick?: () => void;
-  active?: boolean;
-  className?: string;
-};
-
-type ContextUsagePopoverProps = {
-  snapshot: TaskContextSnapshotView;
-  className?: string;
-};
-
-type ContextUsageInlineProps = {
-  snapshot: TaskContextSnapshotView;
-  className?: string;
-};
 
 const SEGMENT_DOT_CLASS: Record<string, string> = {
   system_prompt: "bg-info/70",
@@ -29,59 +17,48 @@ const SEGMENT_DOT_CLASS: Record<string, string> = {
   free_space: "bg-success/65",
 };
 
+interface ContextUsageChipProps {
+  snapshot: TaskContextSnapshotView;
+  className?: string;
+}
+
 export const ContextUsageChip = memo(function ContextUsageChip({
   snapshot,
-  onClick,
-  active,
   className,
 }: ContextUsageChipProps) {
-  const content = (
-    <>
-      <Gauge size={13} />
-      <span className="font-mono text-[11px] text-foreground">
-        {formatTokenCompact(snapshot.used_tokens)} / {formatTokenCompact(snapshot.context_window)}
-      </span>
-      <span className="rounded-md bg-accent/70 px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">
-        {formatPercent(snapshot.usage_percentage)}
-      </span>
-    </>
-  );
-
-  if (onClick) {
-    return (
-      <button
-        type="button"
-        onClick={onClick}
-        className={cn(
-          "inline-flex h-7 items-center gap-1.5 rounded-lg border px-2 text-xs transition-colors",
-          active
-            ? "border-ring/50 bg-accent/80 text-foreground"
-            : "border-border/70 bg-background/70 text-muted-foreground hover:bg-accent/60 hover:text-foreground",
-          className
-        )}
-        title="View context window usage"
-      >
-        {content}
-      </button>
-    );
-  }
-
   return (
-    <div
-      className={cn(
-        "inline-flex h-7 items-center gap-1.5 rounded-lg border border-border/70 bg-background/70 px-2 text-xs text-muted-foreground",
-        className
-      )}
-    >
-      {content}
-    </div>
+    <Popover>
+      <PopoverTrigger asChild>
+        <button
+          type="button"
+          className={cn(
+            "inline-flex h-7 items-center gap-1.5 rounded-lg border px-2 text-xs transition-colors",
+            "border-border/70 bg-background/70 text-muted-foreground hover:bg-accent/60 hover:text-foreground",
+            className
+          )}
+          title="View context window usage"
+        >
+          <Gauge size={13} />
+          <span className="font-mono text-[11px] text-foreground">
+            {formatTokenCompact(snapshot.used_tokens)} / {formatTokenCompact(snapshot.context_window)}
+          </span>
+          <span className="rounded-md bg-accent/70 px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">
+            {formatPercent(snapshot.usage_percentage)}
+          </span>
+        </button>
+      </PopoverTrigger>
+      <PopoverContent align="end" className="w-[320px] p-0">
+        <ContextUsagePopoverContent snapshot={snapshot} />
+      </PopoverContent>
+    </Popover>
   );
 });
 
-export const ContextUsagePopover = memo(function ContextUsagePopover({
-  snapshot,
-  className,
-}: ContextUsagePopoverProps) {
+interface ContextUsagePopoverContentProps {
+  snapshot: TaskContextSnapshotView;
+}
+
+function ContextUsagePopoverContent({ snapshot }: ContextUsagePopoverContentProps) {
   const segments = useMemo(() => {
     return [...snapshot.segments].sort((a, b) => {
       if (a.key === "free_space") return 1;
@@ -91,12 +68,7 @@ export const ContextUsagePopover = memo(function ContextUsagePopover({
   }, [snapshot.segments]);
 
   return (
-    <div
-      className={cn(
-        "elevation-3 w-[320px] rounded-xl border border-border/80 bg-popover/96 p-3 backdrop-blur-md",
-        className
-      )}
-    >
+    <div className="p-3">
       <div className="mb-2 flex items-center justify-between gap-2">
         <span className="text-sm font-semibold text-foreground">Context Window</span>
         <span className="text-sm font-medium text-muted-foreground">
@@ -144,7 +116,12 @@ export const ContextUsagePopover = memo(function ContextUsagePopover({
       </div>
     </div>
   );
-});
+}
+
+interface ContextUsageInlineProps {
+  snapshot: TaskContextSnapshotView;
+  className?: string;
+}
 
 export const ContextUsageInline = memo(function ContextUsageInline({
   snapshot,
@@ -186,3 +163,5 @@ function formatPercent(value: number): string {
   }
   return `${normalized.toFixed(1)}%`;
 }
+
+export { ContextUsagePopoverContent };

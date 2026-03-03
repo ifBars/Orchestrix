@@ -12,6 +12,7 @@ use nucleo_matcher::{Config, Matcher, Utf32Str};
 
 use crate::core::tool::ToolDescriptor;
 use crate::policy::{PolicyDecision, PolicyEngine};
+use crate::tools::args::{schema_for_type, SearchFilesArgs};
 use crate::tools::types::{Tool, ToolCallOutput, ToolError};
 
 /// Tool for fuzzy file name search.
@@ -27,24 +28,7 @@ impl Tool for SearchFilesTool {
                 "Use this to quickly find files when you know part of the name."
             )
             .into(),
-            input_schema: serde_json::json!({
-                "type": "object",
-                "properties": {
-                    "pattern": {
-                        "type": "string",
-                        "description": "Fuzzy search pattern (partial file name, e.g. 'mod.rs', 'component', 'config')"
-                    },
-                    "path": {
-                        "type": "string",
-                        "description": "Directory to search in (relative to workspace root, default: '.')"
-                    },
-                    "limit": {
-                        "type": "integer",
-                        "description": "Maximum number of results (default: 20, max: 100)"
-                    }
-                },
-                "required": ["pattern"]
-            }),
+            input_schema: schema_for_type::<SearchFilesArgs>(),
             output_schema: None,
         }
     }
@@ -55,21 +39,15 @@ impl Tool for SearchFilesTool {
         cwd: &Path,
         input: serde_json::Value,
     ) -> Result<ToolCallOutput, ToolError> {
-        let pattern_text = input
-            .get("pattern")
-            .and_then(|v| v.as_str())
-            .ok_or_else(|| ToolError::InvalidInput("pattern required".into()))?;
+        let args: SearchFilesArgs = serde_json::from_value(input)
+            .map_err(|e| ToolError::InvalidInput(format!("invalid input: {}", e)))?;
 
-        if pattern_text.trim().is_empty() {
+        if args.pattern.trim().is_empty() {
             return Err(ToolError::InvalidInput("pattern must not be empty".into()));
         }
 
-        let search_path = input.get("path").and_then(|v| v.as_str()).unwrap_or(".");
-        let limit = input
-            .get("limit")
-            .and_then(|v| v.as_u64())
-            .unwrap_or(20)
-            .clamp(1, 100) as usize;
+        let search_path = args.path.as_deref().unwrap_or(".");
+        let limit = args.limit.unwrap_or(20).clamp(1, 100) as usize;
 
         let full_path = cwd.join(search_path);
         match policy.evaluate_path(&full_path) {
@@ -87,7 +65,6 @@ impl Tool for SearchFilesTool {
             )));
         }
 
-        // Collect files via ignore-aware walker
         let mut file_paths: Vec<String> = Vec::new();
         let walker = WalkBuilder::new(&full_path)
             .hidden(false)
@@ -109,9 +86,8 @@ impl Tool for SearchFilesTool {
             }
         }
 
-        // Fuzzy match and score
         let pattern = Pattern::new(
-            pattern_text,
+            &args.pattern,
             CaseMatching::Smart,
             Normalization::Smart,
             AtomKind::Fuzzy,
@@ -129,7 +105,6 @@ impl Tool for SearchFilesTool {
             })
             .collect();
 
-        // Sort by descending score, then ascending path
         scored.sort_by(|a, b| match b.0.cmp(&a.0) {
             std::cmp::Ordering::Equal => a.1.cmp(b.1),
             other => other,
@@ -151,7 +126,7 @@ impl Tool for SearchFilesTool {
         Ok(ToolCallOutput {
             ok: true,
             data: serde_json::json!({
-                "query": pattern_text,
+                "query": args.pattern,
                 "total_matches": total,
                 "shown": matches.len(),
                 "truncated": total > limit,

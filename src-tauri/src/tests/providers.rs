@@ -540,4 +540,108 @@ Create main.py
         assert_eq!(error["error"]["code"], "ENOENT");
         assert_eq!(error["error"]["message"], "File not found");
     }
+
+    // ====================================================================================
+    // GEMINI PROVIDER TESTS
+    // ====================================================================================
+
+    #[tokio::test]
+    async fn test_gemini_client_initialization() {
+        let api_key = crate::tests::load_gemini_api_key();
+        let client = crate::model::GeminiClient::new(api_key, None, None);
+
+        assert!(!client.model_id().is_empty());
+        assert_eq!(client.model_id(), "gemini-3-flash-preview");
+    }
+
+    #[tokio::test]
+    async fn test_gemini_client_with_custom_model() {
+        let api_key = crate::tests::load_gemini_api_key();
+        let client = crate::model::GeminiClient::new(
+            api_key,
+            Some("gemini-3-pro-preview".to_string()),
+            None,
+        );
+
+        assert_eq!(client.model_id(), "gemini-3-pro-preview");
+    }
+
+    #[tokio::test]
+    async fn test_gemini_simple_completion() {
+        let api_key = crate::tests::load_gemini_api_key();
+        let client = crate::model::GeminiClient::new(api_key, None, None);
+
+        let result = client
+            .complete(
+                "You are a helpful assistant.",
+                "Say 'Hello from Gemini!' and nothing else.",
+                100,
+            )
+            .await;
+
+        match result {
+            Ok(response) => {
+                assert!(!response.is_empty());
+                assert!(response.to_lowercase().contains("hello"));
+            }
+            Err(e) => {
+                panic!("Gemini completion failed: {}", e);
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn test_gemini_with_tools() {
+        use crate::core::tool::ToolDescriptor;
+
+        let api_key = crate::tests::load_gemini_api_key();
+        let client = crate::model::GeminiClient::new(api_key, None, None);
+
+        let tools = vec![ToolDescriptor {
+            name: "fs.read".to_string(),
+            description: "Read a file".to_string(),
+            input_schema: serde_json::json!({
+                "type": "object",
+                "properties": {
+                    "path": {
+                        "type": "string",
+                        "description": "Path to the file"
+                    }
+                },
+                "required": ["path"]
+            }),
+            output_schema: None,
+        }];
+
+        let req = WorkerActionRequest {
+            task_prompt: "Read the file at /test/file.txt".to_string(),
+            goal_summary: "Read a file".to_string(),
+            context: "Testing tool usage".to_string(),
+            available_tools: vec!["fs.read".to_string()],
+            tool_descriptors: tools,
+            prior_observations: vec![],
+            max_tokens: Some(500),
+        };
+
+        let result = client.decide_action(req).await;
+
+        match result {
+            Ok(decision) => {
+                // Should either make a tool call or complete
+                match decision.action {
+                    crate::model::WorkerAction::ToolCall { tool_name, .. } => {
+                        assert_eq!(tool_name, "fs.read");
+                    }
+                    crate::model::WorkerAction::Complete { summary } => {
+                        // Also valid - may complete if it can't/won't use tools
+                        assert!(!summary.is_empty());
+                    }
+                    _ => {}
+                }
+            }
+            Err(e) => {
+                panic!("Gemini tool test failed: {}", e);
+            }
+        }
+    }
 }

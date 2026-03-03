@@ -492,10 +492,8 @@ impl KimiClient {
                             .unwrap_or_else(|_| serde_json::json!({}));
                     // Kimi returns sanitised names (underscores); reverse-lookup the
                     // canonical dot-separated name from the original descriptors.
-                    let canonical_name = tool_name_from_kimi_with_lookup(
-                        &call.function.name,
-                        &req.tool_descriptors,
-                    );
+                    let canonical_name =
+                        tool_name_from_kimi_with_lookup(&call.function.name, &req.tool_descriptors);
                     calls.push(WorkerToolCall {
                         tool_name: canonical_name,
                         tool_args: args_json,

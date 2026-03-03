@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { CodeEditor } from "@/components/ui/CodeEditor";
+import { SafeStreamdown } from "../messages/SafeStreamdown";
 import { cn } from "@/lib/utils";
 import { FileCode, ChevronDown, ChevronRight } from "lucide-react";
 import type { SupportedLanguage } from "@/lib/codemirror/languages";
@@ -117,6 +117,30 @@ function detectLanguageFromFilename(filename: string): SupportedLanguage {
   return langMap[ext] || "plain";
 }
 
+function getMarkdownLanguage(language: SupportedLanguage): string {
+  const langMap: Record<SupportedLanguage, string> = {
+    typescript: "typescript",
+    tsx: "tsx",
+    javascript: "javascript",
+    jsx: "jsx",
+    rust: "rust",
+    python: "python",
+    go: "go",
+    java: "java",
+    cpp: "cpp",
+    csharp: "csharp",
+    json: "json",
+    yaml: "yaml",
+    xml: "xml",
+    html: "html",
+    css: "css",
+    markdown: "markdown",
+    shell: "bash",
+    plain: "",
+  };
+  return langMap[language] || "";
+}
+
 type ToolCodeDisplayProps = {
   codeContent: ToolCodeContent;
   className?: string;
@@ -138,6 +162,11 @@ export function ToolCodeDisplay({
       : codeContent.type === "patch_diff"
       ? "Diff"
       : "Code";
+
+  const markdownLanguage = getMarkdownLanguage(codeContent.language);
+  const markdownContent = markdownLanguage
+    ? `\`\`\`${markdownLanguage}\n${codeContent.content}\n\`\`\``
+    : `\`\`\`\n${codeContent.content}\n\`\`\``;
 
   return (
     <div className={cn("rounded-lg border border-border/60 bg-card/30", className)}>
@@ -162,16 +191,10 @@ export function ToolCodeDisplay({
       </button>
 
       {expanded && (
-        <div className="border-t border-border/50">
-          <CodeEditor
-            value={codeContent.content}
-            language={codeContent.language}
-            filename={codeContent.filename}
-            readOnly
-            minHeight="120px"
-            maxHeight="400px"
-            className="text-xs"
-          />
+        <div className="border-t border-border/50 max-h-[400px] overflow-auto">
+          <div className="prose prose-sm max-w-none p-3 text-foreground dark:prose-invert">
+            <SafeStreamdown content={markdownContent} />
+          </div>
         </div>
       )}
     </div>
