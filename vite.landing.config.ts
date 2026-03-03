@@ -19,6 +19,7 @@ function landingHtmlPlugin(): Plugin {
 }
 
 export default defineConfig({
+  base: "/Orchestrix/",
   root: ".",
   plugins: [landingHtmlPlugin(), react(), tailwindcss()],
   resolve: {
