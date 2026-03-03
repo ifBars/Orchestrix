@@ -1,10 +1,35 @@
 {
   "version": 1,
   "skills": {
+    "frontend-design": {
+      "source": "anthropics/skills",
+      "sourceType": "github",
+      "computedHash": "516bd2154eb843a8240e43d5b285229129853114ad7075a5e141e1c08e408c84"
+    },
     "gemini-api-dev": {
       "source": "google-gemini/gemini-skills",
       "sourceType": "github",
       "computedHash": "9bc5e171e7192ae36bb81950735ed729231870efa7750a30719f91c7ad31495a"
+    },
+    "shadcn-ui": {
+      "source": "google-labs-code/stitch-skills",
+      "sourceType": "github",
+      "computedHash": "119a14a004bd30fa99d386df599bd0db8d057cca146f7ee08349daed48b2ea55"
+    },
+    "tailwind-theme-builder": {
+      "source": "jezweb/claude-skills",
+      "sourceType": "github",
+      "computedHash": "da374e337aa164d77b310b952aebf3fa99c8f7f0440a9bad3f22af2eacecdca4"
+    },
+    "web-design-methodology": {
+      "source": "jezweb/claude-skills",
+      "sourceType": "github",
+      "computedHash": "8907a9657cbae70aba01e4b698045e4f6b7d421e299493390bbf5e409c057dff"
+    },
+    "web-design-patterns": {
+      "source": "jezweb/claude-skills",
+      "sourceType": "github",
+      "computedHash": "7ed5582561902d6af3720b585d53575ab066dc7e4efbd902805ae8e6bca8e8ba"
     }
   }
 }

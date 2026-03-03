@@ -8,6 +8,9 @@
     "build": "tsc && vite build",
     "typecheck": "tsc --noEmit",
     "preview": "vite preview",
+    "dev:landing": "vite dev --config vite.landing.config.ts",
+    "build:landing": "vite build --config vite.landing.config.ts && node -e \"require('fs').renameSync('dist-landing/index.landing.html', 'dist-landing/index.html')\"",
+    "preview:landing": "vite preview --config vite.landing.config.ts",
     "tauri": "tauri",
     "benchmark_app": "tauri dev --config src-tauri/tauri.benchmark.conf.json",
     "bench:embeddings": "cargo run --manifest-path src-tauri/Cargo.toml --bin embeddings_bench --"

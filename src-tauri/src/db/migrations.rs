@@ -300,6 +300,30 @@ CREATE INDEX idx_tasks_workspace_root ON tasks(workspace_root, updated_at);
 ALTER TABLE task_canvases ADD COLUMN version INTEGER DEFAULT 0;
 "#,
     },
+    Migration {
+        version: 13,
+        sql: r#"
+CREATE TABLE pending_questions (
+    id                TEXT PRIMARY KEY,
+    task_id           TEXT NOT NULL REFERENCES tasks(id),
+    run_id            TEXT NOT NULL,
+    sub_agent_id      TEXT NOT NULL,
+    tool_call_id      TEXT NOT NULL,
+    question          TEXT NOT NULL,
+    options_json      TEXT NOT NULL,
+    multiple          INTEGER NOT NULL DEFAULT 0,
+    allow_custom      INTEGER NOT NULL DEFAULT 1,
+    timeout_secs      INTEGER,
+    default_option_id TEXT,
+    created_at        TEXT NOT NULL,
+    expires_at        TEXT
+);
+
+CREATE INDEX idx_pending_questions_task ON pending_questions(task_id);
+CREATE INDEX idx_pending_questions_run ON pending_questions(run_id);
+CREATE INDEX idx_pending_questions_expires ON pending_questions(expires_at);
+"#,
+    },
 ];
 
 pub(super) fn run_migrations(conn: &Connection) -> Result<(), DbError> {

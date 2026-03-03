@@ -505,13 +505,18 @@ export interface UserQuestionRequestView {
   options: UserQuestionOption[];
   multiple: boolean;
   allow_custom: boolean;
+  timeout_secs: number | null;
+  default_option_id: string | null;
   created_at: string;
+  expires_at: string | null;
 }
 
 export interface UserQuestionAnswer {
   selected_option_ids: string[];
   custom_text?: string | null;
   final_text: string;
+  response_time_secs?: number;
+  was_default?: boolean;
 }
 
 export interface UserMessageRow {

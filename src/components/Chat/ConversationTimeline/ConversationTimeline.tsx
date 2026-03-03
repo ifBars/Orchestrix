@@ -1,5 +1,5 @@
 import { memo, useEffect, useMemo, useRef, useState } from "react";
-import { AlertTriangle } from "lucide-react";
+import { AlertTriangle, Clock } from "lucide-react";
 import { runtimeEventBuffer, type ConversationItem } from "@/runtime/eventBuffer";
 import type { AgentMessageStream } from "@/runtime/eventBuffer";
 import type {
@@ -70,6 +70,49 @@ const TimelineBlocksView = memo(function TimelineBlocksView({ blocks, renderKey 
   );
 });
 
+function QuestionTimeoutCountdown({ 
+  expiresAt,
+}: { 
+  expiresAt: string | null; 
+  timeoutSecs: number | null;
+}) {
+  const [remaining, setRemaining] = useState<number | null>(null);
+
+  useEffect(() => {
+    if (!expiresAt) {
+      setRemaining(null);
+      return;
+    }
+
+    const updateRemaining = () => {
+      const expires = new Date(expiresAt).getTime();
+      const now = Date.now();
+      const diff = Math.max(0, Math.floor((expires - now) / 1000));
+      setRemaining(diff);
+    };
+
+    updateRemaining();
+    const interval = setInterval(updateRemaining, 1000);
+    return () => clearInterval(interval);
+  }, [expiresAt]);
+
+  if (remaining === null || remaining < 0) return null;
+
+  const isUrgent = remaining < 60;
+  const minutes = Math.floor(remaining / 60);
+  const seconds = remaining % 60;
+  const formatted = minutes > 0 
+    ? `${minutes}:${seconds.toString().padStart(2, '0')}` 
+    : `${seconds}s`;
+
+  return (
+    <span className={`flex items-center gap-1 text-xs ${isUrgent ? 'text-destructive animate-pulse' : 'text-muted-foreground'}`}>
+      <Clock size={12} />
+      {formatted}
+    </span>
+  );
+}
+
 export function ConversationTimeline(props: ConversationTimelineProps) {
   const delegatedSubAgentIds = useMemo(
     () => collectDelegatedSubAgentIds(props.rawEvents, props.visibleItems),
@@ -98,6 +141,19 @@ export function ConversationTimeline(props: ConversationTimelineProps) {
     Record<string, string[]>
   >({});
   const [customTextByQuestion, setCustomTextByQuestion] = useState<Record<string, string>>({});
+
+  // Pre-select default options when questions change
+  useEffect(() => {
+    setSelectedOptionIdsByQuestion((prev) => {
+      const next = { ...prev };
+      for (const question of props.pendingQuestions) {
+        if (!(question.id in next) && question.default_option_id) {
+          next[question.id] = [question.default_option_id];
+        }
+      }
+      return next;
+    });
+  }, [props.pendingQuestions]);
 
   // Auto-scroll to bottom when new content arrives
   useEffect(() => {
@@ -217,10 +273,17 @@ export function ConversationTimeline(props: ConversationTimelineProps) {
                   key={question.id}
                   className="rounded-lg border border-primary/25 bg-background/60 p-3"
                 >
-                  <p className="text-sm text-foreground">{question.question}</p>
+                  <div className="flex items-start justify-between gap-2">
+                    <p className="text-sm text-foreground">{question.question}</p>
+                    <QuestionTimeoutCountdown 
+                      expiresAt={question.expires_at} 
+                      timeoutSecs={question.timeout_secs}
+                    />
+                  </div>
                   <div className="mt-2 space-y-2">
                     {question.options.map((option) => {
                       const checked = selected.includes(option.id);
+                      const isDefault = question.default_option_id === option.id;
                       return (
                         <label key={option.id} className="flex items-start gap-2 text-xs">
                           <input
@@ -243,6 +306,9 @@ export function ConversationTimeline(props: ConversationTimelineProps) {
                           />
                           <span>
                             <span className="font-medium text-foreground">{option.label}</span>
+                            {isDefault && (
+                              <span className="ml-1 text-xs text-muted-foreground">(default)</span>
+                            )}
                             {option.description ? (
                               <span className="ml-1 text-muted-foreground">
                                 {option.description}
@@ -283,11 +349,15 @@ export function ConversationTimeline(props: ConversationTimelineProps) {
                           (pickedLabels.length > 0
                             ? pickedLabels.join(question.multiple ? ", " : "")
                             : "");
+                        const wasDefault = question.default_option_id !== null &&
+                          selected.length === 1 &&
+                          selected[0] === question.default_option_id;
                         props
                           .onResolveQuestion(question.id, {
                             selected_option_ids: selected,
                             custom_text: customText.trim() ? customText.trim() : null,
                             final_text: finalText,
+                            was_default: wasDefault,
                           })
                           .catch(console.error);
                       }}

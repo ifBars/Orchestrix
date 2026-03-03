@@ -348,9 +348,15 @@ pub struct AgentAskUserArgs {
     /// Allow selecting multiple choices
     #[serde(default)]
     pub multiple: Option<bool>,
-    /// Allow custom text input
+    /// Allow custom text input (default: true)
     #[serde(default = "default_true")]
     pub allow_custom: Option<bool>,
+    /// Timeout in seconds for the question (default: 300)
+    #[serde(default)]
+    pub timeout_secs: Option<u64>,
+    /// ID of the option to pre-select as default
+    #[serde(default)]
+    pub default_option_id: Option<String>,
 }
 
 /// Option for user questions.

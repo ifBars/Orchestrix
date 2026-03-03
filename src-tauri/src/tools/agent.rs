@@ -18,7 +18,7 @@ impl Tool for AgentAskUserTool {
     fn descriptor(&self) -> ToolDescriptor {
         ToolDescriptor {
             name: "agent.ask_user".into(),
-            description: "Ask the user a clarification/preference question and pause execution until answered.".into(),
+            description: "Ask the user a clarification/preference question and pause execution until answered. Use timeout_secs to set a deadline (default 300s). Use default_option_id to pre-select an option.".into(),
             input_schema: schema_for_type::<AgentAskUserArgs>(),
             output_schema: None,
         }
@@ -68,6 +68,16 @@ impl Tool for AgentAskUserTool {
             })
             .collect::<Result<Vec<UserQuestionOption>, ToolError>>()?;
 
+        // Validate default_option_id if provided
+        if let Some(ref default_id) = args.default_option_id {
+            if !options.iter().any(|o| &o.id == default_id) {
+                return Err(ToolError::InvalidInput(format!(
+                    "default_option_id '{}' not found in options",
+                    default_id
+                )));
+            }
+        }
+
         Err(ToolError::UserQuestionRequired {
             question: UserQuestionRequest {
                 id: String::new(),
@@ -79,7 +89,10 @@ impl Tool for AgentAskUserTool {
                 options,
                 multiple: args.multiple.unwrap_or(false),
                 allow_custom: args.allow_custom.unwrap_or(true),
+                timeout_secs: args.timeout_secs,
+                default_option_id: args.default_option_id,
                 created_at: String::new(),
+                expires_at: None,
             },
         })
     }

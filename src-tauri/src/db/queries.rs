@@ -1393,3 +1393,138 @@ pub fn get_events_after_seq(
         .collect::<Result<Vec<_>, _>>()?;
     Ok(rows)
 }
+
+// ---------------------------------------------------------------------------
+// Pending questions queries
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Clone, Serialize)]
+pub struct PendingQuestionRow {
+    pub id: String,
+    pub task_id: String,
+    pub run_id: String,
+    pub sub_agent_id: String,
+    pub tool_call_id: String,
+    pub question: String,
+    pub options_json: String,
+    pub multiple: bool,
+    pub allow_custom: bool,
+    pub timeout_secs: Option<i64>,
+    pub default_option_id: Option<String>,
+    pub created_at: String,
+    pub expires_at: Option<String>,
+}
+
+pub fn insert_pending_question(db: &Database, row: &PendingQuestionRow) -> Result<(), DbError> {
+    let conn = db.conn();
+    let multiple_int = if row.multiple { 1i64 } else { 0i64 };
+    let allow_custom_int = if row.allow_custom { 1i64 } else { 0i64 };
+    conn.execute(
+        "INSERT INTO pending_questions
+         (id, task_id, run_id, sub_agent_id, tool_call_id, question, options_json,
+          multiple, allow_custom, timeout_secs, default_option_id, created_at, expires_at)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)",
+        params![
+            row.id,
+            row.task_id,
+            row.run_id,
+            row.sub_agent_id,
+            row.tool_call_id,
+            row.question,
+            row.options_json,
+            multiple_int,
+            allow_custom_int,
+            row.timeout_secs,
+            row.default_option_id,
+            row.created_at,
+            row.expires_at,
+        ],
+    )?;
+    Ok(())
+}
+
+pub fn get_pending_question(
+    db: &Database,
+    id: &str,
+) -> Result<Option<PendingQuestionRow>, DbError> {
+    let conn = db.conn();
+    let mut stmt = conn.prepare(
+        "SELECT id, task_id, run_id, sub_agent_id, tool_call_id, question, options_json,
+                multiple, allow_custom, timeout_secs, default_option_id, created_at, expires_at
+         FROM pending_questions WHERE id = ?1",
+    )?;
+    let mut rows = stmt.query_map(params![id], |row| {
+        let multiple_int: i64 = row.get(7)?;
+        let allow_custom_int: i64 = row.get(8)?;
+        Ok(PendingQuestionRow {
+            id: row.get(0)?,
+            task_id: row.get(1)?,
+            run_id: row.get(2)?,
+            sub_agent_id: row.get(3)?,
+            tool_call_id: row.get(4)?,
+            question: row.get(5)?,
+            options_json: row.get(6)?,
+            multiple: multiple_int != 0,
+            allow_custom: allow_custom_int != 0,
+            timeout_secs: row.get(9)?,
+            default_option_id: row.get(10)?,
+            created_at: row.get(11)?,
+            expires_at: row.get(12)?,
+        })
+    })?;
+    match rows.next() {
+        Some(row) => Ok(Some(row?)),
+        None => Ok(None),
+    }
+}
+
+pub fn list_pending_questions_for_task(
+    db: &Database,
+    task_id: &str,
+) -> Result<Vec<PendingQuestionRow>, DbError> {
+    let conn = db.conn();
+    let mut stmt = conn.prepare(
+        "SELECT id, task_id, run_id, sub_agent_id, tool_call_id, question, options_json,
+                multiple, allow_custom, timeout_secs, default_option_id, created_at, expires_at
+         FROM pending_questions
+         WHERE task_id = ?1
+         ORDER BY created_at ASC",
+    )?;
+    let rows = stmt
+        .query_map(params![task_id], |row| {
+            let multiple_int: i64 = row.get(7)?;
+            let allow_custom_int: i64 = row.get(8)?;
+            Ok(PendingQuestionRow {
+                id: row.get(0)?,
+                task_id: row.get(1)?,
+                run_id: row.get(2)?,
+                sub_agent_id: row.get(3)?,
+                tool_call_id: row.get(4)?,
+                question: row.get(5)?,
+                options_json: row.get(6)?,
+                multiple: multiple_int != 0,
+                allow_custom: allow_custom_int != 0,
+                timeout_secs: row.get(9)?,
+                default_option_id: row.get(10)?,
+                created_at: row.get(11)?,
+                expires_at: row.get(12)?,
+            })
+        })?
+        .collect::<Result<Vec<_>, _>>()?;
+    Ok(rows)
+}
+
+pub fn delete_pending_question(db: &Database, id: &str) -> Result<(), DbError> {
+    let conn = db.conn();
+    conn.execute("DELETE FROM pending_questions WHERE id = ?1", params![id])?;
+    Ok(())
+}
+
+pub fn delete_pending_questions_for_task(db: &Database, task_id: &str) -> Result<(), DbError> {
+    let conn = db.conn();
+    conn.execute(
+        "DELETE FROM pending_questions WHERE task_id = ?1",
+        params![task_id],
+    )?;
+    Ok(())
+}

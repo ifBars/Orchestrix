@@ -160,6 +160,7 @@ fn parse_sub_agent_contract(context_json: Option<&str>) -> SubAgentContract {
 
 impl Orchestrator {
     pub fn new(db: Arc<Database>, bus: Arc<EventBus>, workspace_root: PathBuf) -> Self {
+        let db_clone = db.clone();
         Self {
             db,
             bus,
@@ -167,7 +168,7 @@ impl Orchestrator {
             tool_registry: Arc::new(ToolRegistry::default()),
             worktree_manager: Arc::new(WorktreeManager::new()),
             approval_gate: Arc::new(ApprovalGate::default()),
-            question_gate: Arc::new(UserQuestionGate::default()),
+            question_gate: Arc::new(UserQuestionGate::new(Some(db_clone))),
             active: Arc::new(Mutex::new(HashMap::new())),
         }
     }
@@ -209,7 +210,10 @@ impl Orchestrator {
     }
 
     pub fn list_pending_questions(&self, task_id: Option<&str>) -> Vec<UserQuestionRequest> {
-        self.question_gate.list_pending(task_id)
+        match task_id {
+            Some(tid) => self.question_gate.list_pending_from_db(tid),
+            None => self.question_gate.list_pending(None),
+        }
     }
 
     pub fn resolve_question(

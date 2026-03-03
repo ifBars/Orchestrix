@@ -397,6 +397,8 @@ async fn handle_planning_tool_calls(
                 question.options.clone(),
                 question.multiple,
                 question.allow_custom,
+                question.timeout_secs,
+                question.default_option_id.clone(),
             );
 
             let _ = emit_and_record(
@@ -415,7 +417,9 @@ async fn handle_planning_tool_calls(
                 }),
             );
 
-            match timeout(Duration::from_secs(300), receiver).await {
+            // Use question-specific timeout or default 300s
+            let timeout_duration = Duration::from_secs(question.timeout_secs.unwrap_or(300));
+            match timeout(timeout_duration, receiver).await {
                 Ok(Ok(answer)) => {
                     let _ = emit_and_record(
                         db,

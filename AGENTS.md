@@ -1,7 +1,14 @@
 # AGENTS.md
 
 This document defines the agent architecture, roles, execution model, and design constraints for the **Tauri-based lightweight AI agent desktop app**.  
-The app is **agent-management–only** (no human code editing) and is optimized for low overhead, deterministic execution, and extensibility.
+The app is optimized for low overhead, deterministic execution, and extensibility.
+
+---
+
+## Important NOTES
+
+- **Delete then re-write**: When re-writing a file, delete it first, then write the new file, instead of trying to replace it's content.
+- **YAGNI with backbone**: Do not write code for hypothetical future needs. Implement only what is required now. Build scalable, maintainable foundations without dead code—extensibility comes from clean architecture, not speculative utilities. You can always add it later when the need is real.
 
 ---
 
@@ -13,7 +20,7 @@ The app is **agent-management–only** (no human code editing) and is optimized 
 - **Human-in-the-loop by default**: User review, approval, and intervention points are first-class.
 - **Transparency-first UX**: Users can inspect decisions, tool activity, and artifacts throughout a run.
 - **Condensed, non-cluttered visualization**: Show high-signal summaries by default with expandable detail.
-- **Minimal surface area**: No embedded editor, no live code manipulation by humans.
+- **Minimal surface area**: Humans view and inspect code and artifacts; they do not directly orchestrate execution or invoke tools.
 - **Model-agnostic by design**: MiniMax, Kimi, and GLM (Z.AI/Zhipu) are supported through the same planner/worker interfaces.
 
 ---
@@ -25,8 +32,6 @@ Agents are isolated execution contexts with:
 - Scoped tool permissions
 - Independent budgets (tokens, time, tools)
 - Deterministic inputs and outputs
-
-Agents do **not** directly manipulate UI or global state.
 
 ---
 
@@ -58,20 +63,6 @@ Agents do **not** directly manipulate UI or global state.
 
 ---
 
-## Future Agent Roles (Not Implemented)
-
-### Reviewer Agent
-- Validates artifacts (tests, outputs, structure)
-- Verifies completion criteria
-- Flags failures or regressions
-
-### Integrator Agent
-- Combines outputs from multiple workers
-- Produces final artifact set
-- Prepares summary result
-
----
-
 ## Task Lifecycle
 
 1. **Task Created**
@@ -91,15 +82,11 @@ Agents do **not** directly manipulate UI or global state.
    - Events streamed to UI with progressive disclosure (summary first, full detail on demand).
    - User remains involved with live visibility and can cancel at any time.
 
-4. **Completion**
-   - Task marked as `completed` or `failed`
-   - Artifacts & chat finalized and persisted
-
 ---
 
 ## Sub-Agents
 
-Sub-agents are planner-defined delegated execution units.
+Sub-agents are delegated execution units.
 
 Canonical behavior is defined in `SUB_AGENTS_SPEC.md`.
 
@@ -133,8 +120,6 @@ Each tool invocation is evaluated against:
 - Workspace scope
 - Command allowlist
 - Network access policy
-- Explicit approval gates (future)
-
 All tool calls are audited.
 
 ---
@@ -200,7 +185,7 @@ Events for which the batcher flushes immediately (no 100ms delay): `task.*`, `ag
 
 Plan mode is **multi-turn**: the agent may use tools to explore the workspace, then must submit the plan by calling `agent.create_artifact`. Only then is the plan artifact written and `agent.plan_ready` emitted.
 
-**Artifact events:** `artifact.created` may optionally include `content` or `content_preview` for UI preview. Future: `artifact.content_delta` for streaming artifact content.
+**Artifact events:** `artifact.created` may optionally include `content` or `content_preview` for UI preview.
 
 ---
 
@@ -228,7 +213,7 @@ Crash recovery is mandatory.
 ### Tech Stack
 
 - **Tailwind CSS v4**: Primary styling framework using the new `@theme` directive and OKLCH colors
-- **shadcn/ui**: Component library built on Radix UI primitives (use `npx shadcn add <component>`)
+- **shadcn/ui**: Component library built on Radix UI primitives (use `bunx shadcn add <component>`)
 - **Lucide Icons**: Icon library (already configured in components.json)
 
 ### Required Patterns
@@ -312,17 +297,6 @@ Agents are **tools**, not replacements for intent.
 
 ---
 
-## Versioning
-
-This document applies to:
-- Agent System
-- Multi-provider execution (MiniMax + Kimi + GLM/Zhipu)
-- No external MCP servers yet
-
-Future revisions must preserve backward compatibility where possible.
-
----
-
 ## References
 
 ### Documentation
@@ -340,5 +314,3 @@ Future revisions must preserve backward compatibility where possible.
 ## IMPORTANT NOTES
 
 ALWAYS USE BUN. DO NOT EVER USE NPM, PNPM, OR ANY OTHER PACKAGE MANAGER BESIDES BUN.
-
-When re-writing a file, delete it first, then write the new file, instead of trying to replace it's content.
