@@ -20,8 +20,11 @@ export function Composer() {
   const [mentionStart, setMentionStart] = useState<number | null>(null);
   const [mentionItems, setMentionItems] = useState<WorkspaceReferenceCandidate[]>([]);
   const [mentionIndex, setMentionIndex] = useState(0);
+  const [suggestion, setSuggestion] = useState<string>("");
+  const [isFetchingSuggestion, setIsFetchingSuggestion] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const mentionRequestSeq = useRef(0);
+  const lastFocusedTaskId = useRef<string | null>(null);
 
   const [
     createTask,
@@ -36,6 +39,7 @@ export function Composer() {
     selectProviderModel,
     workflowMode,
     setWorkflowMode,
+    promptSuggestionSettings,
   ] = useAppStore(
     useShallow((state) => [
       state.createTask,
@@ -50,6 +54,7 @@ export function Composer() {
       state.selectProviderModel,
       state.workflowMode,
       state.setWorkflowMode,
+      state.promptSuggestionSettings,
     ])
   );
 
@@ -126,6 +131,11 @@ export function Composer() {
     el.style.height = "auto";
     el.style.height = `${Math.min(el.scrollHeight, 200)}px`;
 
+    // Clear suggestion when user starts typing
+    if (suggestion) {
+      setSuggestion("");
+    }
+
     const ctx = getMentionContext(e.target.value, e.target.selectionStart ?? e.target.value.length);
     if (!ctx) {
       setMentionOpen(false);
@@ -138,6 +148,58 @@ export function Composer() {
     setMentionQuery(ctx.query);
     setMentionStart(ctx.start);
     setMentionIndex(0);
+  };
+
+  // Handle focus to fetch prompt suggestion
+  const handleFocus = async () => {
+    // Only fetch suggestion if:
+    // 1. There's a selected task that we can continue chatting with
+    // 2. Prompt suggestions are enabled in settings
+    // 3. There's no existing prompt text
+    // 4. We haven't already fetched for this task focus
+    if (!selectedTask || !canContinueChat || !promptSuggestionSettings.enabled || prompt.trim().length > 0) {
+      return;
+    }
+
+    // Don't re-fetch if we already have a suggestion for this task
+    if (lastFocusedTaskId.current === selectedTask.id && suggestion) {
+      return;
+    }
+
+    lastFocusedTaskId.current = selectedTask.id;
+
+    setIsFetchingSuggestion(true);
+    try {
+      const result = await invoke<string>("generate_prompt_suggestion", {
+        taskId: selectedTask.id,
+        provider: selectedProvider,
+        model: selectedModel,
+      });
+      if (result && result.trim().length > 0) {
+        setSuggestion(result.trim());
+      }
+    } catch (err) {
+      // Silent fail - just don't show suggestion
+      console.debug("Failed to fetch prompt suggestion:", err);
+    } finally {
+      setIsFetchingSuggestion(false);
+    }
+  };
+
+  // Accept suggestion on Tab key
+  const acceptSuggestion = () => {
+    if (suggestion && !prompt.trim()) {
+      setPrompt(suggestion);
+      setSuggestion("");
+      // Update textarea height
+      const textarea = textareaRef.current;
+      if (textarea) {
+        textarea.style.height = "auto";
+        textarea.style.height = `${Math.min(textarea.scrollHeight, 200)}px`;
+      }
+      return true;
+    }
+    return false;
   };
 
   useEffect(() => {
@@ -288,48 +350,63 @@ export function Composer() {
 
       {/* Input container */}
       <div className="elevation-2 rounded-2xl border border-border/80 bg-card/92 transition-colors focus-within:border-ring/40">
-        <textarea
-          ref={textareaRef}
-          value={prompt}
-          onChange={handleInput}
-          onKeyDown={(e) => {
-            if (mentionOpen && mentionItems.length > 0) {
-              if (e.key === "ArrowDown") {
-                e.preventDefault();
-                setMentionIndex((idx) => (idx + 1) % mentionItems.length);
-                return;
+        <div className="relative">
+          <textarea
+            ref={textareaRef}
+            value={prompt}
+            onChange={handleInput}
+            onFocus={handleFocus}
+            onKeyDown={(e) => {
+              // Handle Tab to accept suggestion
+              if (e.key === "Tab" && !mentionOpen) {
+                if (acceptSuggestion()) {
+                  e.preventDefault();
+                  return;
+                }
               }
-              if (e.key === "ArrowUp") {
-                e.preventDefault();
-                setMentionIndex((idx) => (idx - 1 + mentionItems.length) % mentionItems.length);
-                return;
-              }
-              if (e.key === "Enter" || e.key === "Tab") {
-                e.preventDefault();
-                insertMention(mentionItems[mentionIndex] ?? mentionItems[0]);
-                return;
-              }
-              if (e.key === "Escape") {
-                e.preventDefault();
-                setMentionOpen(false);
-                return;
-              }
-            }
 
-            if (e.key === "Enter" && !e.shiftKey) {
-              e.preventDefault();
-              submit().catch(console.error);
+              if (mentionOpen && mentionItems.length > 0) {
+                if (e.key === "ArrowDown") {
+                  e.preventDefault();
+                  setMentionIndex((idx) => (idx + 1) % mentionItems.length);
+                  return;
+                }
+                if (e.key === "ArrowUp") {
+                  e.preventDefault();
+                  setMentionIndex((idx) => (idx - 1 + mentionItems.length) % mentionItems.length);
+                  return;
+                }
+                if (e.key === "Enter" || e.key === "Tab") {
+                  e.preventDefault();
+                  insertMention(mentionItems[mentionIndex] ?? mentionItems[0]);
+                  return;
+                }
+                if (e.key === "Escape") {
+                  e.preventDefault();
+                  setMentionOpen(false);
+                  return;
+                }
+              }
+
+              if (e.key === "Enter" && !e.shiftKey) {
+                e.preventDefault();
+                submit().catch(console.error);
+              }
+            }}
+            className="block w-full resize-none bg-transparent px-4 pt-3 pb-2 text-sm leading-relaxed text-foreground outline-none placeholder:text-muted-foreground/70"
+            placeholder={
+              isFetchingSuggestion
+                ? "Getting suggestion..."
+                : canContinueChat && suggestion
+                ? suggestion
+                : canContinueChat
+                ? "Send a follow-up message..."
+                : "Describe what you want to build..."
             }
-          }}
-          className="block w-full resize-none bg-transparent px-4 pt-3 pb-2 text-sm leading-relaxed text-foreground outline-none placeholder:text-muted-foreground/70"
-          placeholder={
-            canContinueChat
-              ? "Send a follow-up message..."
-              : "Describe what you want to build..."
-          }
-          rows={1}
-          style={{ minHeight: "42px", maxHeight: "200px" }}
-        />
+            rows={1}
+            style={{ minHeight: "42px", maxHeight: "200px" }}
+          />
+        </div>
 
         {mentionOpen && mentionItems.length > 0 && (
           <div className="mx-3 mb-2 rounded-xl border border-border/80 bg-background/95 p-1.5 elevation-2">

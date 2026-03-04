@@ -11,6 +11,7 @@ pub mod providers;
 pub mod questions;
 pub mod runs;
 pub mod skills;
+pub mod suggestions;
 pub mod tasks;
 pub mod workspace;
 pub mod workspace_skills;

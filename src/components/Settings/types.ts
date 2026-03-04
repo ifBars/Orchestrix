@@ -1,7 +1,7 @@
 import type { LucideIcon } from "lucide-react";
-import { Bot, Box, Brain, Cpu, Server, Settings, TestTube2 } from "lucide-react";
+import { Bot, Box, Brain, Cpu, Lightbulb, Server, Settings, TestTube2 } from "lucide-react";
 
-export type SettingsSectionId = "general" | "providers" | "embeddings" | "agents" | "skills" | "mcp" | "context";
+export type SettingsSectionId = "general" | "providers" | "embeddings" | "agents" | "skills" | "mcp" | "context" | "suggestions";
 
 export type SettingsSectionItem = {
   id: SettingsSectionId;
@@ -52,5 +52,11 @@ export const SETTINGS_SECTIONS: readonly SettingsSectionItem[] = [
     label: "Context",
     description: "Memory, compaction, and context budget controls",
     icon: Brain,
+  },
+  {
+    id: "suggestions",
+    label: "Suggestions",
+    description: "Prompt suggestions for follow-up messages",
+    icon: Lightbulb,
   },
 ];

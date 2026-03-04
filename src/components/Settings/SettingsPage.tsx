@@ -7,6 +7,7 @@ import { GeneralSection } from "@/components/Settings/GeneralSection";
 import { McpSection } from "@/components/Settings/McpSection";
 import { ProvidersSection } from "@/components/Settings/ProvidersSection";
 import { SkillsSection } from "@/components/Settings/SkillsSection";
+import { SuggestionsSection } from "@/components/Settings/SuggestionsSection";
 import { SETTINGS_SECTIONS, type SettingsSectionId } from "@/components/Settings/types";
 
 type SettingsPageProps = {
@@ -62,6 +63,8 @@ function renderSection(section: SettingsSectionId) {
       return <McpSection />;
     case "context":
       return <ContextSection />;
+    case "suggestions":
+      return <SuggestionsSection />;
     default:
       return <GeneralSection />;
   }

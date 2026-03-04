@@ -106,6 +106,12 @@ type AppStoreState = {
   artifactsByTask: Record<string, ArtifactRow[]>;
   taskLinksByTask: Record<string, string[]>;
   bootstrapped: boolean;
+  promptSuggestionSettings: {
+    enabled: boolean;
+    context_turns: number;
+    suggestion_model: string | null;
+    system_prompt: string | null;
+  };
 
   bootstrap: () => Promise<void>;
   shutdown: () => void;
@@ -206,6 +212,12 @@ export const useAppStore = create<AppStoreState>((set, get) => ({
   artifactsByTask: {},
   taskLinksByTask: {},
   bootstrapped: false,
+  promptSuggestionSettings: {
+    enabled: true,
+    context_turns: 2,
+    suggestion_model: null,
+    system_prompt: null,
+  },
 
   bootstrap: async () => {
     if (get().bootstrapped) return;
@@ -214,7 +226,7 @@ export const useAppStore = create<AppStoreState>((set, get) => ({
     const workspaceRootView = await invoke<WorkspaceRootView>("get_workspace_root");
     const currentWorkspaceRoot = workspaceRootView.workspace_root;
 
-    const [tasks, providerConfigs, embeddingConfig, embeddingIndexStatus, modelCatalog, skills, workspaceSkills, agentPresets, mcpServers, mcpTools] = await Promise.all([
+    const [tasks, providerConfigs, embeddingConfig, embeddingIndexStatus, modelCatalog, skills, workspaceSkills, agentPresets, mcpServers, mcpTools, promptSuggestionSettings] = await Promise.all([
       invoke<TaskRow[]>("list_tasks", { workspaceRoot: currentWorkspaceRoot || null }),
       invoke<ProviderConfigView[]>("get_provider_configs"),
       invoke<EmbeddingConfigView>("get_embedding_config"),
@@ -225,6 +237,7 @@ export const useAppStore = create<AppStoreState>((set, get) => ({
       invoke<AgentPreset[]>("list_agent_presets"),
       invoke<McpServerView[]>("list_mcp_servers"),
       invoke<McpToolView[]>("list_mcp_tools"),
+      invoke<{ enabled: boolean; context_turns: number; suggestion_model: string | null; system_prompt: string | null }>("get_prompt_suggestion_settings"),
     ]);
     const workspaceRoot = workspaceRootView;
 
@@ -281,6 +294,7 @@ export const useAppStore = create<AppStoreState>((set, get) => ({
       artifactsByTask,
       taskLinksByTask,
       bootstrapped: true,
+      promptSuggestionSettings,
     });
 
     // Load historical events for all tasks to restore chat history

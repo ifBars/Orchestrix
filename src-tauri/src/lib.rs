@@ -497,6 +497,10 @@ pub fn run() {
             commands::messages::get_compaction_settings,
             commands::messages::set_compaction_settings,
             commands::messages::get_conversation_summary,
+            // prompt suggestions
+            commands::suggestions::get_prompt_suggestion_settings,
+            commands::suggestions::set_prompt_suggestion_settings,
+            commands::suggestions::generate_prompt_suggestion,
             // context settings
             commands::context::get_auto_memory_settings,
             commands::context::get_task_context_snapshot,
