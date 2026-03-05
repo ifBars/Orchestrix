@@ -37,6 +37,7 @@ import ReactFlow, {
   type Node,
   type Edge,
   type OnSelectionChangeParams,
+  type ReactFlowInstance,
 } from "reactflow";
 import "reactflow/dist/style.css";
 import { invoke } from "@tauri-apps/api/core";
@@ -184,9 +185,11 @@ function newNodeId(): string {
 
 type ArchitectureCanvasProps = {
   taskId: string;
+  focusNodeId?: string | null;
+  onFocusComplete?: () => void;
 };
 
-export function ArchitectureCanvas({ taskId }: ArchitectureCanvasProps) {
+export function ArchitectureCanvas({ taskId, focusNodeId, onFocusComplete }: ArchitectureCanvasProps) {
   const [nodes, setNodes, onNodesChange] = useNodesState<CanvasNodeData>([]);
   const [edges, setEdges, onEdgesChange] = useEdgesState([]);
   const [loading, setLoading] = useState(true);
@@ -195,8 +198,29 @@ export function ArchitectureCanvas({ taskId }: ArchitectureCanvasProps) {
   // Track whether the current change came from a remote event (so we don't echo it back)
   const suppressSaveRef = useRef(false);
 
+  const [reactFlowInstance, setReactFlowInstance] = useState<ReactFlowInstance | null>(null);
   const setStoreSelectedNodes = useCanvasStore((s) => s.setSelectedNodes);
   const clearSelection = useCanvasStore((s) => s.clearSelection);
+
+  // ── Focus on specific node when focusNodeId changes ───────────────────────
+
+  useEffect(() => {
+    if (!focusNodeId || loading) return;
+
+    const node = nodes.find((n) => n.id === focusNodeId);
+    if (node) {
+      // Select the node
+      setSelectedNodeIds([node.id]);
+      setStoreSelectedNodes(taskId, [rfNodeToCanvasNode(node)]);
+      
+      // Center the view on the node
+      const x = node.position.x + (node.width ?? NODE_WIDTH) / 2;
+      const y = node.position.y + (node.height ?? NODE_HEIGHT) / 2;
+      reactFlowInstance?.setCenter(x, y, { zoom: 1.2, duration: 800 });
+    }
+
+    onFocusComplete?.();
+  }, [focusNodeId, nodes, loading, taskId, reactFlowInstance, setStoreSelectedNodes, onFocusComplete]);
 
   // ── Clear selection when unmounted or task changes ─────────────────────────
 
@@ -478,6 +502,7 @@ export function ArchitectureCanvas({ taskId }: ArchitectureCanvasProps) {
           </div>
         )}
         <ReactFlow
+          onInit={setReactFlowInstance}
           nodes={nodesWithCallbacks}
           edges={edges}
           nodeTypes={NODE_TYPES}

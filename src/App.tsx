@@ -78,9 +78,11 @@ function App() {
     return "general";
   });
   const [artifactsOpen, setArtifactsOpen] = useState(false);
+  const [sidebarOpen, setSidebarOpen] = useState(true);
   const [darkMode, setDarkMode] = useState(true);
   const [chatActiveTab, setChatActiveTab] = useState<"chat" | "review" | "canvas">("chat");
   const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
+  const [canvasFocusNodeId, setCanvasFocusNodeId] = useState<string | null>(null);
 
   // Derive a view-safe tab for ChatInterface (it only understands "chat" | "review")
   const chatInterfaceTab: "chat" | "review" =
@@ -146,6 +148,13 @@ function App() {
         return;
       }
 
+      // Ctrl + B -> Toggle sidebar
+      if (e.ctrlKey && !e.metaKey && !e.altKey && !e.shiftKey && e.code === "KeyB") {
+        e.preventDefault();
+        setSidebarOpen((prev) => !prev);
+        return;
+      }
+
       // Shift + [1..N] -> Jump to settings section
       if (!e.ctrlKey && !e.metaKey && !e.altKey && e.shiftKey && e.code.startsWith("Digit")) {
         const sectionIndex = Number(e.code.slice(5));
@@ -161,6 +170,22 @@ function App() {
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
   }, [benchmarkOnlyMode, setSettingsSection]);
+
+  // Listen for canvas navigation events from SafeStreamdown
+  useEffect(() => {
+    const handler = (e: CustomEvent<{ href: string; nodeId: string | null }>) => {
+      // Switch to chat view and canvas tab
+      setActiveView("chat");
+      setChatActiveTab("canvas");
+      // Store node ID for focusing in ArchitectureCanvas
+      if (e.detail.nodeId) {
+        setCanvasFocusNodeId(e.detail.nodeId);
+      }
+    };
+
+    window.addEventListener("orchestrix:navigate-to-canvas", handler as EventListener);
+    return () => window.removeEventListener("orchestrix:navigate-to-canvas", handler as EventListener);
+  }, []);
 
   if (benchmarkOnlyMode) {
     return (
@@ -179,6 +204,8 @@ function App() {
     <ThemeContext.Provider value={{ darkMode }}>
       <IdeShell
         isArtifactsOpen={activeView === "chat" && artifactsOpen && chatActiveTab !== "canvas"}
+        isSidebarOpen={sidebarOpen}
+        onToggleSidebar={() => setSidebarOpen((prev) => !prev)}
         fillMain={activeView === "chat" && chatActiveTab === "canvas" && selectedTask != null}
         subheader={activeView === "chat" && selectedTask ? (
           <div className="flex items-center gap-0 border-b border-border/70 bg-card/60 px-4 backdrop-blur-md">
@@ -203,8 +230,10 @@ function App() {
           <Header
             darkMode={darkMode}
             artifactsOpen={artifactsOpen}
+            sidebarOpen={sidebarOpen}
             onToggleTheme={() => setDarkMode((prev) => !prev)}
             onToggleArtifacts={() => setArtifactsOpen((prev) => !prev)}
+            onToggleSidebar={() => setSidebarOpen((prev) => !prev)}
             onOpenCommandPalette={() => setCommandPaletteOpen(true)}
           />
         }
@@ -233,7 +262,11 @@ function App() {
         ) : selectedTask ? (
           chatActiveTab === "canvas" ? (
             <div className="h-full p-4">
-              <ArchitectureCanvas taskId={selectedTask.id} />
+              <ArchitectureCanvas 
+                taskId={selectedTask.id} 
+                focusNodeId={canvasFocusNodeId}
+                onFocusComplete={() => setCanvasFocusNodeId(null)}
+              />
             </div>
           ) : (
             <ChatInterface

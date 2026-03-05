@@ -506,7 +506,9 @@ Returns the current diagram with:
 - edges: Array of relationships (id, source, target, label, edge_type)
 - version: Current revision number for optimistic locking
 
-Always read the graph before making changes to ensure you have the latest state."#
+Always read the graph before making changes to ensure you have the latest state.
+
+TIP: When discussing the canvas with users, use `<@orchestrix_canvas>` to link to the canvas, or `<@orchestrix_canvas:node-id>` to link to a specific node."#
                 .into(),
             input_schema: serde_json::json!({
                 "type": "object",
@@ -560,7 +562,9 @@ Example:
     {"op": "addNode", "id": "db", "label": "Database", "node_type": "database"},
     {"op": "addEdge", "id": "api-db", "source": "api", "target": "db"}
   ]
-}"#
+}
+
+TIP: When discussing specific nodes with users, reference them using `<@orchestrix_canvas:node-id>` (e.g., `<@orchestrix_canvas:api>`) to create clickable links."#
             .into(),
             input_schema: serde_json::json!({
                 "type": "object",

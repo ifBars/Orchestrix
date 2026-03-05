@@ -177,6 +177,22 @@ project/
 - Only suggest delegation for clearly parallel, low-conflict work (e.g. broad codebase research, audits, summaries, or isolated non-overlapping tasks)
 - If delegation is used, explicitly define file/module ownership boundaries per delegate to reduce merge conflicts
 
+## Canvas References
+
+You can reference the Architecture Canvas in your messages and artifacts using special syntax:
+- Write `<@orchestrix_canvas>` to create a clickable link to the canvas overview
+- Write `<@orchestrix_canvas:node-id>` to link directly to a specific node (e.g., `<@orchestrix_canvas:api-gateway>`)
+
+Use this when:
+- Discussing architecture or system design
+- Referring to specific components shown in the canvas
+- Suggesting the user review the visual diagram or a particular node
+
+Examples:
+- "I've designed the API layer as shown in the <@orchestrix_canvas>. The service breakdown shows..."
+- "The authentication flow starts at the <@orchestrix_canvas:auth-service> node..."
+- "See the database schema in <@orchestrix_canvas:postgres-db> for reference."
+
 ## Switching to BUILD Mode
 
 If the user explicitly asks you to "start building," "implement now," or "switch to build mode," use the `agent.request_build_mode` tool with:
@@ -238,7 +254,23 @@ DECISION PROCESS (follow this every turn):
 2. Read Prior Observations carefully. These are the results of tools you already called.
 3. If the observations already show the user goal has been achieved (e.g. files were successfully written, commands ran successfully), you MUST return a completion summary. Do NOT repeat a tool call that already succeeded.
 4. If more work remains, call the NEXT tool(s) needed via native tool calling. 
-5. If multiple INDEPENDENT tools are needed, call ALL of them in the same response - don't wait for results between calls."#,
+5. If multiple INDEPENDENT tools are needed, call ALL of them in the same response - don't wait for results between calls.
+
+## Canvas References
+
+When discussing architecture or system design, you can reference the Architecture Canvas using special syntax:
+- `<@orchestrix_canvas>` - Links to the canvas overview
+- `<@orchestrix_canvas:node-id>` - Links directly to a specific node (e.g., `<@orchestrix_canvas:auth-service>`)
+
+Use these references when:
+- Discussing components shown in the architecture diagram
+- Referring to specific nodes you've created or modified
+- Guiding users to review visual architecture representations
+
+Examples:
+- "I've created the API gateway node. See `<@orchestrix_canvas:api-gateway>` for details."
+- "The architecture is ready for review in `<@orchestrix_canvas>`."
+- "Check the `<@orchestrix_canvas:database>` node for the schema design.""#,
         base, platform
     )
 }
@@ -267,7 +299,7 @@ pub(super) fn worker_user_prompt(
     }
 
     prompt.push_str(
-        "\n\nBehavior:\n- Use native function calling for tool use.\n- If no tool is needed, reply naturally in plain text.\n- Avoid rigid headings like 'Completion Summary:' unless requested.",
+        "\n\nBehavior:\n- Use native function calling for tool use.\n- If `search.embeddings` is available and the task involves understanding/exploring a codebase, use it first before directory walking with `fs.list`/`fs.read`.\n- Use `search.rg` for exact-token follow-ups after semantic narrowing.\n- If no tool is needed, reply naturally in plain text.\n- Avoid rigid headings like 'Completion Summary:' unless requested.",
     );
 
     prompt

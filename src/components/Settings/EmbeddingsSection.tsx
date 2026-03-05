@@ -1,11 +1,12 @@
-import { Check, Cpu, KeyRound, Server } from "lucide-react";
+import { invoke } from "@tauri-apps/api/core";
+import { Check, Cpu, KeyRound, Server, Sparkles } from "lucide-react";
 import { type ReactNode, useEffect, useMemo, useState } from "react";
 import { useShallow } from "zustand/shallow";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
 import { useAppStore } from "@/stores/appStore";
-import type { EmbeddingConfig } from "@/types";
+import type { EmbeddingConfig, RecommendedEmbeddingConfig } from "@/types";
 
 const PROVIDER_LABELS: Record<EmbeddingConfig["provider"], string> = {
   gemini: "Google Gemini",
@@ -62,6 +63,9 @@ export function EmbeddingsSection() {
 
   const [form, setForm] = useState<FormState | null>(null);
   const [saving, setSaving] = useState(false);
+  const [autoConfiguring, setAutoConfiguring] = useState(false);
+  const [autoConfigPreference, setAutoConfigPreference] = useState<"local" | "quality">("local");
+  const [autoConfigNotes, setAutoConfigNotes] = useState<string[]>([]);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -171,6 +175,63 @@ export function EmbeddingsSection() {
       setError(saveError instanceof Error ? saveError.message : "Failed to save embedding config");
     } finally {
       setSaving(false);
+    }
+  };
+
+  const handleAutoConfigure = async () => {
+    if (!form) return;
+
+    setAutoConfiguring(true);
+    setError(null);
+    try {
+      const recommended = await invoke<RecommendedEmbeddingConfig>("get_recommended_embedding_config", {
+        preference: autoConfigPreference,
+      });
+
+      const next = recommended.config;
+      setForm((current) =>
+        current
+          ? {
+              ...current,
+              enabled: next.enabled,
+              provider: next.provider,
+              normalize_l2: next.normalize_l2,
+              gemini: {
+                ...current.gemini,
+                model: next.gemini.model,
+                timeout_ms: String(next.gemini.timeout_ms),
+                base_url: next.gemini.base_url ?? "",
+              },
+              ollama: {
+                base_url: next.ollama.base_url,
+                model: next.ollama.model,
+                timeout_ms: String(next.ollama.timeout_ms),
+              },
+              transformersjs: {
+                model: next.transformersjs.model,
+                device: next.transformersjs.device,
+                backend: next.transformersjs.backend ?? "",
+                cache_dir: next.transformersjs.cache_dir ?? "",
+                timeout_ms: String(next.transformersjs.timeout_ms),
+                bridge_command: next.transformersjs.bridge_command,
+                bridge_script: next.transformersjs.bridge_script ?? "",
+              },
+              rust_hf: {
+                model_id: next.rust_hf.model_id,
+                model_path: next.rust_hf.model_path ?? "",
+                cache_dir: next.rust_hf.cache_dir ?? "",
+                runtime: next.rust_hf.runtime,
+                threads: next.rust_hf.threads ? String(next.rust_hf.threads) : "",
+                timeout_ms: String(next.rust_hf.timeout_ms),
+              },
+            }
+          : current,
+      );
+      setAutoConfigNotes(recommended.notes);
+    } catch (autoConfigError) {
+      setError(autoConfigError instanceof Error ? autoConfigError.message : "Failed to auto-configure embeddings");
+    } finally {
+      setAutoConfiguring(false);
     }
   };
 
@@ -445,7 +506,7 @@ export function EmbeddingsSection() {
             <>
               <Field label="Model ID">
                 <Input
-                  placeholder="Qdrant/all-MiniLM-L6-v2-onnx"
+                  placeholder="Qdrant/all-MiniLM-L6-v2-onnx or onnx-community/embeddinggemma-300m-ONNX"
                   value={form.rust_hf.model_id}
                   onChange={(event) =>
                     setForm((current) =>
@@ -518,11 +579,36 @@ export function EmbeddingsSection() {
             </>
           ) : null}
 
-          <div className="pt-1">
-            <Button size="sm" onClick={() => handleSave().catch(console.error)} disabled={saving}>
-              {saving ? "Saving" : "Save Embeddings Config"}
-            </Button>
+          <div className="space-y-2 pt-1">
+            <label className="text-xs font-medium text-muted-foreground">Auto-Configure Preference</label>
+            <Select
+              value={autoConfigPreference}
+              onChange={(event) => setAutoConfigPreference(event.target.value as "local" | "quality")}
+            >
+              <option value="local">Prefer local (fast, no API costs)</option>
+              <option value="quality">Prefer best quality (Gemini if configured)</option>
+            </Select>
+            <p className="text-[11px] text-muted-foreground">
+              Gemini embeddings usually provide stronger quality, but free-tier rate limits can trigger quickly. Use paid keys for sustained indexing.
+            </p>
+            <div className="flex flex-wrap gap-2">
+              <Button size="sm" variant="outline" onClick={() => handleAutoConfigure().catch(console.error)} disabled={autoConfiguring}>
+                <Sparkles size={13} className="mr-1" />
+                {autoConfiguring ? "Auto-configuring" : "Auto-configure"}
+              </Button>
+              <Button size="sm" onClick={() => handleSave().catch(console.error)} disabled={saving}>
+                {saving ? "Saving" : "Save Embeddings Config"}
+              </Button>
+            </div>
           </div>
+
+          {autoConfigNotes.length ? (
+            <div className="rounded-md border border-border/70 bg-background/60 px-3 py-2 text-xs text-muted-foreground">
+              {autoConfigNotes.map((note) => (
+                <p key={note}>{note}</p>
+              ))}
+            </div>
+          ) : null}
 
           {error ? <p className="text-xs text-destructive">{error}</p> : null}
         </div>

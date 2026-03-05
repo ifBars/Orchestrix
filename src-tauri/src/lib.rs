@@ -536,6 +536,7 @@ pub fn run() {
             commands::providers::remove_chatgpt_auth,
             // embeddings
             commands::embeddings::get_embedding_config,
+            commands::embeddings::get_recommended_embedding_config,
             commands::embeddings::set_embedding_config,
             commands::embeddings::get_embedding_provider_info,
             commands::embeddings::embedding_dims,

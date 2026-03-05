@@ -65,12 +65,24 @@ impl Tool for SearchEmbeddingsTool {
         }
 
         let service = Arc::clone(semantic_index_service()?);
-        let runtime = tokio::runtime::Handle::try_current()
-            .map_err(|error| ToolError::Execution(format!("no async runtime: {error}")))?;
 
-        let response = runtime
-            .block_on(async move { service.semantic_search(workspace_root, query, limit).await })
-            .map_err(|error| ToolError::Execution(error.to_string()))?;
+        let response = if let Ok(runtime) = tokio::runtime::Handle::try_current() {
+            tokio::task::block_in_place(|| {
+                runtime.block_on(async move { service.semantic_search(workspace_root, query, limit).await })
+            })
+            .map_err(|error| ToolError::Execution(error.to_string()))?
+        } else {
+            let runtime = tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()
+                .map_err(|error| {
+                    ToolError::Execution(format!("failed to create async runtime: {error}"))
+                })?;
+
+            runtime
+                .block_on(async move { service.semantic_search(workspace_root, query, limit).await })
+                .map_err(|error| ToolError::Execution(error.to_string()))?
+        };
 
         Ok(ToolCallOutput {
             ok: true,

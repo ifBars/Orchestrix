@@ -322,6 +322,33 @@ export interface EmbeddingConfig {
   rust_hf: RustHfEmbeddingConfig;
 }
 
+export interface GpuInfo {
+  name: string;
+  vendor: string | null;
+  vram_total_bytes: number | null;
+  source: string;
+}
+
+export interface OrtGpuBackends {
+  cuda: boolean;
+  directml: boolean;
+  coreml: boolean;
+}
+
+export interface HardwareProfile {
+  ram_bytes: number;
+  logical_cores: number;
+  physical_cores: number;
+  gpus: GpuInfo[];
+  ort_backends: OrtGpuBackends;
+}
+
+export interface RecommendedEmbeddingConfig {
+  config: EmbeddingConfig;
+  notes: string[];
+  hardware: HardwareProfile;
+}
+
 export interface EmbeddingProviderInfo {
   id: string;
   kind: EmbeddingProviderKind;

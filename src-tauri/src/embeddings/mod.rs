@@ -1,6 +1,7 @@
 pub mod config;
 pub mod error;
 pub mod factory;
+pub mod gpu_probe;
 pub mod indexer;
 pub mod manager;
 pub mod providers;

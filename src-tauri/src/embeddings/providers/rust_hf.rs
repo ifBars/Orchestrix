@@ -3,9 +3,12 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use fastembed::{
-    EmbeddingModel, InitOptionsUserDefined, TextEmbedding, TextInitOptions, TokenizerFiles,
+    EmbeddingModel, ExecutionProviderDispatch, InitOptionsUserDefined, TextEmbedding,
+    TextInitOptions, TokenizerFiles,
     UserDefinedEmbeddingModel,
 };
+use hf_hub::{api::sync::ApiBuilder, Repo, RepoType};
+use ort::ep;
 use tokio::sync::RwLock;
 use tokio::time::timeout;
 
@@ -277,22 +280,159 @@ fn load_model(
         return load_user_defined_model(&model_path);
     }
 
-    let model_name = model_id.parse::<EmbeddingModel>().map_err(|error| {
-        EmbeddingError::Config(format!("invalid rust-hf modelId '{model_id}': {error}"))
-    })?;
+    if let Ok(model_name) = model_id.parse::<EmbeddingModel>() {
+        let mut options =
+            TextInitOptions::new(model_name.clone()).with_show_download_progress(false);
+        if let Some(cache_dir) = cache_dir {
+            options = options.with_cache_dir(PathBuf::from(cache_dir));
+        }
+        options = options.with_execution_providers(recommended_execution_providers());
 
-    let mut options = TextInitOptions::new(model_name.clone()).with_show_download_progress(false);
-    if let Some(cache_dir) = cache_dir {
-        options = options.with_cache_dir(PathBuf::from(cache_dir));
+        let model = TextEmbedding::try_new(options).map_err(|error| {
+            EmbeddingError::Runtime(format!("failed to initialize rust-hf model: {error}"))
+        })?;
+        let dims = TextEmbedding::get_model_info(&model_name)
+            .ok()
+            .map(|model_info| model_info.dim);
+        return Ok((model, dims));
     }
 
-    let model = TextEmbedding::try_new(options).map_err(|error| {
-        EmbeddingError::Runtime(format!("failed to initialize rust-hf model: {error}"))
+    let hf_repo_id = parse_hf_repo_id(&model_id).ok_or_else(|| {
+        EmbeddingError::Config(format!(
+            "unknown rust-hf modelId '{}'. Use a supported fastembed model code, a Hugging Face repo id like 'onnx-community/embeddinggemma-300m-ONNX', or provide modelPath",
+            model_id
+        ))
     })?;
-    let dims = TextEmbedding::get_model_info(&model_name)
-        .ok()
-        .map(|model_info| model_info.dim);
-    Ok((model, dims))
+
+    let hf_model_path = download_hf_onnx_model_path(&hf_repo_id, cache_dir.as_deref())?;
+    load_user_defined_model(&hf_model_path.to_string_lossy())
+}
+
+fn parse_hf_repo_id(raw: &str) -> Option<String> {
+    let trimmed = raw.trim();
+    if trimmed.is_empty() || trimmed.contains(' ') {
+        return None;
+    }
+
+    let repo = trimmed.split_once('@').map(|(repo, _)| repo).unwrap_or(trimmed);
+    let mut parts = repo.split('/');
+    let owner = parts.next()?;
+    let name = parts.next()?;
+    if parts.next().is_some() || owner.is_empty() || name.is_empty() {
+        return None;
+    }
+    Some(trimmed.to_string())
+}
+
+fn download_hf_onnx_model_path(
+    repo_spec: &str,
+    cache_dir: Option<&str>,
+) -> Result<PathBuf, EmbeddingError> {
+    let (repo_id, revision) = repo_spec
+        .split_once('@')
+        .map(|(repo, rev)| (repo.to_string(), Some(rev.to_string())))
+        .unwrap_or_else(|| (repo_spec.to_string(), None));
+
+    let mut builder = ApiBuilder::from_env();
+    if let Some(cache_dir) = cache_dir {
+        builder = builder.with_cache_dir(PathBuf::from(cache_dir));
+    }
+    let api = builder.build().map_err(|error| {
+        EmbeddingError::Runtime(format!(
+            "failed to initialize Hugging Face client for rust-hf modelId '{repo_spec}': {error}"
+        ))
+    })?;
+
+    let repo = if let Some(revision) = revision {
+        Repo::with_revision(repo_id, RepoType::Model, revision)
+    } else {
+        Repo::new(repo_id, RepoType::Model)
+    };
+    let api_repo = api.repo(repo);
+
+    let onnx_path = download_first_available(
+        &api_repo,
+        &["onnx/model.onnx", "model.onnx", "model_q4.onnx", "onnx/model_q4.onnx"],
+        "ONNX model",
+        repo_spec,
+    )?;
+
+    download_first_available(
+        &api_repo,
+        &["tokenizer.json", "onnx/tokenizer.json"],
+        "tokenizer.json",
+        repo_spec,
+    )?;
+    download_first_available(
+        &api_repo,
+        &["config.json", "onnx/config.json"],
+        "config.json",
+        repo_spec,
+    )?;
+    download_first_available(
+        &api_repo,
+        &[
+            "special_tokens_map.json",
+            "onnx/special_tokens_map.json",
+        ],
+        "special_tokens_map.json",
+        repo_spec,
+    )?;
+    download_first_available(
+        &api_repo,
+        &["tokenizer_config.json", "onnx/tokenizer_config.json"],
+        "tokenizer_config.json",
+        repo_spec,
+    )?;
+
+    Ok(onnx_path)
+}
+
+fn download_first_available(
+    api_repo: &hf_hub::api::sync::ApiRepo,
+    candidates: &[&str],
+    label: &str,
+    repo_spec: &str,
+) -> Result<PathBuf, EmbeddingError> {
+    let mut last_error: Option<String> = None;
+    for candidate in candidates {
+        match api_repo.get(candidate) {
+            Ok(path) => return Ok(path),
+            Err(error) => last_error = Some(error.to_string()),
+        }
+    }
+
+    Err(EmbeddingError::Runtime(format!(
+        "failed to fetch {label} from Hugging Face repo '{repo_spec}'. Ensure the repo is valid, contains required ONNX/tokenizer files, and if gated accept license + set HF_TOKEN. Last error: {}",
+        last_error.unwrap_or_else(|| "unknown error".to_string())
+    )))
+}
+
+fn recommended_execution_providers() -> Vec<ExecutionProviderDispatch> {
+    #[cfg(target_os = "windows")]
+    {
+        return vec![
+            ep::DirectML::default().build(),
+            ep::CUDA::default().build(),
+        ];
+    }
+
+    #[cfg(target_os = "macos")]
+    {
+        return vec![
+            ep::CoreML::default()
+                .with_compute_units(ep::coreml::ComputeUnits::CPUAndGPU)
+                .build(),
+        ];
+    }
+
+    #[cfg(target_os = "linux")]
+    {
+        return vec![ep::CUDA::default().build()];
+    }
+
+    #[allow(unreachable_code)]
+    Vec::new()
 }
 
 fn load_user_defined_model(

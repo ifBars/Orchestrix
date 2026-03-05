@@ -372,9 +372,10 @@ impl EmbeddingConfig {
                         .model_id
                         .parse::<fastembed::EmbeddingModel>()
                         .is_err()
+                    && !looks_like_hf_repo_id(&self.rust_hf.model_id)
                 {
                     return Err(EmbeddingError::Config(format!(
-                        "unknown rust-hf modelId '{}'. Use a supported fastembed model code or provide modelPath",
+                        "unknown rust-hf modelId '{}'. Use a supported fastembed model code, a Hugging Face repo id like 'onnx-community/embeddinggemma-300m-ONNX', or provide modelPath",
                         self.rust_hf.model_id
                     )));
                 }
@@ -474,4 +475,24 @@ fn default_remote_timeout_ms() -> u64 {
 
 fn default_local_timeout_ms() -> u64 {
     120_000
+}
+
+fn looks_like_hf_repo_id(value: &str) -> bool {
+    let trimmed = value.trim();
+    if trimmed.is_empty() || trimmed.contains(' ') {
+        return false;
+    }
+
+    let repo = trimmed
+        .split_once('@')
+        .map(|(repo, _)| repo)
+        .unwrap_or(trimmed);
+    let mut parts = repo.split('/');
+    let owner = parts.next();
+    let name = parts.next();
+    owner.is_some()
+        && name.is_some()
+        && parts.next().is_none()
+        && !owner.unwrap_or_default().is_empty()
+        && !name.unwrap_or_default().is_empty()
 }

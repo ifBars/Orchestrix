@@ -45,6 +45,15 @@ use tools::execute_tool_call;
 const STREAM_DELTA_FLUSH_CHARS: usize = 120;
 const THINKING_DELTA_FLUSH_CHARS: usize = 120;
 
+fn worker_tool_priority(name: &str) -> u8 {
+    match name {
+        "search.embeddings" => 0,
+        "search.rg" | "search.files" => 1,
+        "fs.read" | "fs.list" => 2,
+        _ => 3,
+    }
+}
+
 struct MessageStreamEmitter<'a> {
     db: &'a Database,
     bus: &'a crate::bus::EventBus,
@@ -454,9 +463,11 @@ pub async fn execute_step_with_tools(
     if !contract.permissions.allowed_tools.is_empty() {
         available_tools.retain(|name| contract.permissions.allowed_tools.contains(name));
     }
+    available_tools.sort_by_key(|name| worker_tool_priority(name));
 
     let mut tool_descriptors = tool_registry.list_all(include_embeddings);
     tool_descriptors.retain(|tool| available_tools.contains(&tool.name));
+    tool_descriptors.sort_by_key(|tool| worker_tool_priority(&tool.name));
 
     // Create model client if config provided
     let worker_model = model_config.as_ref().map(WorkerModelClient::from_config);
@@ -491,6 +502,14 @@ pub async fn execute_step_with_tools(
                 MessageStreamEmitter::new(db, bus, run_id, task_id, &sub_agent.id, step.idx, turn);
 
             let skills_instruction = "\n\nIMPORTANT - Skills: Skills are NOT auto-loaded. To use a skill:\n1. First call skills.list_installed() to see available workspace skills, or skills.search('<query>') to find skills from remote sources.\n2. Then call skills.load() with the skill_id to load its instructions into context.\n3. Do NOT guess skill IDs - always discover them first using the tools above.";
+            let embeddings_instruction = if available_tools
+                .iter()
+                .any(|tool| tool == "search.embeddings")
+            {
+                "\n\nIMPORTANT - Semantic search default: `search.embeddings` is available. For codebase understanding, intent discovery, architecture questions, feature location, or broad 'find where X is implemented' requests, call `search.embeddings` FIRST before `fs.list`/`fs.read`. Use `search.rg` only as a follow-up for exact symbol/token matching, then use `fs.read` on the narrowed files. Skip embeddings only when the user asks for an exact known path/file or literal token lookup."
+            } else {
+                ""
+            };
 
             let decision = model
                 .decide_streaming(
@@ -498,8 +517,11 @@ pub async fn execute_step_with_tools(
                         task_prompt: task_prompt.clone(),
                         goal_summary: goal_summary.clone(),
                         context: format!(
-                            "{}\n\n{}{}",
-                            step.title, step.description, skills_instruction
+                            "{}\n\n{}{}{}",
+                            step.title,
+                            step.description,
+                            skills_instruction,
+                            embeddings_instruction
                         ),
                         available_tools: available_tools.clone(),
                         tool_descriptors: tool_descriptors.clone(),
@@ -657,6 +679,7 @@ pub async fn execute_step_with_tools(
                         tool_name,
                         "fs.read"
                             | "search.rg"
+                            | "search.embeddings"
                             | "search.files"
                             | "git.status"
                             | "git.diff"

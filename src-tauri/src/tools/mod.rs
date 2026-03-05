@@ -126,6 +126,13 @@ pub fn infer_tool_call(title: &str, tool_intent: Option<&str>) -> Option<ToolCal
         }
 
         if intent_lower.contains("search") || intent_lower.contains("find") {
+            if intent_lower.contains("semantic") || intent_lower.contains("embedding") {
+                return Some(ToolCallInput {
+                    name: "search.embeddings".to_string(),
+                    args: serde_json::json!({ "query": title }),
+                });
+            }
+
             // Try to extract search pattern
             let words: Vec<&str> = title.split_whitespace().collect();
             if words.len() >= 2 {
@@ -149,6 +156,13 @@ pub fn infer_tool_call(title: &str, tool_intent: Option<&str>) -> Option<ToolCal
                 args: serde_json::json!({ "path": filename }),
             });
         }
+    }
+
+    if title_lower.contains("semantic") || title_lower.contains("embedding") {
+        return Some(ToolCallInput {
+            name: "search.embeddings".to_string(),
+            args: serde_json::json!({ "query": title }),
+        });
     }
 
     None

@@ -430,7 +430,7 @@ export function Composer() {
   const canSubmit = prompt.trim().length > 0 && !sending;
 
   return (
-    <div className="mr-auto w-full max-w-[1180px]">
+    <div className="w-full">
       {/* Attached files */}
       {attachments.length > 0 && (
         <div className="mb-2.5 flex flex-wrap gap-1.5">

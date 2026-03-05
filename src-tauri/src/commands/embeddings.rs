@@ -1,9 +1,25 @@
 use crate::embeddings::config::load_embedding_config;
 use crate::embeddings::{
+    gpu_probe::{detect_hardware_profile, HardwareProfile},
     is_semantic_search_configured, EmbedOptions, EmbeddingConfig, EmbeddingConfigView,
-    EmbeddingIndexStatus, EmbeddingProviderInfo,
+    EmbeddingIndexStatus, EmbeddingProviderId, EmbeddingProviderInfo,
 };
 use crate::{load_workspace_root, AppError, AppState};
+use serde::{Deserialize, Serialize};
+
+#[derive(Debug, Clone, Copy, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum EmbeddingAutoConfigPreference {
+    Local,
+    Quality,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct RecommendedEmbeddingConfig {
+    pub config: EmbeddingConfig,
+    pub notes: Vec<String>,
+    pub hardware: HardwareProfile,
+}
 
 #[tauri::command]
 pub fn get_embedding_config(
@@ -13,6 +29,75 @@ pub fn get_embedding_config(
         .embedding_manager
         .get_config_view()
         .map_err(|error| AppError::Other(error.to_string()))
+}
+
+#[tauri::command]
+pub fn get_recommended_embedding_config(
+    state: tauri::State<'_, AppState>,
+    preference: Option<EmbeddingAutoConfigPreference>,
+) -> Result<RecommendedEmbeddingConfig, AppError> {
+    let preference = preference.unwrap_or(EmbeddingAutoConfigPreference::Local);
+    let hardware = detect_hardware_profile();
+    let mut config = load_embedding_config(&state.db).map_err(|error| AppError::Other(error.to_string()))?;
+    let mut notes = Vec::new();
+
+    let ram_gb = hardware.ram_bytes as f64 / 1024.0 / 1024.0 / 1024.0;
+    let has_any_gpu = !hardware.gpus.is_empty();
+
+    if matches!(preference, EmbeddingAutoConfigPreference::Quality)
+        && config.effective_gemini_api_key().is_some()
+    {
+        config.enabled = true;
+        config.provider = EmbeddingProviderId::Gemini;
+        notes.push(
+            "Configured for best quality using Gemini embeddings. Free tier can rate-limit quickly; paid usage is recommended for sustained indexing.".to_string(),
+        );
+    } else {
+        config.enabled = true;
+        config.normalize_l2 = true;
+
+        if ram_gb < 4.0 {
+            config.provider = EmbeddingProviderId::Transformersjs;
+            config.transformersjs.device = "cpu".to_string();
+            notes.push("Low-memory system detected (<4 GB RAM), using Transformers.js on CPU for stability.".to_string());
+        } else if ram_gb < 8.0 {
+            config.provider = EmbeddingProviderId::Transformersjs;
+            config.transformersjs.device = if has_any_gpu {
+                "webgpu".to_string()
+            } else {
+                "cpu".to_string()
+            };
+            notes.push("Mid-memory system detected (4-8 GB RAM), using Transformers.js with WebGPU when available.".to_string());
+        } else {
+            config.provider = EmbeddingProviderId::RustHf;
+            config.rust_hf.threads = Some(hardware.physical_cores.max(1));
+            notes.push("Higher-memory system detected (>=8 GB RAM), using Rust HF for best local throughput.".to_string());
+
+            if hardware.ort_backends.cuda || hardware.ort_backends.directml || hardware.ort_backends.coreml {
+                notes.push("GPU execution providers detected for ONNX Runtime; Rust HF will try GPU acceleration automatically with CPU fallback.".to_string());
+            } else {
+                notes.push("No ONNX Runtime GPU execution provider detected; Rust HF will run on CPU.".to_string());
+            }
+        }
+
+        if matches!(preference, EmbeddingAutoConfigPreference::Quality) {
+            notes.push("Gemini quality mode requested, but no API key is configured. Falling back to optimized local embeddings.".to_string());
+        }
+    }
+
+    notes.push(format!(
+        "Detected {:.1} GB RAM, {} logical cores, {} physical cores, {} GPU(s).",
+        ram_gb,
+        hardware.logical_cores,
+        hardware.physical_cores,
+        hardware.gpus.len()
+    ));
+
+    Ok(RecommendedEmbeddingConfig {
+        config,
+        notes,
+        hardware,
+    })
 }
 
 #[tauri::command]

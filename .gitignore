@@ -52,5 +52,6 @@ dist-landing
 .agent/
 .agents/*
 .fastembed_cache/
+.orchestrix/
 benchmarks/
 benchmark_viz/

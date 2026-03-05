@@ -168,7 +168,7 @@ export function ConversationTimeline(props: ConversationTimelineProps) {
   ]);
 
   return (
-    <div className="mr-auto flex w-full max-w-[1180px] flex-col gap-3 pb-4">
+    <div className="flex w-full flex-col gap-3 pb-4">
 
       {(introPrompt || props.relatedTasks.length > 0) && (
         <UserMessage
