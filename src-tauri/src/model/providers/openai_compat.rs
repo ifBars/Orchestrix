@@ -1,16 +1,56 @@
 use futures::StreamExt;
 use serde::{Deserialize, Serialize};
+use std::sync::Arc;
 
 use crate::core::tool::ToolDescriptor;
 use crate::model::shared::{
-    plan_markdown_system_prompt, preferred_response_text, strip_tool_call_markup,
-    worker_system_prompt, worker_user_prompt,
+    completion_summary_from_content_or_reasoning, plan_markdown_system_prompt,
+    preferred_response_text, strip_tool_call_markup, worker_prompt_from_request,
 };
 use crate::model::{
     AgentModelClient, ModelError, StreamDelta, WorkerAction, WorkerActionRequest, WorkerDecision,
     WorkerToolCall,
 };
 use crate::runtime::plan_mode_settings::{DEFAULT_PLAN_MODE_MAX_TOKENS, WORKER_MAX_TOKENS};
+
+/// Configuration for OpenAI-compatible clients with provider-specific hooks.
+pub struct OpenAiCompatClientConfig {
+    /// Function to transform tool names when sending to the provider (e.g., encode special chars)
+    pub tool_name_to_wire: Arc<dyn Fn(&str) -> String + Send + Sync>,
+    /// Function to transform tool names when receiving from the provider (e.g., decode special chars)
+    /// The second argument is the list of tool descriptors for reverse lookup.
+    pub tool_name_from_wire: Arc<dyn Fn(&str, &[ToolDescriptor]) -> String + Send + Sync>,
+    /// Function to filter/transform JSON schemas for provider compatibility
+    pub schema_filter: Arc<dyn Fn(&serde_json::Value) -> serde_json::Value + Send + Sync>,
+    /// Extra headers to add to requests (e.g., User-Agent, custom auth)
+    pub extra_headers: Vec<(&'static str, String)>,
+    /// Whether to send parallel_tool_calls field (GLM doesn't support it)
+    pub parallel_tool_calls: bool,
+    /// Whether to retry on 429 rate limit errors
+    pub retry_on_rate_limit: bool,
+    /// Whether to retry on GLM error 1210 (invalid parameter)
+    pub retry_on_invalid_param_1210: bool,
+    /// Fallback model for error 1210 retries
+    pub fallback_model: Option<String>,
+    /// Maximum tokens cap (if provider has a limit)
+    pub max_tokens_cap: Option<u32>,
+}
+
+impl Default for OpenAiCompatClientConfig {
+    fn default() -> Self {
+        Self {
+            tool_name_to_wire: Arc::new(|name| name.to_string()),
+            tool_name_from_wire: Arc::new(|name, _| name.to_string()),
+            schema_filter: Arc::new(|schema| schema.clone()),
+            extra_headers: Vec::new(),
+            parallel_tool_calls: true,
+            retry_on_rate_limit: false,
+            retry_on_invalid_param_1210: false,
+            fallback_model: None,
+            max_tokens_cap: None,
+        }
+    }
+}
 
 pub struct OpenAiCompatClient {
     pub api_key: String,
@@ -20,6 +60,7 @@ pub struct OpenAiCompatClient {
     provider_name: &'static str,
     #[allow(dead_code)]
     default_model: &'static str,
+    config: OpenAiCompatClientConfig,
 }
 
 impl OpenAiCompatClient {
@@ -29,6 +70,7 @@ impl OpenAiCompatClient {
         base_url: Option<String>,
         provider_name: &'static str,
         default_model: &'static str,
+        config: OpenAiCompatClientConfig,
     ) -> Self {
         Self {
             api_key,
@@ -37,7 +79,33 @@ impl OpenAiCompatClient {
             client: reqwest::Client::new(),
             provider_name,
             default_model,
+            config,
         }
+    }
+
+    fn normalize_max_tokens(&self, requested: u32) -> u32 {
+        match self.config.max_tokens_cap {
+            Some(cap) => requested.min(cap),
+            None => requested,
+        }
+    }
+
+    fn is_rate_limit_error(&self, status: reqwest::StatusCode, text: &str) -> bool {
+        status.as_u16() == 429
+            || text.contains("rate limit")
+            || text.contains("Rate limit")
+            || (self.provider_name == "GLM"
+                && (text.contains("\"code\":\"1302\"") || text.contains("\"code\":1302")))
+    }
+
+    fn is_invalid_parameter_1210(&self, status: reqwest::StatusCode, text: &str) -> bool {
+        if status.as_u16() != 400 {
+            return false;
+        }
+        text.contains("\"code\":\"1210\"")
+            || text.contains("\"code\":1210")
+            || text.contains("\"code\" : \"1210\"")
+            || text.contains("\"code\" : 1210")
     }
 
     pub fn model_id(&self) -> String {
@@ -58,90 +126,163 @@ impl OpenAiCompatClient {
         ))
     }
 
-    #[allow(dead_code)]
     async fn run_chat(
         &self,
         system: &str,
         user: &str,
         max_tokens: u32,
-        tools: Option<Vec<ToolDescriptor>>,
+        tools: Option<&[ToolDescriptor]>,
     ) -> Result<OpenAiResponseMessage, ModelError> {
+        let max_tokens = self.normalize_max_tokens(max_tokens);
         let endpoint = format!("{}/chat/completions", self.base_url.trim_end_matches('/'));
-        let openai_tools = tools.and_then(|t| {
-            if t.is_empty() {
-                return None;
+
+        let make_body = |model: String| {
+            let openai_tools = tools.and_then(|t| {
+                if t.is_empty() {
+                    return None;
+                }
+                Some(
+                    t.iter()
+                        .map(|d| OpenAiTool {
+                            type_: "function".to_string(),
+                            function: OpenAiFunction {
+                                name: (self.config.tool_name_to_wire)(&d.name),
+                                description: d.description.clone(),
+                                parameters: (self.config.schema_filter)(&d.input_schema),
+                            },
+                        })
+                        .collect(),
+                )
+            });
+            let has_tools = openai_tools.is_some();
+            OpenAiChatRequest {
+                model,
+                messages: vec![
+                    OpenAiRequestMessage {
+                        role: "system".to_string(),
+                        content: system.to_string(),
+                    },
+                    OpenAiRequestMessage {
+                        role: "user".to_string(),
+                        content: user.to_string(),
+                    },
+                ],
+                temperature: 0.1,
+                max_tokens,
+                stream: false,
+                tools: openai_tools,
+                tool_choice: if has_tools {
+                    Some("auto".to_string())
+                } else {
+                    None
+                },
+                parallel_tool_calls: if has_tools && self.config.parallel_tool_calls {
+                    Some(true)
+                } else {
+                    None
+                },
             }
-            Some(
-                t.iter()
-                    .map(|d| OpenAiTool {
-                        type_: "function".to_string(),
-                        function: OpenAiFunction {
-                            name: d.name.clone(),
-                            description: d.description.clone(),
-                            parameters: d.input_schema.clone(),
-                        },
-                    })
-                    .collect(),
-            )
-        });
-        let has_tools = openai_tools.is_some();
-        let body = OpenAiChatRequest {
-            model: self.model.clone(),
-            messages: vec![
-                OpenAiRequestMessage {
-                    role: "system".to_string(),
-                    content: system.to_string(),
-                },
-                OpenAiRequestMessage {
-                    role: "user".to_string(),
-                    content: user.to_string(),
-                },
-            ],
-            temperature: 0.1,
-            max_tokens,
-            stream: false,
-            tools: openai_tools,
-            tool_choice: if has_tools {
-                Some("auto".to_string())
-            } else {
-                None
-            },
-            parallel_tool_calls: if has_tools { Some(true) } else { None },
         };
 
-        let response = self
+        let body = make_body(self.model.clone());
+
+        // Build request with extra headers
+        let mut request = self
             .client
             .post(&endpoint)
             .header("Content-Type", "application/json")
             .header("Authorization", format!("Bearer {}", self.api_key))
-            .json(&body)
+            .json(&body);
+
+        for (key, value) in &self.config.extra_headers {
+            request = request.header(*key, value.clone());
+        }
+
+        let mut response = request
             .send()
             .await
             .map_err(|e| ModelError::Request(e.to_string()))?;
 
-        let status = response.status();
-        let text = response
+        let mut status = response.status();
+        let mut text = response
             .text()
             .await
             .map_err(|e| ModelError::Request(e.to_string()))?;
 
         tracing::debug!("{} API response: status={}", self.provider_name, status);
 
+        // Handle rate limiting with retry
+        if self.config.retry_on_rate_limit && self.is_rate_limit_error(status, &text) {
+            let delay_ms = 2000;
+            tracing::warn!(
+                "{} rate limit hit ({}), waiting {}ms before retry",
+                self.provider_name,
+                status,
+                delay_ms
+            );
+            tokio::time::sleep(tokio::time::Duration::from_millis(delay_ms)).await;
+
+            response = self
+                .client
+                .post(&endpoint)
+                .header("Content-Type", "application/json")
+                .header("Authorization", format!("Bearer {}", self.api_key))
+                .json(&body)
+                .send()
+                .await
+                .map_err(|e| ModelError::Request(e.to_string()))?;
+            status = response.status();
+            text = response
+                .text()
+                .await
+                .map_err(|e| ModelError::Request(e.to_string()))?;
+        }
+
+        // Handle 1210 with model fallback
+        if self.config.retry_on_invalid_param_1210 && self.is_invalid_parameter_1210(status, &text)
+        {
+            if let Some(ref fallback_model) = self.config.fallback_model {
+                if fallback_model != &self.model {
+                    tracing::warn!(
+                        "{} request got 1210 with model '{}', retrying with '{}'",
+                        self.provider_name,
+                        self.model,
+                        fallback_model
+                    );
+                    let retry_body = make_body(fallback_model.clone());
+                    response = self
+                        .client
+                        .post(&endpoint)
+                        .header("Content-Type", "application/json")
+                        .header("Authorization", format!("Bearer {}", self.api_key))
+                        .json(&retry_body)
+                        .send()
+                        .await
+                        .map_err(|e| ModelError::Request(e.to_string()))?;
+                    status = response.status();
+                    text = response
+                        .text()
+                        .await
+                        .map_err(|e| ModelError::Request(e.to_string()))?;
+                }
+            }
+        }
+
         if status.as_u16() == 401 || status.as_u16() == 403 {
             return Err(ModelError::Auth(format!(
-                "{} auth failed ({status}). Check API key and account access.",
-                self.provider_name
+                "{} auth failed ({}). Check API key and account access.",
+                self.provider_name, status
             )));
         }
         if !status.is_success() {
             return Err(ModelError::Request(format!(
-                "{} error {status}: {text}",
-                self.provider_name
+                "{} error {}: {}",
+                self.provider_name, status, text
             )));
         }
 
         let parsed: OpenAiChatResponse = serde_json::from_str(&text).map_err(|e| {
-            ModelError::InvalidResponse(format!("{} parse failed: {e}", self.provider_name))
+            ModelError::InvalidResponse(format!("{} parse failed: {}", self.provider_name, e))
         })?;
 
         parsed
@@ -162,76 +303,175 @@ impl OpenAiCompatClient {
         system: &str,
         user: &str,
         max_tokens: u32,
-        tools: Option<Vec<ToolDescriptor>>,
+        tools: Option<&[ToolDescriptor]>,
         on_delta: &mut (dyn FnMut(StreamDelta) -> Result<(), String> + Send),
     ) -> Result<OpenAiResponseMessage, ModelError> {
+        let max_tokens = self.normalize_max_tokens(max_tokens);
         let endpoint = format!("{}/chat/completions", self.base_url.trim_end_matches('/'));
-        let openai_tools = tools.and_then(|t| {
-            if t.is_empty() {
-                return None;
+
+        let make_body = |model: String| {
+            let openai_tools = tools.and_then(|t| {
+                if t.is_empty() {
+                    return None;
+                }
+                Some(
+                    t.iter()
+                        .map(|d| OpenAiTool {
+                            type_: "function".to_string(),
+                            function: OpenAiFunction {
+                                name: (self.config.tool_name_to_wire)(&d.name),
+                                description: d.description.clone(),
+                                parameters: (self.config.schema_filter)(&d.input_schema),
+                            },
+                        })
+                        .collect(),
+                )
+            });
+            let has_tools = openai_tools.is_some();
+            OpenAiChatRequest {
+                model,
+                messages: vec![
+                    OpenAiRequestMessage {
+                        role: "system".to_string(),
+                        content: system.to_string(),
+                    },
+                    OpenAiRequestMessage {
+                        role: "user".to_string(),
+                        content: user.to_string(),
+                    },
+                ],
+                temperature: 0.1,
+                max_tokens,
+                stream: true,
+                tools: openai_tools,
+                tool_choice: if has_tools {
+                    Some("auto".to_string())
+                } else {
+                    None
+                },
+                parallel_tool_calls: if has_tools && self.config.parallel_tool_calls {
+                    Some(true)
+                } else {
+                    None
+                },
             }
-            Some(
-                t.iter()
-                    .map(|d| OpenAiTool {
-                        type_: "function".to_string(),
-                        function: OpenAiFunction {
-                            name: d.name.clone(),
-                            description: d.description.clone(),
-                            parameters: d.input_schema.clone(),
-                        },
-                    })
-                    .collect(),
-            )
-        });
-        let has_tools = openai_tools.is_some();
-        let body = OpenAiChatRequest {
-            model: self.model.clone(),
-            messages: vec![
-                OpenAiRequestMessage {
-                    role: "system".to_string(),
-                    content: system.to_string(),
-                },
-                OpenAiRequestMessage {
-                    role: "user".to_string(),
-                    content: user.to_string(),
-                },
-            ],
-            temperature: 0.1,
-            max_tokens,
-            stream: true,
-            tools: openai_tools,
-            tool_choice: if has_tools {
-                Some("auto".to_string())
-            } else {
-                None
-            },
-            parallel_tool_calls: if has_tools { Some(true) } else { None },
         };
 
-        let response = self
+        let body = make_body(self.model.clone());
+
+        let mut request = self
             .client
             .post(&endpoint)
             .header("Content-Type", "application/json")
             .header("Authorization", format!("Bearer {}", self.api_key))
-            .json(&body)
+            .json(&body);
+
+        for (key, value) in &self.config.extra_headers {
+            request = request.header(*key, value.clone());
+        }
+
+        let response = request
             .send()
             .await
             .map_err(|e| ModelError::Request(e.to_string()))?;
 
+        let initial_status = response.status();
+
+        // Handle rate limiting with retry
+        let response = if self.config.retry_on_rate_limit
+            && self.is_rate_limit_error(initial_status, "")
+        {
+            let delay_ms = 2000;
+            tracing::warn!(
+                "{} streaming rate limit hit ({}), waiting {}ms before retry",
+                self.provider_name,
+                initial_status,
+                delay_ms
+            );
+            tokio::time::sleep(tokio::time::Duration::from_millis(delay_ms)).await;
+
+            let retry_response = self
+                .client
+                .post(&endpoint)
+                .header("Content-Type", "application/json")
+                .header("Authorization", format!("Bearer {}", self.api_key))
+                .json(&body)
+                .send()
+                .await
+                .map_err(|e| ModelError::Request(e.to_string()))?;
+
+            if retry_response.status().is_success() {
+                retry_response
+            } else {
+                let retry_status = retry_response.status();
+                let retry_text = retry_response.text().await.unwrap_or_default();
+                return Err(ModelError::Request(format!(
+                    "{} error {} after rate limit retry: {}",
+                    self.provider_name, retry_status, retry_text
+                )));
+            }
+        } else if self.config.retry_on_invalid_param_1210
+            && self.is_invalid_parameter_1210(initial_status, "")
+        {
+            if let Some(ref fallback_model) = self.config.fallback_model {
+                if fallback_model != &self.model {
+                    tracing::warn!(
+                        "{} streaming request got 1210 with model '{}', retrying with '{}'",
+                        self.provider_name,
+                        self.model,
+                        fallback_model
+                    );
+                    let retry_body = make_body(fallback_model.clone());
+                    let retry_response = self
+                        .client
+                        .post(&endpoint)
+                        .header("Content-Type", "application/json")
+                        .header("Authorization", format!("Bearer {}", self.api_key))
+                        .json(&retry_body)
+                        .send()
+                        .await
+                        .map_err(|e| ModelError::Request(e.to_string()))?;
+
+                    if retry_response.status().is_success() {
+                        retry_response
+                    } else {
+                        let retry_status = retry_response.status();
+                        let retry_text = retry_response.text().await.unwrap_or_default();
+                        if retry_status.as_u16() == 401 || retry_status.as_u16() == 403 {
+                            return Err(ModelError::Auth(format!(
+                                "{} auth failed ({}). Response: {}",
+                                self.provider_name, retry_status, retry_text
+                            )));
+                        }
+                        return Err(ModelError::Request(format!(
+                            "{} error {} (model={}, endpoint={}): {}",
+                            self.provider_name, retry_status, self.model, self.base_url, retry_text
+                        )));
+                    }
+                } else {
+                    response
+                }
+            } else {
+                response
+            }
+        } else {
+            response
+        };
+
         let status = response.status();
 
         if status.as_u16() == 401 || status.as_u16() == 403 {
-            let _text = response.text().await.unwrap_or_default();
+            let text = response.text().await.unwrap_or_default();
             return Err(ModelError::Auth(format!(
-                "{} auth failed ({status})",
-                self.provider_name
+                "{} auth failed ({}). Response: {}",
+                self.provider_name, status, text
             )));
         }
         if !status.is_success() {
             let text = response.text().await.unwrap_or_default();
             return Err(ModelError::Request(format!(
-                "{} error {status}: {text}",
-                self.provider_name
+                "{} error {}: {}",
+                self.provider_name, status, text
             )));
         }
 
@@ -338,31 +578,44 @@ impl OpenAiCompatClient {
     where
         F: FnMut(StreamDelta) -> Result<(), String> + Send,
     {
-        let history_text = if req.prior_observations.is_empty() {
-            "(none yet)".to_string()
-        } else {
-            serde_json::to_string(&req.prior_observations)
-                .map_err(|e| ModelError::InvalidResponse(e.to_string()))?
-        };
-
-        let user = worker_user_prompt(
-            &req.task_prompt,
-            &req.goal_summary,
-            &req.context,
-            &req.available_tools,
-            Some(&history_text),
-        );
-
-        let system = worker_system_prompt();
+        let (system, user) = worker_prompt_from_request(&req)?;
         let tools_arg = if req.tool_descriptors.is_empty() {
             None
         } else {
-            Some(req.tool_descriptors.clone())
+            Some(req.tool_descriptors.as_slice())
         };
         let max_tokens = req.max_tokens.unwrap_or(WORKER_MAX_TOKENS);
-        let response = self
+
+        // Handle GLM-specific fallback for plan mode (no tools retry)
+        let is_plan_mode = req
+            .goal_summary
+            .to_ascii_lowercase()
+            .contains("draft an implementation plan");
+        let response = match self
             .run_chat_streaming(&system, &user, max_tokens, tools_arg, &mut on_delta)
-            .await?;
+            .await
+        {
+            Ok(resp) => resp,
+            Err(ModelError::Request(msg))
+                if self.config.retry_on_invalid_param_1210
+                    && (msg.contains("\"code\":\"1210\"") || msg.contains("\"code\":1210")) =>
+            {
+                tracing::warn!(
+                    "{} streaming request rejected parameters (1210); retrying non-streaming",
+                    self.provider_name
+                );
+                if is_plan_mode {
+                    tracing::warn!(
+                        "{} plan-mode fallback: retrying without tools",
+                        self.provider_name
+                    );
+                    self.run_chat(&system, &user, max_tokens, None).await?
+                } else {
+                    self.run_chat(&system, &user, max_tokens, tools_arg).await?
+                }
+            }
+            Err(err) => return Err(err),
+        };
 
         tracing::debug!(
             "{} worker response - content: {:?}, tool_calls: {:?}",
@@ -371,53 +624,11 @@ impl OpenAiCompatClient {
             response.tool_calls
         );
 
-        if let Some(tool_calls) = response.tool_calls.as_ref() {
-            if !tool_calls.is_empty() {
-                let mut calls = Vec::with_capacity(tool_calls.len());
-                for call in tool_calls {
-                    if call.tool_type != "function" {
-                        continue;
-                    }
-                    let args_json =
-                        serde_json::from_str::<serde_json::Value>(&call.function.arguments)
-                            .unwrap_or_else(|_| serde_json::json!({}));
-                    calls.push(WorkerToolCall {
-                        tool_name: call.function.name.clone(),
-                        tool_args: args_json,
-                        rationale: None,
-                    });
-                }
-
-                if !calls.is_empty() {
-                    let raw_response = serde_json::to_string(&response).ok();
-                    return Ok(WorkerDecision {
-                        action: WorkerAction::ToolCalls { calls },
-                        reasoning: response.reasoning_content.clone(),
-                        raw_response,
-                    });
-                }
-            }
-        }
-
-        let raw_response = serde_json::to_string(&response).ok();
-        let raw = if response.content.as_deref().unwrap_or("").trim().is_empty() {
-            response.reasoning_content.unwrap_or_default()
-        } else {
-            response.content.unwrap_or_default()
-        };
-        let summary = strip_tool_call_markup(raw.trim()).trim().to_string();
-
-        Ok(WorkerDecision {
-            action: WorkerAction::Complete {
-                summary: if summary.is_empty() {
-                    "Task complete.".to_string()
-                } else {
-                    summary
-                },
-            },
-            reasoning: None,
-            raw_response,
-        })
+        Ok(openai_response_to_worker_decision(
+            response,
+            &req.tool_descriptors,
+            &*self.config.tool_name_from_wire,
+        ))
     }
 
     #[allow(dead_code)]
@@ -430,13 +641,17 @@ impl OpenAiCompatClient {
         let user = format!(
             "Task prompt:\n{}\n\nExisting markdown context (if any):\n{}\n\nWrite a revised or fresh implementation plan as a markdown artifact. Output only the markdown plan, no tool calls or tags.",
             task_prompt,
-            if prior_markdown_context.trim().is_empty() { "(none)" } else { prior_markdown_context }
+            if prior_markdown_context.trim().is_empty() {
+                "(none)"
+            } else {
+                prior_markdown_context
+            }
         );
 
         let tools_arg = if tool_descriptors.is_empty() {
             None
         } else {
-            Some(tool_descriptors)
+            Some(tool_descriptors.as_slice())
         };
         let response = self
             .run_chat(
@@ -453,7 +668,9 @@ impl OpenAiCompatClient {
                 if call.tool_type != "function" {
                     continue;
                 }
-                if call.function.name == "agent.create_artifact" {
+                // Decode the tool name using the from-wire hook (empty descriptors for lookup)
+                let tool_name = (self.config.tool_name_from_wire)(&call.function.name, &[]);
+                if tool_name == "agent.create_artifact" {
                     let args: serde_json::Value = serde_json::from_str(&call.function.arguments)
                         .unwrap_or(serde_json::json!({}));
                     if let Some(c) = args.get("content").and_then(|v| v.as_str()) {
@@ -610,19 +827,64 @@ pub fn process_openai_stream_line(
     Ok(false)
 }
 
+pub fn openai_response_to_worker_decision(
+    response: OpenAiResponseMessage,
+    tool_descriptors: &[ToolDescriptor],
+    decode_tool_name: &dyn Fn(&str, &[ToolDescriptor]) -> String,
+) -> WorkerDecision {
+    if let Some(tool_calls) = response.tool_calls.as_ref() {
+        if !tool_calls.is_empty() {
+            let mut calls = Vec::with_capacity(tool_calls.len());
+            for call in tool_calls {
+                if call.tool_type != "function" {
+                    continue;
+                }
+                let args_json = serde_json::from_str::<serde_json::Value>(&call.function.arguments)
+                    .unwrap_or_else(|_| serde_json::json!({}));
+                calls.push(WorkerToolCall {
+                    tool_name: decode_tool_name(&call.function.name, tool_descriptors),
+                    tool_args: args_json,
+                    rationale: None,
+                });
+            }
+
+            if !calls.is_empty() {
+                let raw_response = serde_json::to_string(&response).ok();
+                return WorkerDecision {
+                    action: WorkerAction::ToolCalls { calls },
+                    reasoning: response.reasoning_content,
+                    raw_response,
+                };
+            }
+        }
+    }
+
+    let raw_response = serde_json::to_string(&response).ok();
+    WorkerDecision {
+        action: WorkerAction::Complete {
+            summary: completion_summary_from_content_or_reasoning(
+                response.content,
+                response.reasoning_content,
+            ),
+        },
+        reasoning: None,
+        raw_response,
+    }
+}
+
 #[derive(Debug, Serialize)]
 pub struct OpenAiChatRequest {
-    model: String,
-    messages: Vec<OpenAiRequestMessage>,
-    temperature: f32,
-    max_tokens: u32,
-    stream: bool,
+    pub model: String,
+    pub messages: Vec<OpenAiRequestMessage>,
+    pub temperature: f32,
+    pub max_tokens: u32,
+    pub stream: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
-    tools: Option<Vec<OpenAiTool>>,
+    pub tools: Option<Vec<OpenAiTool>>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    tool_choice: Option<String>,
+    pub tool_choice: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    parallel_tool_calls: Option<bool>,
+    pub parallel_tool_calls: Option<bool>,
 }
 
 #[derive(Debug, Serialize)]

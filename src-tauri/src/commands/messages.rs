@@ -263,3 +263,99 @@ pub fn get_conversation_summary(
         None => Ok(None),
     }
 }
+
+#[tauri::command]
+pub async fn compact_task_conversation(
+    state: tauri::State<'_, AppState>,
+    task_id: String,
+    provider: Option<String>,
+    model: Option<String>,
+) -> Result<serde_json::Value, AppError> {
+    use crate::runtime::summarization::{
+        assemble_transcript, get_or_generate_summary, load_compaction_settings,
+    };
+
+    let task = queries::get_task(&state.db, &task_id)?
+        .ok_or_else(|| AppError::Other(format!("task not found: {}", task_id)))?;
+
+    // Assemble conversation transcript
+    let transcript = assemble_transcript(&state.db, &task_id)
+        .map_err(|e| AppError::Other(format!("Failed to assemble transcript: {}", e)))?;
+
+    // Get compaction settings
+    let compaction_settings = load_compaction_settings(&state.db).unwrap_or_default();
+
+    // Resolve provider and model
+    let workspace_root = crate::load_workspace_root(&state.db);
+    let resolved = super::execution::resolve_provider_model_for_prompt(
+        &state.db,
+        &workspace_root,
+        &task.prompt,
+        provider,
+        model,
+    )?;
+
+    let compaction_model = compaction_settings
+        .compaction_model
+        .as_deref()
+        .or(resolved.effective_model.as_deref());
+
+    // Get the latest run for this task
+    let latest_run = queries::get_latest_run_for_task(&state.db, &task_id)?
+        .ok_or_else(|| AppError::Other("No run found for task".to_string()))?;
+
+    // Emit compaction started event
+    let _ = crate::runtime::planner::emit_and_record(
+        &state.db,
+        &state.bus,
+        "agent",
+        "agent.compaction_started",
+        Some(latest_run.id.clone()),
+        serde_json::json!({
+            "task_id": task_id,
+            "message_count": transcript.messages.len(),
+            "estimated_tokens": transcript.estimated_tokens,
+            "threshold": compaction_settings.threshold_tokens(compaction_model),
+            "manual": true,
+        }),
+    );
+
+    // Generate summary
+    let summary = get_or_generate_summary(
+        &state.db,
+        &task_id,
+        &latest_run.id,
+        &resolved.provider,
+        &resolved.cfg.api_key,
+        compaction_model,
+        resolved.cfg.base_url.as_deref(),
+        &compaction_settings,
+        false, // Don't force regenerate if we have a recent one
+    )
+    .await
+    .map_err(|e| AppError::Other(format!("Failed to generate summary: {}", e)))?;
+
+    // Emit compaction completed event
+    let _ = crate::runtime::planner::emit_and_record(
+        &state.db,
+        &state.bus,
+        "agent",
+        "agent.compaction_completed",
+        Some(latest_run.id),
+        serde_json::json!({
+            "task_id": task_id,
+            "summary_id": summary.id,
+            "summary_length": summary.summary_text.len(),
+            "messages_summarized": summary.message_count,
+            "token_estimate": summary.token_estimate,
+        }),
+    );
+
+    Ok(serde_json::json!({
+        "id": summary.id,
+        "summary": summary.summary_text,
+        "message_count": summary.message_count,
+        "token_estimate": summary.token_estimate,
+        "created_at": summary.created_at,
+    }))
+}

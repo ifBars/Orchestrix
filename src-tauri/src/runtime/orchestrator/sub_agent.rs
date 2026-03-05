@@ -114,17 +114,6 @@ pub(super) async fn execute_sub_agent(
             }),
         );
 
-        // Convert model config to worker format
-        let worker_model_config =
-            model_config
-                .as_ref()
-                .map(|c| super::worker::model::RuntimeModelConfig {
-                    provider: c.provider.clone(),
-                    api_key: c.api_key.clone(),
-                    model: c.model.clone(),
-                    base_url: c.base_url.clone(),
-                });
-
         let include_embeddings = embeddings::is_semantic_search_configured(db);
         result = match timeout(
             Duration::from_millis(attempt_timeout_ms),
@@ -142,7 +131,7 @@ pub(super) async fn execute_sub_agent(
                 &step,
                 workspace_root,
                 &worktree.path,
-                worker_model_config,
+                model_config.clone(),
                 goal_summary.clone(),
                 task_prompt.clone(),
                 0,

@@ -15,8 +15,10 @@ use crate::model::{
 };
 use crate::policy::PolicyEngine;
 use crate::runtime::approval::ApprovalGate;
+use crate::runtime::artifacts::collect_markdown_artifact_bundle;
 use crate::runtime::plan_mode_settings::get_plan_mode_max_tokens;
 use crate::runtime::questions::UserQuestionGate;
+use crate::runtime::tool_calling::{invoke_tool_with_special_cases, resolve_human_gates};
 use crate::tools::ToolRegistry;
 
 /// Returned from plan generation; run_id and artifact_path are for future API/UI use.
@@ -216,10 +218,6 @@ async fn handle_planning_tool_calls(
     workspace_root: &std::path::Path,
     turn: usize,
 ) -> Result<(), String> {
-    use crate::tools::{ToolCallInput, ToolError};
-    use std::time::Duration;
-    use tokio::time::timeout;
-
     let tool_names: Vec<String> = calls.iter().map(|c| c.tool_name.clone()).collect();
     let _ = emit_and_record(
         db,
@@ -275,183 +273,43 @@ async fn handle_planning_tool_calls(
             }),
         );
 
-        let mut invocation = if tool_name == "diagram.read_graph" {
-            crate::tools::canvas::handle_read_graph(db, task_id)
-        } else if tool_name == "diagram.apply_ops" {
-            let batch: crate::tools::canvas::DiagramOpBatch =
-                serde_json::from_value(tool_args.clone())
-                    .map_err(|e| format!("Invalid operation batch: {}", e))?;
-            crate::tools::canvas::handle_apply_ops(db, bus, task_id, batch)
-        } else {
-            tool_registry.invoke(
-                policy,
-                workspace_root,
-                ToolCallInput {
-                    name: tool_name.clone(),
-                    args: tool_args.clone(),
-                },
-            )
-        };
+        let invocation = invoke_tool_with_special_cases(
+            db,
+            bus,
+            task_id,
+            tool_registry,
+            policy,
+            workspace_root,
+            &tool_name,
+            &tool_args,
+        );
 
-        // Handle approval if required
-        if let Err(ToolError::ApprovalRequired { scope, reason }) = &invocation {
-            queries::update_tool_call_result(
-                db,
-                &tool_call_id,
-                "awaiting_approval",
-                None,
-                None,
-                Some(reason),
-            )
-            .map_err(|e| e.to_string())?;
-
-            let (request, receiver) = approval_gate.request(
-                task_id,
-                run_id,
-                "", // no sub_agent_id in plan mode
-                &tool_call_id,
-                &tool_name,
-                scope,
-                reason,
-            );
-
-            let _ = emit_and_record(
-                db,
-                bus,
-                "tool",
-                "tool.approval_required",
-                Some(run_id.to_string()),
-                serde_json::json!({
-                    "task_id": task_id,
-                    "tool_call_id": tool_call_id,
-                    "approval_id": request.id,
-                    "tool_name": tool_name,
-                    "scope": scope,
-                    "reason": reason,
-                }),
-            );
-
-            let approved = match timeout(Duration::from_secs(300), receiver).await {
-                Ok(Ok(value)) => value,
-                Ok(Err(_)) => false,
-                Err(_) => false,
-            };
-
-            let _ = emit_and_record(
-                db,
-                bus,
-                "tool",
-                "tool.approval_resolved",
-                Some(run_id.to_string()),
-                serde_json::json!({
-                    "task_id": task_id,
-                    "tool_call_id": tool_call_id,
-                    "approval_id": request.id,
-                    "approved": approved,
-                }),
-            );
-
-            if approved {
-                policy.allow_scope(scope);
-                invocation = if tool_name == "diagram.read_graph" {
-                    crate::tools::canvas::handle_read_graph(db, task_id)
-                } else if tool_name == "diagram.apply_ops" {
-                    let batch: crate::tools::canvas::DiagramOpBatch =
-                        serde_json::from_value(tool_args.clone())
-                            .map_err(|e| format!("Invalid operation batch: {}", e))?;
-                    crate::tools::canvas::handle_apply_ops(db, bus, task_id, batch)
-                } else {
-                    tool_registry.invoke(
-                        policy,
-                        workspace_root,
-                        ToolCallInput {
-                            name: tool_name.clone(),
-                            args: tool_args.clone(),
-                        },
-                    )
-                };
-            } else {
-                invocation = Err(ToolError::PolicyDenied(format!(
-                    "approval denied for scope: {scope}"
-                )));
-            }
-        }
-
-        if let Err(ToolError::UserQuestionRequired { question }) = &invocation {
-            queries::update_tool_call_result(
-                db,
-                &tool_call_id,
-                "awaiting_user",
-                None,
-                None,
-                Some(&question.question),
-            )
-            .map_err(|e| e.to_string())?;
-
-            let (request, receiver) = question_gate.request(
-                task_id,
-                run_id,
-                "",
-                &tool_call_id,
-                question.question.clone(),
-                question.options.clone(),
-                question.multiple,
-                question.allow_custom,
-                question.timeout_secs,
-                question.default_option_id.clone(),
-            );
-
-            let _ = emit_and_record(
-                db,
-                bus,
-                "agent",
-                "agent.question_required",
-                Some(run_id.to_string()),
-                serde_json::to_value(&request).unwrap_or_else(|_| {
-                    serde_json::json!({
-                        "task_id": task_id,
-                        "run_id": run_id,
-                        "tool_call_id": tool_call_id,
-                        "question": question.question,
-                    })
-                }),
-            );
-
-            // Use question-specific timeout or default 300s
-            let timeout_duration = Duration::from_secs(question.timeout_secs.unwrap_or(300));
-            match timeout(timeout_duration, receiver).await {
-                Ok(Ok(answer)) => {
-                    let _ = emit_and_record(
-                        db,
-                        bus,
-                        "agent",
-                        "agent.question_answered",
-                        Some(run_id.to_string()),
-                        serde_json::json!({
-                            "task_id": task_id,
-                            "run_id": run_id,
-                            "tool_call_id": tool_call_id,
-                            "question_id": request.id,
-                            "answer": answer,
-                        }),
-                    );
-
-                    invocation = Ok(crate::tools::ToolCallOutput {
-                        ok: true,
-                        data: serde_json::json!({
-                            "question_id": request.id,
-                            "answer": answer,
-                        }),
-                        error: None,
-                    });
-                }
-                _ => {
-                    invocation = Err(ToolError::Execution(
-                        "user question timed out or was cancelled".to_string(),
-                    ));
-                }
-            }
-        }
+        let invocation = resolve_human_gates(
+            db,
+            bus,
+            approval_gate,
+            question_gate,
+            policy,
+            run_id,
+            task_id,
+            None,
+            &tool_call_id,
+            &tool_name,
+            invocation,
+            || {
+                invoke_tool_with_special_cases(
+                    db,
+                    bus,
+                    task_id,
+                    tool_registry,
+                    policy,
+                    workspace_root,
+                    &tool_name,
+                    &tool_args,
+                )
+            },
+        )
+        .await?;
 
         match invocation {
             Ok(output) => {
@@ -643,7 +501,7 @@ pub async fn generate_plan_markdown_artifact(
     // Load plan mode max tokens setting
     let max_tokens = get_plan_mode_max_tokens(&db);
 
-    let existing_markdown = collect_existing_markdown(&db, &task_id);
+    let existing_markdown = collect_markdown_artifact_bundle(&db, &task_id);
 
     // NOTE: Skills are NOT auto-loaded into context anymore.
     // Agents must explicitly use skills.list_installed() and skills.load() to activate skills.
@@ -766,26 +624,7 @@ pub async fn generate_plan_markdown_artifact(
         }
         "openai-chatgpt" | "chatgpt" => {
             // api_key carries JSON-encoded OAuth data when OAuth is used, or a raw Bearer token
-            let planner = if let Ok(auth) = serde_json::from_str::<serde_json::Value>(&api_key) {
-                let access_token = auth
-                    .get("access_token")
-                    .and_then(|v| v.as_str())
-                    .unwrap_or("")
-                    .to_string();
-                let refresh_token = auth
-                    .get("refresh_token")
-                    .and_then(|v| v.as_str())
-                    .unwrap_or("")
-                    .to_string();
-                let expires_at = auth.get("expires_at").and_then(|v| v.as_i64()).unwrap_or(0);
-                let account_id = auth
-                    .get("account_id")
-                    .and_then(|v| v.as_str())
-                    .map(str::to_string);
-                ChatGPTClient::new(access_token, refresh_token, expires_at, account_id, model)
-            } else {
-                ChatGPTClient::new(api_key, String::new(), i64::MAX, None, model)
-            };
+            let planner = ChatGPTClient::from_api_key_payload(api_key, model);
             planner_model = planner.model_id().to_string();
             run_multi_turn_planning(
                 &db,
@@ -899,28 +738,6 @@ pub async fn generate_plan_markdown_artifact(
         run_id,
         artifact_path: plan_artifact_path,
     })
-}
-
-fn collect_existing_markdown(db: &Database, task_id: &str) -> String {
-    let artifacts = queries::list_markdown_artifacts_for_task(db, task_id).unwrap_or_default();
-    if artifacts.is_empty() {
-        return String::new();
-    }
-
-    let mut out = String::new();
-    for artifact in artifacts {
-        let path = std::path::PathBuf::from(&artifact.uri_or_content);
-        if !path.exists() {
-            continue;
-        }
-        if let Ok(content) = std::fs::read_to_string(&path) {
-            out.push_str(&format!(
-                "\n\n---\nArtifact: {}\n\n{}",
-                artifact.uri_or_content, content
-            ));
-        }
-    }
-    out
 }
 
 fn write_plan_artifact(

@@ -70,7 +70,12 @@ pub fn extract_conversation_context(
 
     // Calculate how many messages to take: 2 * context_turns (user + assistant pairs)
     let take_count = (context_turns as usize * 2).min(conversation.len());
-    let recent: Vec<_> = conversation.into_iter().rev().take(take_count).rev().collect();
+    let recent: Vec<_> = conversation
+        .into_iter()
+        .rev()
+        .take(take_count)
+        .rev()
+        .collect();
 
     // Format for the suggestion prompt
     let context = recent
@@ -151,7 +156,10 @@ async fn suggest_with_kimi(
         base_url.map(String::from),
     );
 
-    match client.complete(system_prompt, conversation, SUGGESTION_MAX_TOKENS).await {
+    match client
+        .complete(system_prompt, conversation, SUGGESTION_MAX_TOKENS)
+        .await
+    {
         Ok(suggestion) => suggestion,
         Err(e) => {
             tracing::warn!("Kimi suggestion failed: {}", e);
@@ -174,7 +182,10 @@ async fn suggest_with_minimax(
         base_url.map(String::from),
     );
 
-    match client.complete(system_prompt, conversation, SUGGESTION_MAX_TOKENS).await {
+    match client
+        .complete(system_prompt, conversation, SUGGESTION_MAX_TOKENS)
+        .await
+    {
         Ok(suggestion) => suggestion,
         Err(e) => {
             tracing::warn!("MiniMax suggestion failed: {}", e);
@@ -198,7 +209,10 @@ async fn suggest_with_glm(
         base_url.map(String::from),
     );
 
-    match client.complete(system_prompt, conversation, SUGGESTION_MAX_TOKENS).await {
+    match client
+        .complete(system_prompt, conversation, SUGGESTION_MAX_TOKENS)
+        .await
+    {
         Ok(suggestion) => suggestion,
         Err(e) => {
             tracing::warn!("GLM suggestion failed: {}", e);
@@ -222,7 +236,10 @@ async fn suggest_with_modal(
         base_url.map(String::from),
     );
 
-    match client.complete(system_prompt, conversation, SUGGESTION_MAX_TOKENS).await {
+    match client
+        .complete(system_prompt, conversation, SUGGESTION_MAX_TOKENS)
+        .await
+    {
         Ok(suggestion) => suggestion,
         Err(e) => {
             tracing::warn!("Modal suggestion failed: {}", e);
@@ -246,7 +263,10 @@ async fn suggest_with_gemini(
         base_url.map(String::from),
     );
 
-    match client.complete(system_prompt, conversation, SUGGESTION_MAX_TOKENS).await {
+    match client
+        .complete(system_prompt, conversation, SUGGESTION_MAX_TOKENS)
+        .await
+    {
         Ok(suggestion) => suggestion,
         Err(e) => {
             tracing::warn!("Gemini suggestion failed: {}", e);

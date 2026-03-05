@@ -1,7 +1,7 @@
 import { ArrowLeft } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { AgentsSection } from "@/components/Settings/AgentsSection";
-import { ContextSection } from "@/components/Settings/ContextSection";
+import { ContextSection } from "@/components/Settings/ContextSection/ContextSection";
 import { EmbeddingsSection } from "@/components/Settings/EmbeddingsSection";
 import { GeneralSection } from "@/components/Settings/GeneralSection";
 import { McpSection } from "@/components/Settings/McpSection";

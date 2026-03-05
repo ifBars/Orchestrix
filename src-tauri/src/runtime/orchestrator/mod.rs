@@ -27,7 +27,6 @@ use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
 use chrono::Utc;
-use serde::Deserialize;
 use tokio::time::{sleep, timeout, Duration};
 use uuid::Uuid;
 
@@ -45,6 +44,9 @@ use super::worktree::{WorktreeManager, WorktreeStrategy};
 mod sub_agent;
 mod task_lifecycle;
 mod worker;
+
+pub(crate) use worker::helpers::parse_sub_agent_contract;
+pub(crate) use worker::model::RuntimeModelConfig;
 
 #[derive(Clone)]
 pub struct Orchestrator {
@@ -69,94 +71,6 @@ struct SubAgentResult {
 
 const SUB_AGENT_RETRY_BACKOFF_MS: u64 = 500;
 const SUB_AGENT_ATTEMPT_TIMEOUT_SECS: u64 = 90;
-
-#[derive(Clone)]
-struct RuntimeModelConfig {
-    provider: String,
-    api_key: String,
-    model: Option<String>,
-    base_url: Option<String>,
-}
-
-#[derive(Debug, Clone, Deserialize)]
-#[allow(dead_code)]
-struct SubAgentContract {
-    #[serde(default)]
-    permissions: SubAgentPermissions,
-    #[serde(default)]
-    execution: SubAgentExecution,
-}
-
-impl Default for SubAgentContract {
-    fn default() -> Self {
-        Self {
-            permissions: SubAgentPermissions::default(),
-            execution: SubAgentExecution::default(),
-        }
-    }
-}
-
-#[derive(Debug, Clone, Deserialize)]
-#[allow(dead_code)]
-struct SubAgentPermissions {
-    #[serde(default)]
-    allowed_tools: Vec<String>,
-    #[serde(default)]
-    can_spawn_children: bool,
-    #[serde(default)]
-    max_delegation_depth: u32,
-}
-
-impl Default for SubAgentPermissions {
-    fn default() -> Self {
-        Self {
-            allowed_tools: Vec::new(),
-            can_spawn_children: false,
-            max_delegation_depth: 0,
-        }
-    }
-}
-
-#[derive(Debug, Clone, Deserialize)]
-struct SubAgentExecution {
-    #[serde(default = "default_attempt_timeout_ms")]
-    attempt_timeout_ms: u64,
-    #[serde(default = "default_close_on_completion")]
-    close_on_completion: bool,
-}
-
-impl Default for SubAgentExecution {
-    fn default() -> Self {
-        Self {
-            attempt_timeout_ms: default_attempt_timeout_ms(),
-            close_on_completion: default_close_on_completion(),
-        }
-    }
-}
-
-fn default_attempt_timeout_ms() -> u64 {
-    SUB_AGENT_ATTEMPT_TIMEOUT_SECS * 1000
-}
-
-fn default_close_on_completion() -> bool {
-    true
-}
-
-fn parse_sub_agent_contract(context_json: Option<&str>) -> SubAgentContract {
-    let Some(raw) = context_json else {
-        return SubAgentContract::default();
-    };
-
-    let Ok(value) = serde_json::from_str::<serde_json::Value>(raw) else {
-        return SubAgentContract::default();
-    };
-
-    let Some(contract_value) = value.get("contract") else {
-        return SubAgentContract::default();
-    };
-
-    serde_json::from_value::<SubAgentContract>(contract_value.clone()).unwrap_or_default()
-}
 
 impl Orchestrator {
     pub fn new(db: Arc<Database>, bus: Arc<EventBus>, workspace_root: PathBuf) -> Self {

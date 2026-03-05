@@ -228,14 +228,6 @@ pub async fn spawn_and_execute_delegated_sub_agent(
         result: None,
     };
 
-    // Convert model config to orchestrator format
-    let orchestrator_model_config = model_config.map(|c| super::super::RuntimeModelConfig {
-        provider: c.provider.clone(),
-        api_key: c.api_key.clone(),
-        model: c.model.clone(),
-        base_url: c.base_url.clone(),
-    });
-
     // Execute the child sub-agent
     let mut child_result = Box::pin(super::super::sub_agent::execute_sub_agent(
         db,
@@ -249,7 +241,7 @@ pub async fn spawn_and_execute_delegated_sub_agent(
         task_id.to_string(),
         child.clone(),
         delegated_step,
-        orchestrator_model_config,
+        model_config.cloned(),
         goal_summary.to_string(),
         task_prompt.to_string(),
         delegated_skills_context,

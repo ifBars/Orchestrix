@@ -3,7 +3,8 @@ use serde::{Deserialize, Serialize};
 
 use crate::core::tool::ToolDescriptor;
 use crate::model::shared::{
-    preferred_response_text, strip_tool_call_markup, worker_system_prompt, worker_user_prompt,
+    completion_summary_from_content_or_reasoning, preferred_response_text,
+    worker_prompt_from_request,
 };
 use crate::model::{
     AgentModelClient, ModelError, StreamDelta, WorkerAction, WorkerActionRequest, WorkerDecision,
@@ -360,22 +361,7 @@ impl GeminiClient {
     where
         F: FnMut(StreamDelta) -> Result<(), String> + Send,
     {
-        let history_text = if req.prior_observations.is_empty() {
-            "(none yet)".to_string()
-        } else {
-            serde_json::to_string(&req.prior_observations)
-                .map_err(|e| ModelError::InvalidResponse(e.to_string()))?
-        };
-
-        let user = worker_user_prompt(
-            &req.task_prompt,
-            &req.goal_summary,
-            &req.context,
-            &req.available_tools,
-            Some(&history_text),
-        );
-
-        let system = worker_system_prompt();
+        let (system, user) = worker_prompt_from_request(&req)?;
         let tools_arg = if req.tool_descriptors.is_empty() {
             None
         } else {
@@ -415,20 +401,12 @@ impl GeminiClient {
             });
         }
 
-        let raw = if response.content.as_deref().unwrap_or("").trim().is_empty() {
-            response.reasoning_content.unwrap_or_default()
-        } else {
-            response.content.unwrap_or_default()
-        };
-        let summary = strip_tool_call_markup(raw.trim()).trim().to_string();
-
         Ok(WorkerDecision {
             action: WorkerAction::Complete {
-                summary: if summary.is_empty() {
-                    "Task complete.".to_string()
-                } else {
-                    summary
-                },
+                summary: completion_summary_from_content_or_reasoning(
+                    response.content,
+                    response.reasoning_content,
+                ),
             },
             reasoning: None,
             raw_response,

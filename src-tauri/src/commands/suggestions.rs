@@ -30,7 +30,9 @@ pub async fn generate_prompt_suggestion(
         .map_err(|e| AppError::Other(e.to_string()))?;
 
     if !settings.enabled {
-        return Err(AppError::Other("Prompt suggestions are disabled".to_string()));
+        return Err(AppError::Other(
+            "Prompt suggestions are disabled".to_string(),
+        ));
     }
 
     // Load provider config to get API key

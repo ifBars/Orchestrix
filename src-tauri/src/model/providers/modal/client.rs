@@ -1,4 +1,4 @@
-use crate::model::providers::openai_compat::OpenAiCompatClient;
+use crate::model::providers::openai_compat::{OpenAiCompatClient, OpenAiCompatClientConfig};
 
 const DEFAULT_MODAL_BASE_URL: &str = "https://api.us-west-2.modal.direct/v1";
 const DEFAULT_MODAL_MODEL: &str = "zai-org/GLM-5-FP8";
@@ -13,6 +13,7 @@ impl ModalClient {
             base_url.or_else(|| Some(DEFAULT_MODAL_BASE_URL.to_string())),
             "Modal",
             DEFAULT_MODAL_MODEL,
+            OpenAiCompatClientConfig::default(),
         ))
     }
 

@@ -3,8 +3,8 @@ use serde::{Deserialize, Serialize};
 
 use crate::core::tool::ToolDescriptor;
 use crate::model::shared::{
-    plan_markdown_system_prompt, preferred_response_text, strip_tool_call_markup,
-    worker_system_prompt, worker_user_prompt,
+    completion_summary_from_content_or_reasoning, plan_markdown_system_prompt,
+    preferred_response_text, strip_tool_call_markup, worker_system_prompt, worker_user_prompt,
 };
 use crate::model::{
     AgentModelClient, ModelError, StreamDelta, WorkerAction, WorkerActionRequest, WorkerDecision,
@@ -379,35 +379,15 @@ impl MiniMaxClient {
         }
 
         let raw_response = serde_json::to_string(&response).ok();
-        let raw = if response.content.as_deref().unwrap_or("").trim().is_empty() {
-            response.reasoning_content.unwrap_or_default()
-        } else {
-            response.content.unwrap_or_default()
-        };
+        let summary = completion_summary_from_content_or_reasoning(
+            response.content,
+            response.reasoning_content,
+        );
 
-        tracing::debug!("MiniMax worker raw content: {}", raw);
-
-        if raw.trim().is_empty() {
-            tracing::debug!("MiniMax worker returning complete - empty response");
-            return Ok(WorkerDecision {
-                action: WorkerAction::Complete {
-                    summary: "Task complete.".to_string(),
-                },
-                reasoning,
-                raw_response,
-            });
-        }
-
-        let summary = strip_tool_call_markup(raw.trim()).trim().to_string();
+        tracing::debug!("MiniMax worker summary: {}", summary);
 
         Ok(WorkerDecision {
-            action: WorkerAction::Complete {
-                summary: if summary.is_empty() {
-                    "Task complete.".to_string()
-                } else {
-                    summary
-                },
-            },
+            action: WorkerAction::Complete { summary },
             reasoning,
             raw_response,
         })

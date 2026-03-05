@@ -2,10 +2,7 @@
 //!
 //! Handles tool invocation, approval flows, result recording, and observation tracking.
 
-use std::time::Duration;
-
 use chrono::Utc;
-use tokio::time::timeout;
 use uuid::Uuid;
 
 use crate::db::{queries, Database};
@@ -13,7 +10,8 @@ use crate::policy::PolicyEngine;
 use crate::runtime::approval::ApprovalGate;
 use crate::runtime::planner::emit_and_record;
 use crate::runtime::questions::UserQuestionGate;
-use crate::tools::{ToolCallInput, ToolError, ToolRegistry};
+use crate::runtime::tool_calling::{invoke_tool_with_special_cases, resolve_human_gates};
+use crate::tools::{ToolError, ToolRegistry};
 
 /// Execute a single tool call with full lifecycle management.
 ///
@@ -90,198 +88,47 @@ pub async fn execute_tool_call(
     );
 
     // Invoke the tool
-    let mut invocation = if tool_name == "diagram.read_graph" {
-        crate::tools::canvas::handle_read_graph(db, task_id)
-    } else if tool_name == "diagram.apply_ops" {
-        let batch: crate::tools::canvas::DiagramOpBatch =
-            match serde_json::from_value(tool_args.clone()) {
-                Ok(b) => b,
-                Err(e) => {
-                    return serde_json::json!({
-                        "tool_name": tool_name,
-                        "status": "error",
-                        "error": format!("Invalid operation batch: {}", e),
-                    });
-                }
-            };
-        crate::tools::canvas::handle_apply_ops(db, bus, task_id, batch)
-    } else {
-        tool_registry.invoke(
-            policy,
-            worktree_path,
-            ToolCallInput {
-                name: tool_name.to_string(),
-                args: tool_args.clone(),
-            },
-        )
+    let invocation = invoke_tool_with_special_cases(
+        db,
+        bus,
+        task_id,
+        tool_registry,
+        policy,
+        worktree_path,
+        tool_name,
+        tool_args,
+    );
+
+    let invocation = match resolve_human_gates(
+        db,
+        bus,
+        approval_gate,
+        question_gate,
+        policy,
+        run_id,
+        task_id,
+        Some(sub_agent_id),
+        &tool_call_id,
+        tool_name,
+        invocation,
+        || {
+            invoke_tool_with_special_cases(
+                db,
+                bus,
+                task_id,
+                tool_registry,
+                policy,
+                worktree_path,
+                tool_name,
+                tool_args,
+            )
+        },
+    )
+    .await
+    {
+        Ok(result) => result,
+        Err(error) => Err(ToolError::Execution(error)),
     };
-
-    // Handle approval-required errors
-    if let Err(ToolError::ApprovalRequired { scope, reason }) = &invocation {
-        let _ = queries::update_tool_call_result(
-            db,
-            &tool_call_id,
-            "awaiting_approval",
-            None,
-            None,
-            Some(reason),
-        );
-
-        let (request, receiver) = approval_gate.request(
-            task_id,
-            run_id,
-            sub_agent_id,
-            &tool_call_id,
-            tool_name,
-            scope,
-            reason,
-        );
-
-        let _ = emit_and_record(
-            db,
-            bus,
-            "tool",
-            "tool.approval_required",
-            Some(run_id.to_string()),
-            serde_json::json!({
-                "task_id": task_id,
-                "sub_agent_id": sub_agent_id,
-                "tool_call_id": tool_call_id,
-                "approval_id": request.id,
-                "tool_name": tool_name,
-                "scope": scope,
-                "reason": reason,
-            }),
-        );
-
-        // Wait for approval decision (5 minute timeout)
-        let approved = match timeout(Duration::from_secs(300), receiver).await {
-            Ok(Ok(value)) => value,
-            _ => false,
-        };
-
-        let _ = emit_and_record(
-            db,
-            bus,
-            "tool",
-            "tool.approval_resolved",
-            Some(run_id.to_string()),
-            serde_json::json!({
-                "task_id": task_id,
-                "sub_agent_id": sub_agent_id,
-                "tool_call_id": tool_call_id,
-                "approval_id": request.id,
-                "approved": approved,
-            }),
-        );
-
-        if approved {
-            policy.allow_scope(scope);
-            invocation = if tool_name == "diagram.read_graph" {
-                crate::tools::canvas::handle_read_graph(db, task_id)
-            } else if tool_name == "diagram.apply_ops" {
-                match serde_json::from_value::<crate::tools::canvas::DiagramOpBatch>(
-                    tool_args.clone(),
-                ) {
-                    Ok(batch) => crate::tools::canvas::handle_apply_ops(db, bus, task_id, batch),
-                    Err(e) => Err(crate::tools::ToolError::InvalidInput(format!(
-                        "Invalid operation batch: {}",
-                        e
-                    ))),
-                }
-            } else {
-                tool_registry.invoke(
-                    policy,
-                    worktree_path,
-                    ToolCallInput {
-                        name: tool_name.to_string(),
-                        args: tool_args.clone(),
-                    },
-                )
-            };
-        } else {
-            invocation = Err(ToolError::PolicyDenied(format!(
-                "approval denied for scope: {scope}"
-            )));
-        }
-    }
-
-    if let Err(ToolError::UserQuestionRequired { question }) = &invocation {
-        let _ = queries::update_tool_call_result(
-            db,
-            &tool_call_id,
-            "awaiting_user",
-            None,
-            None,
-            Some(&question.question),
-        );
-
-        let (request, receiver) = question_gate.request(
-            task_id,
-            run_id,
-            sub_agent_id,
-            &tool_call_id,
-            question.question.clone(),
-            question.options.clone(),
-            question.multiple,
-            question.allow_custom,
-            question.timeout_secs,
-            question.default_option_id.clone(),
-        );
-
-        let _ = emit_and_record(
-            db,
-            bus,
-            "agent",
-            "agent.question_required",
-            Some(run_id.to_string()),
-            serde_json::to_value(&request).unwrap_or_else(|_| {
-                serde_json::json!({
-                    "task_id": task_id,
-                    "run_id": run_id,
-                    "sub_agent_id": sub_agent_id,
-                    "tool_call_id": tool_call_id,
-                    "question": question.question,
-                })
-            }),
-        );
-
-        // Use question-specific timeout or default 300s
-        let timeout_duration = Duration::from_secs(question.timeout_secs.unwrap_or(300));
-        match timeout(timeout_duration, receiver).await {
-            Ok(Ok(answer)) => {
-                let _ = emit_and_record(
-                    db,
-                    bus,
-                    "agent",
-                    "agent.question_answered",
-                    Some(run_id.to_string()),
-                    serde_json::json!({
-                        "task_id": task_id,
-                        "run_id": run_id,
-                        "sub_agent_id": sub_agent_id,
-                        "tool_call_id": tool_call_id,
-                        "question_id": request.id,
-                        "answer": answer,
-                    }),
-                );
-
-                invocation = Ok(crate::tools::ToolCallOutput {
-                    ok: true,
-                    data: serde_json::json!({
-                        "question_id": request.id,
-                        "answer": answer,
-                    }),
-                    error: None,
-                });
-            }
-            _ => {
-                invocation = Err(ToolError::Execution(
-                    "user question timed out or was cancelled".to_string(),
-                ));
-            }
-        }
-    }
 
     // Handle invocation result
     match invocation {

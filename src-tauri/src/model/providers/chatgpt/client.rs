@@ -8,12 +8,95 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use tokio::sync::RwLock;
 
 use crate::core::tool::ToolDescriptor;
-use crate::model::shared::{
-    preferred_response_text, strip_tool_call_markup, worker_system_prompt, worker_user_prompt,
+use crate::model::providers::openai_compat::{
+    openai_response_to_worker_decision, process_openai_stream_line, OpenAiFunctionCall,
+    OpenAiResponseMessage, OpenAiToolCall, OpenAiToolCallAccumulator,
 };
+
+/// Ensure schemas conform to what the Responses API accepts:
+/// - object schemas must have a `properties` field (even if empty)
+/// - `items` must always be a single schema object (not a string, array, etc.)
+fn normalize_schema(schema: &serde_json::Value) -> serde_json::Value {
+    match schema {
+        serde_json::Value::Object(obj) => {
+            let mut out = obj.clone();
+
+            // object type must have properties
+            if obj.get("type").and_then(|v| v.as_str()) == Some("object")
+                && !obj.contains_key("properties")
+            {
+                out.insert(
+                    "properties".to_string(),
+                    serde_json::Value::Object(serde_json::Map::new()),
+                );
+            }
+
+            // Recurse into properties values
+            if let Some(serde_json::Value::Object(props)) = out.get("properties").cloned() {
+                let normalized_props: serde_json::Map<String, serde_json::Value> = props
+                    .into_iter()
+                    .map(|(k, v)| (k, normalize_schema(&v)))
+                    .collect();
+                out.insert(
+                    "properties".to_string(),
+                    serde_json::Value::Object(normalized_props),
+                );
+            }
+
+            // Normalize items: must be a schema object, not a string/array/etc.
+            if let Some(items) = out.get("items").cloned() {
+                let normalized_items = match &items {
+                    // Already an object — recurse into it
+                    serde_json::Value::Object(_) => normalize_schema(&items),
+                    // Array of schemas (tuple validation) — not supported; use first or {}
+                    serde_json::Value::Array(arr) => {
+                        if let Some(first) = arr.first() {
+                            normalize_schema(first)
+                        } else {
+                            serde_json::json!({ "type": "string" })
+                        }
+                    }
+                    // Primitive type shorthand like "string" — wrap into {"type": <value>}
+                    serde_json::Value::String(type_str) => {
+                        serde_json::json!({ "type": type_str })
+                    }
+                    // Anything else — fall back to generic object
+                    _ => serde_json::json!({}),
+                };
+                out.insert("items".to_string(), normalized_items);
+            }
+
+            serde_json::Value::Object(out)
+        }
+        other => other.clone(),
+    }
+}
+
+/// Sanitize a tool name for the Responses API (must match `^[a-zA-Z0-9_-]+$`).
+/// Dots and other forbidden chars are replaced with underscores.
+fn tool_name_to_wire(name: &str) -> String {
+    name.chars()
+        .map(|c| {
+            if c.is_ascii_alphanumeric() || c == '_' || c == '-' {
+                c
+            } else {
+                '_'
+            }
+        })
+        .collect()
+}
+
+/// Reverse wire name → canonical name by descriptor lookup.
+fn tool_name_from_wire(wire: &str, descriptors: &[ToolDescriptor]) -> String {
+    descriptors
+        .iter()
+        .find(|d| tool_name_to_wire(&d.name) == wire)
+        .map(|d| d.name.clone())
+        .unwrap_or_else(|| wire.to_string())
+}
+use crate::model::shared::{preferred_response_text, worker_prompt_from_request};
 use crate::model::{
-    AgentModelClient, ModelError, StreamDelta, WorkerAction, WorkerActionRequest, WorkerDecision,
-    WorkerToolCall,
+    AgentModelClient, ModelError, StreamDelta, WorkerActionRequest, WorkerDecision,
 };
 use crate::runtime::plan_mode_settings::WORKER_MAX_TOKENS;
 
@@ -69,8 +152,146 @@ impl ChatGPTClient {
         }
     }
 
+    pub fn from_api_key_payload(api_key: String, model: Option<String>) -> Self {
+        if let Ok(auth) = serde_json::from_str::<serde_json::Value>(&api_key) {
+            let access_token = auth
+                .get("access_token")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string();
+            let refresh_token = auth
+                .get("refresh_token")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string();
+            let expires_at = auth.get("expires_at").and_then(|v| v.as_i64()).unwrap_or(0);
+            let account_id = auth
+                .get("account_id")
+                .and_then(|v| v.as_str())
+                .map(str::to_string);
+            return Self::new(access_token, refresh_token, expires_at, account_id, model);
+        }
+
+        Self::new(api_key, String::new(), i64::MAX, None, model)
+    }
+
     pub fn model_id(&self) -> String {
         self.model.clone()
+    }
+
+    fn build_request_body(
+        &self,
+        system: &str,
+        user: &str,
+        _max_tokens: u32,
+        stream: bool,
+        tools: Option<Vec<ToolDescriptor>>,
+    ) -> Result<serde_json::Value, ModelError> {
+        let tool_values = tools
+            .unwrap_or_default()
+            .into_iter()
+            .map(|d| {
+                serde_json::json!({
+                    "type": "function",
+                    "name": tool_name_to_wire(&d.name),
+                    "description": d.description,
+                    "parameters": normalize_schema(&d.input_schema),
+                })
+            })
+            .collect::<Vec<_>>();
+
+        Ok(serde_json::json!({
+            "model": self.model,
+            "instructions": system,
+            "input": [
+                {
+                    "role": "user",
+                    "content": [
+                        {
+                            "type": "input_text",
+                            "text": user,
+                        }
+                    ]
+                }
+            ],
+            "tools": tool_values,
+            "tool_choice": "auto",
+            "parallel_tool_calls": true,
+            "store": false,
+            "stream": stream,
+        }))
+    }
+
+    fn parse_response_value(
+        value: &serde_json::Value,
+    ) -> Result<OpenAiResponseMessage, ModelError> {
+        if let Some(message) = value
+            .get("choices")
+            .and_then(|v| v.as_array())
+            .and_then(|choices| choices.first())
+            .and_then(|choice| choice.get("message"))
+        {
+            return serde_json::from_value::<OpenAiResponseMessage>(message.clone())
+                .map_err(|e| ModelError::InvalidResponse(format!("ChatGPT parse failed: {}", e)));
+        }
+
+        let output = value
+            .get("output")
+            .and_then(|v| v.as_array())
+            .ok_or_else(|| ModelError::InvalidResponse("missing output array".to_string()))?;
+
+        let mut content = String::new();
+        let mut tool_calls = Vec::new();
+
+        for item in output {
+            match item.get("type").and_then(|v| v.as_str()).unwrap_or("") {
+                "message" => {
+                    if let Some(parts) = item.get("content").and_then(|v| v.as_array()) {
+                        for part in parts {
+                            if part.get("type").and_then(|v| v.as_str()) == Some("output_text") {
+                                if let Some(text) = part.get("text").and_then(|v| v.as_str()) {
+                                    content.push_str(text);
+                                }
+                            }
+                        }
+                    }
+                }
+                "function_call" => {
+                    let name = item
+                        .get("name")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("")
+                        .to_string();
+                    if name.trim().is_empty() {
+                        continue;
+                    }
+                    let arguments = item
+                        .get("arguments")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("{}")
+                        .to_string();
+                    tool_calls.push(OpenAiToolCall {
+                        tool_type: "function".to_string(),
+                        function: OpenAiFunctionCall { name, arguments },
+                    });
+                }
+                _ => {}
+            }
+        }
+
+        Ok(OpenAiResponseMessage {
+            content: if content.is_empty() {
+                None
+            } else {
+                Some(content)
+            },
+            reasoning_content: None,
+            tool_calls: if tool_calls.is_empty() {
+                None
+            } else {
+                Some(tool_calls)
+            },
+        })
     }
 
     /// Get current auth (refreshes if needed)
@@ -132,25 +353,7 @@ impl ChatGPTClient {
     ) -> Result<OpenAiResponseMessage, ModelError> {
         let auth = self.get_auth().await?;
 
-        let body = OpenAiChatRequest {
-            model: self.model.clone(),
-            messages: vec![
-                OpenAiRequestMessage {
-                    role: "system".to_string(),
-                    content: system.to_string(),
-                },
-                OpenAiRequestMessage {
-                    role: "user".to_string(),
-                    content: user.to_string(),
-                },
-            ],
-            temperature: 0.1,
-            max_tokens,
-            stream: false,
-            tools: tools.map(|t| t.into_iter().map(Into::into).collect()),
-            tool_choice: None,
-            parallel_tool_calls: None,
-        };
+        let body = self.build_request_body(system, user, max_tokens, false, tools)?;
 
         let mut request = self
             .client
@@ -192,19 +395,9 @@ impl ChatGPTClient {
             )));
         }
 
-        let parsed: OpenAiChatResponse = serde_json::from_str(&text)
+        let parsed = serde_json::from_str::<serde_json::Value>(&text)
             .map_err(|e| ModelError::InvalidResponse(format!("ChatGPT parse failed: {}", e)))?;
-
-        parsed
-            .choices
-            .into_iter()
-            .next()
-            .map(|choice| choice.message)
-            .ok_or_else(|| {
-                ModelError::InvalidResponse(
-                    "missing choices[0].message from ChatGPT response".to_string(),
-                )
-            })
+        Self::parse_response_value(&parsed)
     }
 
     /// Streaming chat completion
@@ -218,25 +411,7 @@ impl ChatGPTClient {
     ) -> Result<OpenAiResponseMessage, ModelError> {
         let auth = self.get_auth().await?;
 
-        let body = OpenAiChatRequest {
-            model: self.model.clone(),
-            messages: vec![
-                OpenAiRequestMessage {
-                    role: "system".to_string(),
-                    content: system.to_string(),
-                },
-                OpenAiRequestMessage {
-                    role: "user".to_string(),
-                    content: user.to_string(),
-                },
-            ],
-            temperature: 0.1,
-            max_tokens,
-            stream: true,
-            tools: tools.map(|t| t.into_iter().map(Into::into).collect()),
-            tool_choice: None,
-            parallel_tool_calls: None,
-        };
+        let body = self.build_request_body(system, user, max_tokens, true, tools)?;
 
         let mut request = self
             .client
@@ -279,6 +454,7 @@ impl ChatGPTClient {
         let mut tool_call_accumulators: Vec<OpenAiToolCallAccumulator> = Vec::new();
         let mut full_tool_calls: Vec<OpenAiToolCall> = Vec::new();
         let mut saw_content_delta = false;
+        let mut completed_response: Option<serde_json::Value> = None;
 
         use futures::StreamExt;
         let mut stream = response.bytes_stream();
@@ -296,7 +472,39 @@ impl ChatGPTClient {
                 }
                 buffer.drain(..=newline_idx);
 
-                if process_stream_line(
+                let trimmed = line.trim();
+                if trimmed.starts_with("data:") {
+                    let payload = trimmed.trim_start_matches("data:").trim();
+                    if payload == "[DONE]" {
+                        done = true;
+                        break;
+                    }
+                    if let Ok(value) = serde_json::from_str::<serde_json::Value>(payload) {
+                        if value.get("type").and_then(|v| v.as_str())
+                            == Some("response.output_text.delta")
+                        {
+                            if let Some(delta) = value.get("delta").and_then(|v| v.as_str()) {
+                                if !delta.is_empty() {
+                                    content.push_str(delta);
+                                    on_delta(StreamDelta::Content(delta.to_string()))
+                                        .map_err(ModelError::Request)?;
+                                }
+                            }
+                            continue;
+                        }
+
+                        if value.get("type").and_then(|v| v.as_str()) == Some("response.completed")
+                        {
+                            if let Some(resp) = value.get("response") {
+                                completed_response = Some(resp.clone());
+                                done = true;
+                                break;
+                            }
+                        }
+                    }
+                }
+
+                if process_openai_stream_line(
                     &line,
                     &mut content,
                     &mut reasoning,
@@ -315,8 +523,12 @@ impl ChatGPTClient {
             }
         }
 
+        if let Some(response_value) = completed_response {
+            return Self::parse_response_value(&response_value);
+        }
+
         if !done && !buffer.trim().is_empty() {
-            let _ = process_stream_line(
+            let _ = process_openai_stream_line(
                 buffer.trim_end_matches('\r'),
                 &mut content,
                 &mut reasoning,
@@ -341,7 +553,7 @@ impl ChatGPTClient {
                             } else {
                                 entry.tool_type
                             },
-                            function: OpenAiFunctionCall {
+                            function: crate::model::providers::openai_compat::OpenAiFunctionCall {
                                 name: entry.function_name,
                                 arguments: entry.arguments,
                             },
@@ -379,22 +591,7 @@ impl ChatGPTClient {
     where
         F: FnMut(StreamDelta) -> Result<(), String> + Send,
     {
-        let history_text = if req.prior_observations.is_empty() {
-            "(none yet)".to_string()
-        } else {
-            serde_json::to_string(&req.prior_observations)
-                .map_err(|e| ModelError::InvalidResponse(e.to_string()))?
-        };
-
-        let user = worker_user_prompt(
-            &req.task_prompt,
-            &req.goal_summary,
-            &req.context,
-            &req.available_tools,
-            Some(&history_text),
-        );
-
-        let system = worker_system_prompt();
+        let (system, user) = worker_prompt_from_request(&req)?;
         let tools_arg = if req.tool_descriptors.is_empty() {
             None
         } else {
@@ -412,54 +609,11 @@ impl ChatGPTClient {
             response.tool_calls
         );
 
-        // Process tool calls
-        if let Some(tool_calls) = response.tool_calls.as_ref() {
-            if !tool_calls.is_empty() {
-                let mut calls = Vec::with_capacity(tool_calls.len());
-                for call in tool_calls {
-                    if call.tool_type != "function" {
-                        continue;
-                    }
-                    let args_json =
-                        serde_json::from_str::<serde_json::Value>(&call.function.arguments)
-                            .unwrap_or_else(|_| serde_json::json!({}));
-                    calls.push(WorkerToolCall {
-                        tool_name: call.function.name.clone(),
-                        tool_args: args_json,
-                        rationale: None,
-                    });
-                }
-
-                if !calls.is_empty() {
-                    let raw_response = serde_json::to_string(&response).ok();
-                    return Ok(WorkerDecision {
-                        action: WorkerAction::ToolCalls { calls },
-                        reasoning: response.reasoning_content.clone(),
-                        raw_response,
-                    });
-                }
-            }
-        }
-
-        let raw_response = serde_json::to_string(&response).ok();
-        let raw = if response.content.as_deref().unwrap_or("").trim().is_empty() {
-            response.reasoning_content.unwrap_or_default()
-        } else {
-            response.content.unwrap_or_default()
-        };
-        let summary = strip_tool_call_markup(raw.trim()).trim().to_string();
-
-        Ok(WorkerDecision {
-            action: WorkerAction::Complete {
-                summary: if summary.is_empty() {
-                    "Task complete.".to_string()
-                } else {
-                    summary
-                },
-            },
-            reasoning: None,
-            raw_response,
-        })
+        Ok(openai_response_to_worker_decision(
+            response,
+            &req.tool_descriptors,
+            &|name, descriptors| tool_name_from_wire(name, descriptors),
+        ))
     }
 }
 
@@ -472,246 +626,4 @@ impl AgentModelClient for ChatGPTClient {
         let noop = |_delta: StreamDelta| Ok::<(), String>(());
         self.decide_action_streaming(req, noop).await
     }
-}
-
-// Data structures for OpenAI-compatible API
-
-#[derive(Debug, serde::Serialize)]
-struct OpenAiChatRequest {
-    model: String,
-    messages: Vec<OpenAiRequestMessage>,
-    temperature: f32,
-    max_tokens: u32,
-    stream: bool,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    tools: Option<Vec<OpenAiTool>>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    tool_choice: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    parallel_tool_calls: Option<bool>,
-}
-
-#[derive(Debug, serde::Serialize)]
-struct OpenAiRequestMessage {
-    role: String,
-    content: String,
-}
-
-#[derive(Debug, serde::Serialize)]
-struct OpenAiTool {
-    #[serde(rename = "type")]
-    tool_type: String,
-    function: OpenAiFunction,
-}
-
-#[derive(Debug, serde::Serialize)]
-struct OpenAiFunction {
-    name: String,
-    description: String,
-    parameters: serde_json::Value,
-}
-
-impl From<ToolDescriptor> for OpenAiTool {
-    fn from(descriptor: ToolDescriptor) -> Self {
-        Self {
-            tool_type: "function".to_string(),
-            function: OpenAiFunction {
-                name: descriptor.name,
-                description: descriptor.description,
-                parameters: descriptor.input_schema,
-            },
-        }
-    }
-}
-
-#[derive(Debug, serde::Deserialize)]
-#[allow(dead_code)]
-struct OpenAiChatResponse {
-    choices: Vec<OpenAiChoice>,
-}
-
-#[derive(Debug, serde::Deserialize)]
-#[allow(dead_code)]
-struct OpenAiChoice {
-    message: OpenAiResponseMessage,
-}
-
-#[derive(Debug, serde::Serialize, serde::Deserialize, Default)]
-struct OpenAiResponseMessage {
-    #[serde(default)]
-    content: Option<String>,
-    #[serde(default)]
-    reasoning_content: Option<String>,
-    #[serde(default)]
-    tool_calls: Option<Vec<OpenAiToolCall>>,
-}
-
-#[derive(Debug, serde::Serialize, serde::Deserialize)]
-struct OpenAiToolCall {
-    #[serde(rename = "type")]
-    tool_type: String,
-    function: OpenAiFunctionCall,
-}
-
-#[derive(Debug, serde::Serialize, serde::Deserialize)]
-struct OpenAiFunctionCall {
-    name: String,
-    arguments: String,
-}
-
-#[derive(Debug, Default)]
-struct OpenAiToolCallAccumulator {
-    tool_type: String,
-    function_name: String,
-    arguments: String,
-}
-
-#[derive(Debug, serde::Deserialize)]
-struct OpenAiStreamChunk {
-    #[serde(default)]
-    choices: Vec<OpenAiStreamChoice>,
-}
-
-#[derive(Debug, serde::Deserialize)]
-struct OpenAiStreamChoice {
-    #[serde(default)]
-    delta: Option<OpenAiStreamDelta>,
-    #[serde(default)]
-    message: Option<OpenAiResponseMessage>,
-}
-
-#[derive(Debug, serde::Deserialize, Default)]
-struct OpenAiStreamDelta {
-    #[serde(default)]
-    content: Option<String>,
-    #[serde(default)]
-    reasoning_content: Option<String>,
-    #[serde(default)]
-    tool_calls: Option<Vec<OpenAiToolCallDelta>>,
-}
-
-#[derive(Debug, serde::Deserialize)]
-struct OpenAiToolCallDelta {
-    #[serde(default)]
-    index: Option<usize>,
-    #[serde(rename = "type", default)]
-    tool_type: Option<String>,
-    #[serde(default)]
-    function: Option<OpenAiFunctionCallDelta>,
-}
-
-#[derive(Debug, serde::Deserialize, Default)]
-struct OpenAiFunctionCallDelta {
-    #[serde(default)]
-    name: Option<String>,
-    #[serde(default)]
-    arguments: Option<String>,
-}
-
-/// Process a single SSE line from streaming response
-fn process_stream_line(
-    line: &str,
-    content: &mut String,
-    reasoning: &mut String,
-    tool_call_accumulators: &mut Vec<OpenAiToolCallAccumulator>,
-    full_tool_calls: &mut Vec<OpenAiToolCall>,
-    saw_content_delta: &mut bool,
-    on_delta: &mut dyn FnMut(StreamDelta) -> Result<(), String>,
-) -> Result<bool, ModelError> {
-    let trimmed = line.trim();
-    if trimmed.is_empty() || trimmed.starts_with(':') || trimmed.starts_with("event:") {
-        return Ok(false);
-    }
-
-    let payload = trimmed
-        .strip_prefix("data:")
-        .map(|s| s.trim())
-        .unwrap_or(trimmed);
-
-    if payload.is_empty() || payload == "[DONE]" {
-        return Ok(payload == "[DONE]");
-    }
-
-    let chunk: OpenAiStreamChunk = match serde_json::from_str(payload) {
-        Ok(v) => v,
-        Err(_) => return Ok(false),
-    };
-
-    for choice in chunk.choices {
-        if let Some(delta) = choice.delta {
-            if let Some(delta_content) = delta.content {
-                if !delta_content.is_empty() {
-                    *saw_content_delta = true;
-                    content.push_str(&delta_content);
-                    on_delta(StreamDelta::Content(delta_content)).map_err(ModelError::Request)?;
-                }
-            }
-
-            if let Some(delta_reasoning) = delta.reasoning_content {
-                if !delta_reasoning.is_empty() {
-                    reasoning.push_str(&delta_reasoning);
-                    on_delta(StreamDelta::Reasoning(delta_reasoning))
-                        .map_err(ModelError::Request)?;
-                }
-            }
-
-            if let Some(tool_calls) = delta.tool_calls {
-                for call in tool_calls {
-                    let idx = call.index.unwrap_or(0);
-                    if tool_call_accumulators.len() <= idx {
-                        tool_call_accumulators
-                            .resize_with(idx + 1, OpenAiToolCallAccumulator::default);
-                    }
-                    let entry = &mut tool_call_accumulators[idx];
-                    if let Some(tool_type) = call.tool_type {
-                        if !tool_type.is_empty() {
-                            entry.tool_type = tool_type;
-                        }
-                    }
-                    if let Some(function) = call.function {
-                        if let Some(name) = function.name {
-                            if !name.is_empty() {
-                                entry.function_name.push_str(&name);
-                            }
-                        }
-                        if let Some(arguments) = function.arguments {
-                            if !arguments.is_empty() {
-                                entry.arguments.push_str(&arguments);
-                            }
-                        }
-                    }
-                }
-            }
-        }
-
-        if let Some(message) = choice.message {
-            if !*saw_content_delta {
-                if let Some(message_content) = message.content {
-                    if !message_content.is_empty() {
-                        content.push_str(&message_content);
-                        on_delta(StreamDelta::Content(message_content))
-                            .map_err(ModelError::Request)?;
-                    }
-                }
-            }
-
-            if reasoning.is_empty() {
-                if let Some(message_reasoning) = message.reasoning_content {
-                    if !message_reasoning.is_empty() {
-                        reasoning.push_str(&message_reasoning);
-                        on_delta(StreamDelta::Reasoning(message_reasoning))
-                            .map_err(ModelError::Request)?;
-                    }
-                }
-            }
-
-            if let Some(tool_calls) = message.tool_calls {
-                if !tool_calls.is_empty() {
-                    full_tool_calls.extend(tool_calls);
-                }
-            }
-        }
-    }
-
-    Ok(false)
 }

@@ -18,17 +18,6 @@ pub struct RuntimeModelConfig {
     pub base_url: Option<String>,
 }
 
-impl From<&super::super::RuntimeModelConfig> for RuntimeModelConfig {
-    fn from(config: &super::super::RuntimeModelConfig) -> Self {
-        Self {
-            provider: config.provider.clone(),
-            api_key: config.api_key.clone(),
-            model: config.model.clone(),
-            base_url: config.base_url.clone(),
-        }
-    }
-}
-
 /// Unified model client for worker execution.
 pub enum WorkerModelClient {
     MiniMax(MiniMaxClient),
@@ -63,42 +52,10 @@ impl WorkerModelClient {
                 config.model.clone(),
                 config.base_url.clone(),
             )),
-            "openai-chatgpt" | "chatgpt" => {
-                // api_key field carries JSON-encoded OAuth data: {access_token, refresh_token, expires_at, account_id}
-                if let Ok(auth) = serde_json::from_str::<serde_json::Value>(&config.api_key) {
-                    let access_token = auth
-                        .get("access_token")
-                        .and_then(|v| v.as_str())
-                        .unwrap_or("")
-                        .to_string();
-                    let refresh_token = auth
-                        .get("refresh_token")
-                        .and_then(|v| v.as_str())
-                        .unwrap_or("")
-                        .to_string();
-                    let expires_at = auth.get("expires_at").and_then(|v| v.as_i64()).unwrap_or(0);
-                    let account_id = auth
-                        .get("account_id")
-                        .and_then(|v| v.as_str())
-                        .map(str::to_string);
-                    Self::ChatGPT(ChatGPTClient::new(
-                        access_token,
-                        refresh_token,
-                        expires_at,
-                        account_id,
-                        config.model.clone(),
-                    ))
-                } else {
-                    // Fallback: treat api_key as a direct Bearer token (no refresh)
-                    Self::ChatGPT(ChatGPTClient::new(
-                        config.api_key.clone(),
-                        String::new(),
-                        i64::MAX,
-                        None,
-                        config.model.clone(),
-                    ))
-                }
-            }
+            "openai-chatgpt" | "chatgpt" => Self::ChatGPT(ChatGPTClient::from_api_key_payload(
+                config.api_key.clone(),
+                config.model.clone(),
+            )),
             _ => Self::MiniMax(MiniMaxClient::new_with_base_url(
                 config.api_key.clone(),
                 config.model.clone(),

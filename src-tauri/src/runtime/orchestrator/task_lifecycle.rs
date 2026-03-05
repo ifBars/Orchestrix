@@ -1,6 +1,7 @@
 use super::*;
 use crate::core::prompt_references::expand_prompt_references;
 use crate::embeddings;
+use crate::runtime::artifacts::collect_markdown_artifact_bundle;
 
 impl Orchestrator {
     /// Legacy: unified plan+build entry. Current flow uses run_plan_mode then run_build_mode separately.
@@ -104,22 +105,7 @@ impl Orchestrator {
             run
         };
 
-        let artifacts = queries::list_markdown_artifacts_for_task(&self.db, &task.id)
-            .map_err(|e| e.to_string())?;
-
-        let mut artifact_bundle = String::new();
-        for artifact in artifacts {
-            let path = std::path::PathBuf::from(&artifact.uri_or_content);
-            if !path.exists() {
-                continue;
-            }
-            if let Ok(content) = std::fs::read_to_string(&path) {
-                artifact_bundle.push_str(&format!(
-                    "\n\n---\nArtifact: {}\n\n{}",
-                    artifact.uri_or_content, content
-                ));
-            }
-        }
+        let artifact_bundle = collect_markdown_artifact_bundle(&self.db, &task.id);
         let has_artifacts = !artifact_bundle.trim().is_empty();
 
         let run_uuid = Uuid::parse_str(&run.id).map_err(|e| format!("invalid run id: {e}"))?;
@@ -224,22 +210,7 @@ impl Orchestrator {
             return Err("no run found for task".to_string());
         };
 
-        let artifacts = queries::list_markdown_artifacts_for_task(&self.db, &task.id)
-            .map_err(|e| e.to_string())?;
-
-        let mut artifact_bundle = String::new();
-        for artifact in artifacts {
-            let path = std::path::PathBuf::from(&artifact.uri_or_content);
-            if !path.exists() {
-                continue;
-            }
-            if let Ok(content) = std::fs::read_to_string(&path) {
-                artifact_bundle.push_str(&format!(
-                    "\n\n---\nArtifact: {}\n\n{}",
-                    artifact.uri_or_content, content
-                ));
-            }
-        }
+        let artifact_bundle = collect_markdown_artifact_bundle(&self.db, &task.id);
         let has_artifacts = !artifact_bundle.trim().is_empty();
 
         let run_uuid = Uuid::parse_str(&run.id).map_err(|e| format!("invalid run id: {e}"))?;
@@ -514,17 +485,6 @@ impl Orchestrator {
                 error: None,
             };
 
-            // Convert model config to worker format
-            let worker_model_config =
-                model_config
-                    .as_ref()
-                    .map(|c| super::worker::model::RuntimeModelConfig {
-                        provider: c.provider.clone(),
-                        api_key: c.api_key.clone(),
-                        model: c.model.clone(),
-                        base_url: c.base_url.clone(),
-                    });
-
             let include_embeddings = embeddings::is_semantic_search_configured(&self.db);
             let step_result = super::worker::execute_step_with_tools(
                 &self.db,
@@ -540,7 +500,7 @@ impl Orchestrator {
                 step,
                 &workspace_root,
                 &workspace_root,
-                worker_model_config,
+                model_config.clone(),
                 plan.goal_summary.clone(),
                 resolved_task_prompt.clone(),
                 0,

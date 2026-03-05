@@ -356,6 +356,45 @@ pub fn preferred_response_text(
         .unwrap_or_default()
 }
 
+pub fn worker_prompt_from_request(
+    req: &crate::model::WorkerActionRequest,
+) -> Result<(String, String), crate::model::ModelError> {
+    let history_text = if req.prior_observations.is_empty() {
+        "(none yet)".to_string()
+    } else {
+        serde_json::to_string(&req.prior_observations)
+            .map_err(|e| crate::model::ModelError::InvalidResponse(e.to_string()))?
+    };
+
+    let user = worker_user_prompt(
+        &req.task_prompt,
+        &req.goal_summary,
+        &req.context,
+        &req.available_tools,
+        Some(&history_text),
+    );
+
+    Ok((worker_system_prompt(), user))
+}
+
+pub fn completion_summary_from_content_or_reasoning(
+    content: Option<String>,
+    reasoning_content: Option<String>,
+) -> String {
+    let raw = if content.as_deref().unwrap_or("").trim().is_empty() {
+        reasoning_content.unwrap_or_default()
+    } else {
+        content.unwrap_or_default()
+    };
+
+    let summary = strip_tool_call_markup(raw.trim()).trim().to_string();
+    if summary.is_empty() {
+        "Task complete.".to_string()
+    } else {
+        summary
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Strip tool-call markup from model output
 // ---------------------------------------------------------------------------
