@@ -33,13 +33,6 @@ jobs:
               src-tauri/target/x86_64-pc-windows-msvc/release/bundle/msi/*.msi
               src-tauri/target/x86_64-pc-windows-msvc/release/bundle/nsis/*.exe
           - platform: 'macos-latest'
-            target: 'x86_64-apple-darwin'
-            args: '--target x86_64-apple-darwin'
-            artifact_name: 'orchestrix-macos-x86_64'
-            artifact_paths: |
-              src-tauri/target/x86_64-apple-darwin/release/bundle/dmg/*.dmg
-              src-tauri/target/x86_64-apple-darwin/release/bundle/macos/*.app
-          - platform: 'macos-latest'
             target: 'aarch64-apple-darwin'
             args: '--target aarch64-apple-darwin'
             artifact_name: 'orchestrix-macos-aarch64'
@@ -83,18 +76,6 @@ jobs:
             libssl-dev \
             libayatana-appindicator3-dev \
             librsvg2-dev
-
-      - name: Install dependencies (macOS)
-        if: matrix.platform == 'macos-latest'
-        run: |
-          # git2 with vendored-openssl feature builds OpenSSL from source
-          # This works for both native and cross-compilation targets
-          # No need to install system OpenSSL when using vendored feature
-          # Set environment variables to ensure all OpenSSL-dependent crates use vendored builds
-          if [ "${{ matrix.target }}" == "x86_64-apple-darwin" ]; then
-            echo "OPENSSL_STATIC=1" >> $GITHUB_ENV
-            echo "OPENSSL_VENDORED=1" >> $GITHUB_ENV
-          fi
 
       - name: Install frontend dependencies
         run: bun install --frozen-lockfile
@@ -149,7 +130,6 @@ jobs:
             - Portable: Check the `.exe` files in the artifact
 
             **macOS:**
-            - Intel: `orchestrix-macos-x86_64` artifact
             - Apple Silicon: `orchestrix-macos-aarch64` artifact
 
             **Linux:**
