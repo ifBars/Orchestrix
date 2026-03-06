@@ -1,24 +1,24 @@
 import {
-  Navbar,
-  HeroSection,
-  ExecutionModelSection,
-  ArchitectureAndVisibilitySection,
-  AgentsAndToolsSection,
-  ProvidersAndRecoverySection,
   CTASection,
   Footer,
+  HeroSection,
+  Navbar,
+  PreviewSection,
+  ProofStripSection,
+  TechnicalProofSection,
+  WorkflowSection,
 } from "@/components/landing";
 
 const LandingPage = () => {
   return (
-    <div className="min-h-screen bg-background">
+    <div className="landing-page min-h-screen bg-background text-foreground">
       <Navbar />
       <main>
         <HeroSection />
-        <ExecutionModelSection />
-        <ArchitectureAndVisibilitySection />
-        <AgentsAndToolsSection />
-        <ProvidersAndRecoverySection />
+        <ProofStripSection />
+        <PreviewSection />
+        <WorkflowSection />
+        <TechnicalProofSection />
         <CTASection />
       </main>
       <Footer />
@@ -27,3 +27,4 @@ const LandingPage = () => {
 };
 
 export default LandingPage;
+
