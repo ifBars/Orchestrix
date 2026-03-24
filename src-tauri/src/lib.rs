@@ -457,6 +457,7 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_process::init())
         .manage(state)
         .invoke_handler(tauri::generate_handler![
             // tasks
@@ -608,6 +609,10 @@ pub fn run() {
             commands::agent_presets::get_agent_preset_context,
         ])
         .setup(move |app| {
+            #[cfg(desktop)]
+            app.handle()
+                .plugin(tauri_plugin_updater::Builder::new().build())?;
+
             let rx = bus.subscribe();
             let handle = app.handle().clone();
             EventBatcher::start(rx, handle);

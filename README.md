@@ -59,6 +59,10 @@ Orchestrix is a **backend-authoritative, event-driven** desktop application desi
 
 ### Installation
 
+For end users, install Orchestrix from the [GitHub Releases page](https://github.com/ifBars/Orchestrix/releases). Stable release builds include platform installers and check for updates automatically on startup.
+
+### Build From Source
+
 ```bash
 # Clone the repository
 git clone https://github.com/ifBars/Orchestrix
@@ -126,6 +130,7 @@ bun tauri build
 - **[UX_PRINCIPLES.md](./UX_PRINCIPLES.md)** - Human-in-the-loop UX and scaling guardrails
 - **[CODING_STANDARDS.md](./CODING_STANDARDS.md)** - Code style and conventions
 - **[AGENTS.md](./AGENTS.md)** - Agent architecture and execution model
+- **[RELEASING.md](./RELEASING.md)** - Versioning policy, release workflow, and updater setup
 - **[SKILLS_GUIDE.md](./SKILLS_GUIDE.md)** - Working with the skills system
 - **[TROUBLESHOOTING.md](./TROUBLESHOOTING.md)** - Common issues and solutions
 

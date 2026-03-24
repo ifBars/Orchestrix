@@ -7,6 +7,8 @@ The app is optimized for low overhead, deterministic execution, and extensibilit
 
 ## Important NOTES
 
+- **Release readiness is part of done**: If agentic work changes shipped desktop app behavior, packaging, updater behavior, permissions/capabilities, or any user-visible installable-binary outcome, treat release prep as part of the task instead of leaving the work as an unshipped source-only change.
+
 - **Delete then re-write**: When re-writing a file, delete it first, then write the new file, instead of trying to replace it's content.
 - **YAGNI with backbone**: Do not write code for hypothetical future needs. Implement only what is required now. Build scalable, maintainable foundations without dead code—extensibility comes from clean architecture, not speculative utilities. You can always add it later when the need is real.
 
@@ -208,6 +210,43 @@ Crash recovery is mandatory.
 
 ---
 
+## Release and Versioning Discipline
+
+Orchestrix ships installable binaries through **GitHub Releases**, not ad-hoc workflow artifacts.
+
+Agents must evaluate release impact before considering a build-mode task complete.
+
+### A release is generally required when the task changes:
+
+- User-visible desktop app behavior
+- Packaged binary behavior across Windows/macOS/Linux
+- Auto-updater behavior or release channels
+- Tauri permissions, capabilities, bundling, signing, or installer behavior
+- Anything the user explicitly intends to ship to end users now
+
+### A release is generally not required for:
+
+- Docs-only changes
+- Test-only changes
+- Internal refactors with no shipped behavior change
+- Local experiments that are not intended for distribution
+
+### When a release is required, agents should:
+
+1. Pick the correct SemVer bump using `RELEASING.md`.
+2. Sync all tracked version files with `bun run version:set <version>`.
+3. Update release-facing docs or notes when needed.
+4. Run `bun run release:verify`.
+5. If the user asked to ship or publish, create the release tag `v<version>` and push it so GitHub Releases publishes installable binaries.
+6. If the user did not ask to ship yet, leave the repo in a release-ready state and report the exact next release command(s).
+
+### Source of truth
+
+- Follow `RELEASING.md` for the release process, tag format, updater signing, and GitHub workflow behavior.
+- Stable installs must remain compatible with the in-app updater path that reads from GitHub Releases.
+
+---
+
 ## UI Implementation Standards
 
 ### Tech Stack
@@ -305,6 +344,7 @@ Agents are **tools**, not replacements for intent.
 - [UX_PRINCIPLES.md](./UX_PRINCIPLES.md) - UX, transparency, and performance guardrails
 - [SETUP.md](./SETUP.md) - Development environment setup
 - [CODING_STANDARDS.md](./CODING_STANDARDS.md) - Code conventions and standards
+- [RELEASING.md](./RELEASING.md) - Versioning policy, release workflow, and updater publishing
 
 ### Skills
 - **orchestrix-app-development** - Use when implementing Orchestrix features (see `.agents/skills/orchestrix-app-development/SKILL.md`)

@@ -16,6 +16,7 @@ import { SETTINGS_SECTIONS, type SettingsSectionId } from "@/components/Settings
 import { EmptyState } from "@/components/EmptyState";
 import { ArchitectureCanvas } from "@/components/Canvas";
 import { CommandPalette } from "@/components/CommandPalette";
+import { useUpdaterStore } from "@/stores/updaterStore";
 
 const SETTINGS_SECTION_KEY = "orchestrix:last-settings-section";
 
@@ -68,6 +69,7 @@ function App() {
   const [tasks, selectedTaskId, bootstrap, shutdown] = useAppStore(
     useShallow((state) => [state.tasks, state.selectedTaskId, state.bootstrap, state.shutdown])
   );
+  const updaterBootstrap = useUpdaterStore((state) => state.bootstrap);
 
   const [activeView, setActiveView] = useState<"chat" | "settings" | "benchmarks">(
     () => resolveInitialView(appMode)
@@ -98,6 +100,11 @@ function App() {
     bootstrap().catch(console.error);
     return () => shutdown();
   }, [bootstrap, shutdown]);
+
+  useEffect(() => {
+    if (benchmarkOnlyMode) return;
+    updaterBootstrap().catch(console.error);
+  }, [benchmarkOnlyMode, updaterBootstrap]);
 
   useEffect(() => {
     document.documentElement.classList.toggle("dark", darkMode);
