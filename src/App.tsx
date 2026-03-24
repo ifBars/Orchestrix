@@ -295,11 +295,9 @@ function App() {
         onOpenBenchmarks={() => setActiveView("benchmarks")}
         onNewConversation={() => {
           setActiveView("chat");
-          // The sidebar will handle creating a new conversation
-          const sidebar = document.querySelector('[data-sidebar="true"]');
-          if (sidebar) {
-            const newBtn = sidebar.querySelector('button');
-            newBtn?.click();
+          const newButton = document.querySelector('[data-sidebar-action="new-conversation"]');
+          if (newButton instanceof HTMLButtonElement) {
+            newButton.click();
           }
         }}
         onSelectWorkspace={async () => {

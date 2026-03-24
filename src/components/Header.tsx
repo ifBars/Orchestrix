@@ -1,6 +1,5 @@
-import { ChevronDown, Command, Folder, LoaderCircle, Minus, Moon, PanelLeft, PanelRight, Square, Sun, X } from "lucide-react";
+import { Command, Folder, LoaderCircle, Minus, Moon, PanelLeft, PanelRight, Square, Sun, X } from "lucide-react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
-import { open as openDialog } from "@tauri-apps/plugin-dialog";
 import { type MouseEvent, useEffect } from "react";
 import { useShallow } from "zustand/shallow";
 import { useAppStore } from "@/stores/appStore";
@@ -25,11 +24,10 @@ export function Header({
   onToggleSidebar,
   onOpenCommandPalette 
 }: HeaderProps) {
-  const [workspaceRoot, embeddingIndexStatus, setWorkspaceRoot, refreshEmbeddingIndexStatus] = useAppStore(
+  const [workspaceRoot, embeddingIndexStatus, refreshEmbeddingIndexStatus] = useAppStore(
     useShallow((state) => [
       state.workspaceRoot,
       state.embeddingIndexStatus,
-      state.setWorkspaceRoot,
       state.refreshEmbeddingIndexStatus,
     ])
   );
@@ -61,17 +59,6 @@ export function Header({
     if (action === "minimize") await win.minimize();
     if (action === "maximize") await win.toggleMaximize();
     if (action === "close") await win.close();
-  };
-
-  const pickWorkspace = async () => {
-    const selected = await openDialog({
-      directory: true,
-      title: "Select workspace folder",
-      defaultPath: workspaceRoot || undefined,
-    });
-    if (typeof selected === "string" && selected.length > 0) {
-      await setWorkspaceRoot(selected);
-    }
   };
 
   const workspaceName = workspaceRoot ? workspaceRoot.split(/[/\\]/).pop() : "No workspace";
@@ -108,16 +95,13 @@ export function Header({
           </div>
         </div>
 
-        <button
-          type="button"
-          onClick={pickWorkspace}
-          className="no-drag flex min-w-0 items-center gap-1.5 rounded-md border border-border/70 bg-background/55 px-2.5 py-1 text-xs text-muted-foreground transition-colors hover:bg-accent/55 hover:text-foreground"
-          title={workspaceRoot || "Select workspace"}
+        <div
+          className="no-drag flex min-w-0 items-center gap-1.5 rounded-md border border-border/70 bg-background/55 px-2.5 py-1 text-xs text-muted-foreground"
+          title={workspaceRoot || "No workspace selected"}
         >
           <Folder size={12} />
           <span className="max-w-40 truncate">{workspaceName}</span>
-          <ChevronDown size={10} />
-        </button>
+        </div>
 
         {embeddingIndexStatus ? (
           <div

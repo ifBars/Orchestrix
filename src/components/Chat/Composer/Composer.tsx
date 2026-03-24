@@ -604,7 +604,7 @@ export function Composer() {
       )}
 
       {/* Input container */}
-      <div className="elevation-2 rounded-2xl border border-border/80 bg-card/92 transition-colors focus-within:border-ring/40">
+      <div className="elevation-1 rounded-t-2xl rounded-b-none border border-border/80 border-b-0 bg-card transition-colors focus-within:border-ring/40">
         <div className="relative">
           <textarea
             ref={textareaRef}
@@ -731,15 +731,15 @@ export function Composer() {
         />
 
         {/* Bottom bar */}
-        <div className="flex items-center justify-between gap-2 border-t border-border/70 px-3 pb-2.5 pt-2">
-          <div className="flex items-center gap-1">
+        <div className="flex items-center justify-between gap-1.5 border-t border-border/70 px-3 pb-2 pt-1.5">
+          <div className="flex items-center gap-0.5">
             {/* Plan/Build mode toggle */}
             {!canContinueChat && !isWorking && (
-              <div className="mr-1 inline-flex items-center rounded-md border border-border/80 bg-background/65 p-0.5">
+              <div className="mr-0.5 inline-flex items-center rounded-md border border-border/80 bg-background/65 p-0.5">
                 <button
                   type="button"
                   onClick={() => setWorkflowMode("plan")}
-                  className={`rounded px-2 py-1 text-[11px] transition-colors ${
+                  className={`rounded px-2 py-0.5 text-[11px] transition-colors ${
                     workflowMode === "plan"
                       ? "bg-primary/15 text-foreground"
                       : "text-muted-foreground hover:bg-accent/50"
@@ -750,7 +750,7 @@ export function Composer() {
                 <button
                   type="button"
                   onClick={() => setWorkflowMode("build")}
-                  className={`rounded px-2 py-1 text-[11px] transition-colors ${
+                  className={`rounded px-2 py-0.5 text-[11px] transition-colors ${
                     workflowMode === "build"
                       ? "bg-primary/15 text-foreground"
                       : "text-muted-foreground hover:bg-accent/50"
@@ -766,7 +766,7 @@ export function Composer() {
               <button
                 type="button"
                 onClick={pickFiles}
-                className="rounded-lg p-1.5 text-muted-foreground/70 transition-colors hover:bg-accent/70 hover:text-foreground"
+                className="rounded-lg p-1 text-muted-foreground/70 transition-colors hover:bg-accent/70 hover:text-foreground"
                 title="Attach files"
               >
                 <Paperclip size={14} />
@@ -774,7 +774,7 @@ export function Composer() {
             )}
 
             {/* Model selector */}
-            <div className="flex items-center gap-1 pl-1">
+            <div className="flex items-center gap-1 pl-0.5">
               <select
                 value={selectedProvider}
                 onChange={(e) => {
@@ -818,7 +818,7 @@ export function Composer() {
             </div>
           </div>
 
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-1.5">
             {contextSnapshot && <ContextUsageChip snapshot={contextSnapshot} />}
             
             {providerUsage && (
@@ -838,7 +838,7 @@ export function Composer() {
                 type="button"
                 onClick={() => handleStop().catch(console.error)}
                 disabled={stopping}
-                className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-destructive/40 bg-destructive/10 px-3 text-xs font-medium text-destructive transition-colors hover:bg-destructive/20 disabled:cursor-not-allowed disabled:opacity-60"
+                className="inline-flex h-7 items-center gap-1.5 rounded-lg border border-destructive/40 bg-destructive/10 px-2.5 text-xs font-medium text-destructive transition-colors hover:bg-destructive/20 disabled:cursor-not-allowed disabled:opacity-60"
                 title="Stop current task"
               >
                 {stopping ? (
@@ -853,7 +853,7 @@ export function Composer() {
                 type="button"
                 onClick={() => submit().catch(console.error)}
                 disabled={!canSubmit}
-                className={`flex h-8 w-8 items-center justify-center rounded-lg transition-all ${
+                className={`flex h-7 w-7 items-center justify-center rounded-lg transition-all ${
                   canSubmit
                     ? "bg-primary text-primary-foreground hover:bg-primary/90"
                     : "bg-muted text-muted-foreground/40"

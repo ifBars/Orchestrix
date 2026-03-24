@@ -85,8 +85,8 @@ export function IdeShell({
 
           {/* Composer */}
           {hasComposer && (
-            <div className="shrink-0 border-t border-border/70 bg-background/88 px-6 pb-4 pt-3 backdrop-blur-xl">
-              <div className="w-full">{composer}</div>
+            <div className="pointer-events-none absolute inset-x-0 bottom-0 z-10 px-6 pt-2">
+              <div className="pointer-events-auto w-full">{composer}</div>
             </div>
           )}
         </div>

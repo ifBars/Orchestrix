@@ -1,10 +1,28 @@
-import { ActivitySquare, FolderOpen, GitBranch, MessageSquare, Plus, Settings2, Trash2 } from "lucide-react";
+import { invoke } from "@tauri-apps/api/core";
+import { open as openDialog } from "@tauri-apps/plugin-dialog";
+import { useEffect, useState, type MouseEvent } from "react";
+import {
+  ActivitySquare,
+  ChevronDown,
+  ChevronRight,
+  Folder,
+  FolderOpen,
+  GitBranch,
+  MessageSquare,
+  Plus,
+  Settings2,
+  Trash2,
+  X,
+  type LucideIcon,
+} from "lucide-react";
 import { useShallow } from "zustand/shallow";
 import { useAppStore } from "@/stores/appStore";
 import { Button } from "@/components/ui/button";
 import { SETTINGS_SECTIONS, type SettingsSectionId } from "@/components/Settings/types";
 import { cn } from "@/lib/utils";
 import type { TaskRow, TaskStatus } from "@/types";
+
+const SIDEBAR_WORKSPACES_STORAGE_KEY = "orchestrix.sidebar.workspace-roots";
 
 type SidebarProps = {
   activeView: "chat" | "settings" | "benchmarks";
@@ -13,6 +31,23 @@ type SidebarProps = {
   onOpenChat: () => void;
   onOpenSettings: (section?: SettingsSectionId) => void;
   onOpenBenchmarks: () => void;
+};
+
+type SidebarUtilityButtonProps = {
+  icon: LucideIcon;
+  label: string;
+  shortcut?: string;
+  active?: boolean;
+  onClick: () => void;
+};
+
+type ChatHistoryEntryProps = {
+  task: TaskRow;
+  isSelected: boolean;
+  canManage: boolean;
+  onOpenTask: (taskId: string) => void;
+  onForkTask: (taskId: string) => void;
+  onDeleteTask: (taskId: string) => void;
 };
 
 function taskAge(iso: string): string {
@@ -24,65 +59,138 @@ function taskAge(iso: string): string {
   return `${Math.floor(hours / 24)}d`;
 }
 
-const STATUS_META: Record<TaskStatus, { dotClassName: string; label: string; badgeClassName: string }> = {
+function workspaceLabel(root: string): string {
+  return root.replace(/\\/g, "/").split("/").filter(Boolean).pop() ?? root;
+}
+
+function normalizeWorkspaceRoots(roots: Array<string | null | undefined>): string[] {
+  const seen = new Set<string>();
+  const normalized: string[] = [];
+
+  for (const root of roots) {
+    const value = root?.trim();
+    if (!value || seen.has(value)) continue;
+    seen.add(value);
+    normalized.push(value);
+  }
+
+  return normalized;
+}
+
+function sameWorkspaceRoots(left: string[], right: string[]): boolean {
+  if (left.length !== right.length) return false;
+  return left.every((value, index) => value === right[index]);
+}
+
+function readStoredWorkspaceRoots(): string[] {
+  if (typeof window === "undefined") return [];
+
+  try {
+    const raw = window.localStorage.getItem(SIDEBAR_WORKSPACES_STORAGE_KEY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return [];
+    return normalizeWorkspaceRoots(parsed.filter((value): value is string => typeof value === "string"));
+  } catch {
+    return [];
+  }
+}
+
+function writeStoredWorkspaceRoots(roots: string[]): void {
+  if (typeof window === "undefined") return;
+
+  try {
+    window.localStorage.setItem(SIDEBAR_WORKSPACES_STORAGE_KEY, JSON.stringify(roots));
+  } catch {
+    console.error("Failed to persist sidebar workspaces");
+  }
+}
+
+function isWorkspaceExpanded(
+  expandedRoots: Record<string, boolean>,
+  workspaceRootKey: string,
+  activeWorkspaceRoot: string
+): boolean {
+  return expandedRoots[workspaceRootKey] ?? workspaceRootKey === activeWorkspaceRoot;
+}
+
+const STATUS_META: Record<TaskStatus, { dotClassName: string; label: string }> = {
   pending: {
     dotClassName: "bg-muted-foreground/45",
     label: "Pending",
-    badgeClassName: "bg-muted text-muted-foreground",
   },
   planning: {
     dotClassName: "bg-info animate-pulse",
     label: "Planning",
-    badgeClassName: "bg-info/15 text-info",
   },
   awaiting_review: {
     dotClassName: "bg-warning",
-    label: "Review",
-    badgeClassName: "bg-warning/15 text-warning",
+    label: "Awaiting review",
   },
   executing: {
     dotClassName: "bg-info animate-pulse",
     label: "Executing",
-    badgeClassName: "bg-info/15 text-info",
   },
   completed: {
     dotClassName: "bg-success",
     label: "Completed",
-    badgeClassName: "bg-success/15 text-success",
   },
   failed: {
     dotClassName: "bg-destructive",
     label: "Failed",
-    badgeClassName: "bg-destructive/15 text-destructive",
   },
   cancelled: {
     dotClassName: "bg-warning",
     label: "Cancelled",
-    badgeClassName: "bg-warning/15 text-warning",
   },
 };
 
-type ChatHistoryEntryProps = {
-  task: TaskRow;
-  isSelected: boolean;
-  onOpenTask: (taskId: string) => void;
-  onForkTask: (taskId: string) => void;
-  onDeleteTask: (taskId: string) => void;
-};
+function SidebarUtilityButton({
+  icon: Icon,
+  label,
+  shortcut,
+  active = false,
+  onClick,
+}: SidebarUtilityButtonProps) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={cn(
+        "flex w-full items-center gap-3 rounded-none px-2 py-1.5 text-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-sidebar",
+        active
+          ? "bg-accent/55 text-foreground"
+          : "text-muted-foreground hover:bg-accent/35 hover:text-foreground"
+      )}
+    >
+      <Icon size={14} className="shrink-0" />
+      <span className="flex-1 text-left">{label}</span>
+      {shortcut ? (
+        <kbd className="hidden rounded-sm bg-muted/80 px-1.5 py-0.5 font-mono text-[10px] text-muted-foreground lg:inline">
+          {shortcut}
+        </kbd>
+      ) : null}
+    </button>
+  );
+}
 
-function ChatHistoryEntry({ task, isSelected, onOpenTask, onForkTask, onDeleteTask }: ChatHistoryEntryProps) {
+function ChatHistoryEntry({
+  task,
+  isSelected,
+  canManage,
+  onOpenTask,
+  onForkTask,
+  onDeleteTask,
+}: ChatHistoryEntryProps) {
   const statusMeta = STATUS_META[task.status];
+  const age = taskAge(task.updated_at);
 
-  const handleOpenTask = () => {
-    onOpenTask(task.id);
-  };
-
-  const handleForkTask = (event: React.MouseEvent<HTMLButtonElement>) => {
+  const handleForkTask = (event: MouseEvent<HTMLButtonElement>) => {
     event.stopPropagation();
     onForkTask(task.id);
   };
 
-  const handleDeleteTask = (event: React.MouseEvent<HTMLButtonElement>) => {
+  const handleDeleteTask = (event: MouseEvent<HTMLButtonElement>) => {
     event.stopPropagation();
     if (window.confirm("Delete this conversation?")) {
       onDeleteTask(task.id);
@@ -92,60 +200,60 @@ function ChatHistoryEntry({ task, isSelected, onOpenTask, onForkTask, onDeleteTa
   return (
     <article
       className={cn(
-        "group relative overflow-hidden rounded-lg border px-2.5 py-2 transition-colors",
-        isSelected
-          ? "border-primary/40 bg-gradient-to-br from-card/95 via-card/90 to-accent/35 text-foreground shadow-sm"
-          : "border-transparent bg-sidebar/55 text-muted-foreground hover:border-sidebar-border/80 hover:bg-accent/45 hover:text-foreground"
+        "group flex items-center gap-2 px-2 py-1.5 transition-colors focus-within:ring-2 focus-within:ring-ring focus-within:ring-inset",
+        isSelected ? "bg-accent/55 text-foreground" : "text-muted-foreground hover:bg-accent/35 hover:text-foreground"
       )}
     >
-      <div
-        className={cn(
-          "pointer-events-none absolute inset-y-0 left-0 w-px bg-transparent transition-colors",
-          isSelected && "bg-primary/70"
-        )}
-      />
-
       <button
         type="button"
-        onClick={handleOpenTask}
-        className="flex w-full items-start gap-2.5 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-sidebar"
+        onClick={() => onOpenTask(task.id)}
+        className="flex min-w-0 flex-1 items-center gap-2 text-left focus-visible:outline-none"
+        aria-label={`${task.prompt}, ${statusMeta.label}, updated ${age} ago`}
+        title={`${statusMeta.label} - ${age} ago`}
       >
-        <span className={cn("mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full", statusMeta.dotClassName)} />
-        <div className="min-w-0 flex-1">
-          <p className="truncate text-[13px] font-medium leading-snug text-foreground">{task.prompt}</p>
-          <div className="mt-1.5 flex items-center gap-2 text-[10px] text-muted-foreground/70">
-            <span>{taskAge(task.updated_at)}</span>
-            <span className={cn("rounded-full px-1.5 py-0.5 font-medium", statusMeta.badgeClassName)}>
-              {statusMeta.label}
-            </span>
-          </div>
-        </div>
+        <span className={cn("h-1.5 w-1.5 shrink-0 rounded-full", statusMeta.dotClassName)} />
+        <p
+          className={cn(
+            "min-w-0 flex-1 truncate text-[13px] leading-5",
+            isSelected ? "font-semibold text-foreground" : "font-medium text-sidebar-foreground/88 group-hover:text-foreground"
+          )}
+        >
+          {task.prompt}
+        </p>
       </button>
 
-      <div
-        className={cn(
-          "mt-1 flex justify-end gap-1 transition-opacity",
-          isSelected ? "opacity-100" : "opacity-0 group-hover:opacity-100 group-focus-within:opacity-100"
-        )}
-      >
-        <button
-          type="button"
-          className="rounded p-1 text-muted-foreground/55 transition-colors hover:bg-primary/10 hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-          title="Fork conversation"
-          aria-label="Fork conversation"
-          onClick={handleForkTask}
+      <div className="grid w-14 shrink-0 justify-items-end">
+        <span
+          className={cn(
+            "col-start-1 row-start-1 text-[10px] font-medium text-muted-foreground/55 transition-opacity",
+            canManage && "group-hover:opacity-0 group-focus-within:opacity-0"
+          )}
         >
-          <GitBranch size={12} />
-        </button>
-        <button
-          type="button"
-          className="rounded p-1 text-muted-foreground/55 transition-colors hover:bg-destructive/10 hover:text-destructive focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-          title="Delete conversation"
-          aria-label="Delete conversation"
-          onClick={handleDeleteTask}
-        >
-          <Trash2 size={12} />
-        </button>
+          {age}
+        </span>
+
+        {canManage ? (
+          <div className="col-start-1 row-start-1 flex items-center gap-0.5 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100">
+            <button
+              type="button"
+              className="rounded-none p-1 text-muted-foreground/60 transition-colors hover:bg-primary/10 hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              title="Fork conversation"
+              aria-label="Fork conversation"
+              onClick={handleForkTask}
+            >
+              <GitBranch size={12} />
+            </button>
+            <button
+              type="button"
+              className="rounded-none p-1 text-muted-foreground/60 transition-colors hover:bg-destructive/10 hover:text-destructive focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              title="Delete conversation"
+              aria-label="Delete conversation"
+              onClick={handleDeleteTask}
+            >
+              <Trash2 size={12} />
+            </button>
+          </div>
+        ) : null}
       </div>
     </article>
   );
@@ -159,7 +267,11 @@ export function Sidebar({
   onOpenSettings,
   onOpenBenchmarks,
 }: SidebarProps) {
-  const [tasks, selectedTaskId, workspaceRoot, selectTask, branchTask, deleteTask] = useAppStore(
+  const [expandedWorkspaceRoots, setExpandedWorkspaceRoots] = useState<Record<string, boolean>>({});
+  const [knownWorkspaceRoots, setKnownWorkspaceRoots] = useState<string[]>(() => readStoredWorkspaceRoots());
+  const [workspaceTasksByRoot, setWorkspaceTasksByRoot] = useState<Record<string, TaskRow[]>>({});
+  const [loadingWorkspaceRoots, setLoadingWorkspaceRoots] = useState<Record<string, boolean>>({});
+  const [tasks, selectedTaskId, workspaceRoot, selectTask, branchTask, deleteTask, setWorkspaceRoot] = useAppStore(
     useShallow((state) => [
       state.tasks,
       state.selectedTaskId,
@@ -167,20 +279,112 @@ export function Sidebar({
       state.selectTask,
       state.branchTask,
       state.deleteTask,
+      state.setWorkspaceRoot,
     ])
   );
 
-  // Derive a short display name for the current workspace folder.
-  const workspaceName = workspaceRoot
-    ? workspaceRoot.replace(/\\/g, "/").split("/").filter(Boolean).pop() ?? workspaceRoot
-    : null;
+  const persistWorkspaceRoots = (nextValue: string[] | ((current: string[]) => string[])) => {
+    setKnownWorkspaceRoots((current) => {
+      const resolved = typeof nextValue === "function" ? nextValue(current) : nextValue;
+      const normalized = normalizeWorkspaceRoots(resolved);
+      if (sameWorkspaceRoots(current, normalized)) return current;
+      writeStoredWorkspaceRoots(normalized);
+      return normalized;
+    });
+  };
 
-  const handleCreateConversation = () => {
+  useEffect(() => {
+    if (!workspaceRoot) return;
+    persistWorkspaceRoots((current) => [workspaceRoot, ...current]);
+    setExpandedWorkspaceRoots((current) => ({ ...current, [workspaceRoot]: true }));
+  }, [workspaceRoot]);
+
+  useEffect(() => {
+    if (!workspaceRoot) return;
+    setWorkspaceTasksByRoot((current) => ({ ...current, [workspaceRoot]: tasks }));
+  }, [workspaceRoot, tasks]);
+
+  useEffect(() => {
+    let cancelled = false;
+    const rootsToFetch = knownWorkspaceRoots.filter(
+      (root) => root && root !== workspaceRoot && workspaceTasksByRoot[root] === undefined && !loadingWorkspaceRoots[root]
+    );
+
+    if (rootsToFetch.length === 0) return;
+
+    const loadWorkspaceTasks = async () => {
+      for (const root of rootsToFetch) {
+        setLoadingWorkspaceRoots((current) => ({ ...current, [root]: true }));
+
+        try {
+          const projectTasks = await invoke<TaskRow[]>("list_tasks", { workspaceRoot: root || null });
+          if (!cancelled) {
+            setWorkspaceTasksByRoot((current) => ({ ...current, [root]: projectTasks }));
+          }
+        } catch (error) {
+          console.error("Failed to load workspace tasks", error);
+          if (!cancelled) {
+            setWorkspaceTasksByRoot((current) => ({ ...current, [root]: [] }));
+          }
+        } finally {
+          if (!cancelled) {
+            setLoadingWorkspaceRoots((current) => ({ ...current, [root]: false }));
+          }
+        }
+      }
+    };
+
+    void loadWorkspaceTasks();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [knownWorkspaceRoots, loadingWorkspaceRoots, workspaceRoot, workspaceTasksByRoot]);
+
+  const handleAddWorkspace = async () => {
+    const selected = await openDialog({
+      directory: true,
+      title: "Add workspace folder",
+      defaultPath: workspaceRoot || undefined,
+    });
+
+    if (typeof selected !== "string" || selected.length === 0) return;
+
+    persistWorkspaceRoots((current) => [selected, ...current]);
+    setExpandedWorkspaceRoots((current) => ({ ...current, [selected]: true }));
+    await setWorkspaceRoot(selected);
     selectTask(null);
     onOpenChat();
   };
 
-  const handleOpenTask = (taskId: string) => {
+  const handleSelectWorkspace = async (workspaceRootKey: string) => {
+    const expanded = isWorkspaceExpanded(expandedWorkspaceRoots, workspaceRootKey, workspaceRoot);
+
+    if (workspaceRootKey === workspaceRoot) {
+      setExpandedWorkspaceRoots((current) => ({ ...current, [workspaceRootKey]: !expanded }));
+      onOpenChat();
+      return;
+    }
+
+    setExpandedWorkspaceRoots((current) => ({ ...current, [workspaceRootKey]: true }));
+    await setWorkspaceRoot(workspaceRootKey);
+    onOpenChat();
+  };
+
+  const handleCreateConversation = async (workspaceRootKey: string) => {
+    if (workspaceRootKey !== workspaceRoot) {
+      await setWorkspaceRoot(workspaceRootKey);
+    }
+
+    selectTask(null);
+    onOpenChat();
+  };
+
+  const handleOpenTask = async (workspaceRootKey: string, taskId: string) => {
+    if (workspaceRootKey !== workspaceRoot) {
+      await setWorkspaceRoot(workspaceRootKey);
+    }
+
     selectTask(taskId);
     onOpenChat();
   };
@@ -193,134 +397,249 @@ export function Sidebar({
     deleteTask(taskId).catch(console.error);
   };
 
+  const handleRemoveWorkspace = async (workspaceRootKey: string) => {
+    if (knownWorkspaceRoots.length <= 1) return;
+    if (!window.confirm(`Remove ${workspaceLabel(workspaceRootKey)} from the sidebar?`)) return;
+
+    const remainingRoots = knownWorkspaceRoots.filter((root) => root !== workspaceRootKey);
+    persistWorkspaceRoots(remainingRoots);
+
+    setWorkspaceTasksByRoot((current) => {
+      const next = { ...current };
+      delete next[workspaceRootKey];
+      return next;
+    });
+
+    setLoadingWorkspaceRoots((current) => {
+      const next = { ...current };
+      delete next[workspaceRootKey];
+      return next;
+    });
+
+    setExpandedWorkspaceRoots((current) => {
+      const next = { ...current };
+      delete next[workspaceRootKey];
+      return next;
+    });
+
+    if (workspaceRootKey === workspaceRoot && remainingRoots[0]) {
+      await setWorkspaceRoot(remainingRoots[0]);
+      selectTask(null);
+      onOpenChat();
+    }
+  };
+
+  const visibleWorkspaceRoots = normalizeWorkspaceRoots([workspaceRoot, ...knownWorkspaceRoots]);
+
   return (
-    <div className="flex h-full flex-col gap-2 px-2 pb-2 pt-3 text-sidebar-foreground">
-      <div className="rounded-lg border border-sidebar-border/80 bg-sidebar/75 p-2 backdrop-blur-sm">
-        <Button
-          className="h-9 w-full justify-start gap-2 rounded-md"
-          onClick={handleCreateConversation}
-        >
-          <Plus size={14} />
-          New Conversation
-        </Button>
-
-        <div className="mt-2 space-y-1">
-          <button
-            type="button"
-            className={`flex w-full items-center gap-2 rounded-md px-2.5 py-2 text-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-sidebar ${
-              activeView === "chat"
-                ? "bg-accent text-foreground"
-                : "text-muted-foreground hover:bg-accent/70 hover:text-foreground"
-            }`}
-            onClick={onOpenChat}
+    <div data-sidebar="true" className="flex h-full min-h-0 flex-col text-sidebar-foreground">
+      <div className="border-b border-sidebar-border/70 px-2 pb-1.5 pt-2">
+        <div className="flex items-center justify-between gap-2">
+          <p className="text-[10px] font-semibold uppercase tracking-[0.22em] text-muted-foreground/60">
+            Projects
+          </p>
+          <Button
+            variant="ghost"
+            size="icon"
+            className="size-7 rounded-none text-muted-foreground/75 hover:bg-accent/35 hover:text-foreground"
+            onClick={() => {
+              void handleAddWorkspace();
+            }}
+            title="Add workspace"
+            aria-label="Add workspace"
           >
-            <MessageSquare size={14} />
-            <span className="flex-1 text-left">Chat</span>
-            <kbd className="hidden rounded bg-muted px-1.5 py-0.5 font-mono text-[10px] text-muted-foreground lg:inline">
-              Ctrl+1
-            </kbd>
-          </button>
-
-          {showBenchmarks && (
-            <button
-              type="button"
-              className={`flex w-full items-center gap-2 rounded-md px-2.5 py-2 text-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-sidebar ${
-                activeView === "benchmarks"
-                  ? "bg-accent text-foreground"
-                  : "text-muted-foreground hover:bg-accent/70 hover:text-foreground"
-              }`}
-              onClick={onOpenBenchmarks}
-            >
-              <ActivitySquare size={14} />
-              <span className="flex-1 text-left">Benchmarks</span>
-              <kbd className="hidden rounded bg-muted px-1.5 py-0.5 font-mono text-[10px] text-muted-foreground lg:inline">
-                Ctrl+3
-              </kbd>
-            </button>
-          )}
-
-          <button
-            type="button"
-            className={`flex w-full items-center gap-2 rounded-md px-2.5 py-2 text-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-sidebar ${
-              activeView === "settings"
-                ? "bg-accent text-foreground"
-                : "text-muted-foreground hover:bg-accent/70 hover:text-foreground"
-            }`}
-            onClick={() => onOpenSettings()}
-          >
-            <Settings2 size={14} />
-            <span className="flex-1 text-left">Settings</span>
-            <kbd className="hidden rounded bg-muted px-1.5 py-0.5 font-mono text-[10px] text-muted-foreground lg:inline">
-              Ctrl+2
-            </kbd>
-          </button>
+            <Plus size={15} />
+          </Button>
         </div>
       </div>
 
-      {activeView === "settings" && (
-        <div className="rounded-lg border border-sidebar-border/80 bg-sidebar/65 p-2 backdrop-blur-sm">
-          <p className="px-1 pb-1 text-[10px] font-semibold uppercase tracking-widest text-muted-foreground/70">
+      <div className="min-h-0 flex-1 overflow-y-auto px-1 py-2">
+        <div className="space-y-1">
+          {visibleWorkspaceRoots.map((workspaceRootKey) => {
+            const projectTasks = workspaceRootKey === workspaceRoot ? tasks : workspaceTasksByRoot[workspaceRootKey] ?? [];
+            const isExpanded = isWorkspaceExpanded(expandedWorkspaceRoots, workspaceRootKey, workspaceRoot);
+            const isActiveWorkspace = workspaceRootKey === workspaceRoot;
+            const isLoading = workspaceRootKey !== workspaceRoot && loadingWorkspaceRoots[workspaceRootKey];
+            const canRemoveWorkspace = visibleWorkspaceRoots.length > 1;
+            const WorkspaceIcon = isExpanded ? FolderOpen : Folder;
+
+            return (
+              <section key={workspaceRootKey}>
+                <div className="group flex items-center gap-1">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      void handleSelectWorkspace(workspaceRootKey);
+                    }}
+                    className={cn(
+                      "flex min-w-0 flex-1 items-center gap-2 rounded-none px-1.5 py-1.5 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-sidebar",
+                      isActiveWorkspace
+                        ? "bg-accent/40 text-foreground"
+                        : "text-muted-foreground hover:bg-accent/25 hover:text-foreground"
+                    )}
+                    aria-expanded={isExpanded}
+                    title={workspaceRootKey}
+                  >
+                    {isExpanded ? (
+                      <ChevronDown size={14} className="shrink-0 text-muted-foreground/70" />
+                    ) : (
+                      <ChevronRight size={14} className="shrink-0 text-muted-foreground/70" />
+                    )}
+                    <WorkspaceIcon size={14} className="shrink-0 text-muted-foreground/70" />
+                    <span
+                      className={cn(
+                        "min-w-0 flex-1 truncate text-[13px] leading-5",
+                        isActiveWorkspace ? "font-semibold tracking-tight text-sidebar-foreground" : "font-medium"
+                      )}
+                    >
+                      {workspaceLabel(workspaceRootKey)}
+                    </span>
+                    <span className="text-[10px] font-medium text-muted-foreground/50">{projectTasks.length}</span>
+                  </button>
+
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className={cn(
+                      "size-6 rounded-none text-muted-foreground/70 hover:bg-accent/25 hover:text-foreground",
+                      !isActiveWorkspace && "opacity-0 group-hover:opacity-100 group-focus-within:opacity-100"
+                    )}
+                    onClick={() => {
+                      void handleCreateConversation(workspaceRootKey);
+                    }}
+                    data-sidebar-action={isActiveWorkspace ? "new-conversation" : undefined}
+                    title={`New conversation in ${workspaceLabel(workspaceRootKey)}`}
+                    aria-label={`New conversation in ${workspaceLabel(workspaceRootKey)}`}
+                  >
+                    <Plus size={14} />
+                  </Button>
+
+                  {canRemoveWorkspace ? (
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="size-6 rounded-none text-muted-foreground/60 opacity-0 transition-opacity hover:bg-destructive/10 hover:text-destructive group-hover:opacity-100 group-focus-within:opacity-100"
+                      onClick={() => {
+                        void handleRemoveWorkspace(workspaceRootKey);
+                      }}
+                      title={`Remove ${workspaceLabel(workspaceRootKey)}`}
+                      aria-label={`Remove ${workspaceLabel(workspaceRootKey)}`}
+                    >
+                      <X size={13} />
+                    </Button>
+                  ) : null}
+                </div>
+
+                {isExpanded ? (
+                  <div
+                    className={cn(
+                      "mt-1",
+                      projectTasks.length > 0 && "relative ml-2.5 pl-3 before:absolute before:bottom-1 before:left-[3px] before:top-1 before:w-px before:bg-sidebar-border/70"
+                    )}
+                  >
+                    {isLoading ? (
+                      <p className="px-2 py-1 text-xs leading-5 text-muted-foreground/60">Loading conversations...</p>
+                    ) : projectTasks.length === 0 ? (
+                      <div className="px-2 py-1">
+                        <p className="text-xs leading-5 text-muted-foreground/60">No conversations yet.</p>
+                        {isActiveWorkspace ? (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              void handleCreateConversation(workspaceRootKey);
+                            }}
+                            className="mt-1 text-xs font-medium text-foreground/85 transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-sidebar"
+                          >
+                            Start a conversation
+                          </button>
+                        ) : null}
+                      </div>
+                    ) : (
+                      <div className="space-y-1">
+                        {projectTasks.map((task) => (
+                          <ChatHistoryEntry
+                            key={task.id}
+                            task={task}
+                            isSelected={isActiveWorkspace && task.id === selectedTaskId}
+                            canManage={isActiveWorkspace}
+                            onOpenTask={(taskId) => {
+                              void handleOpenTask(workspaceRootKey, taskId);
+                            }}
+                            onForkTask={handleForkTask}
+                            onDeleteTask={handleDeleteTask}
+                          />
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                ) : null}
+              </section>
+            );
+          })}
+        </div>
+      </div>
+
+      {activeView === "settings" ? (
+        <div className="border-t border-sidebar-border/70 px-2 py-2">
+          <p className="px-1 pb-2 text-[10px] font-semibold uppercase tracking-[0.18em] text-muted-foreground/60">
             Settings Sections
           </p>
-          <div className="space-y-0.5">
+          <div className="space-y-1">
             {SETTINGS_SECTIONS.map((section, idx) => {
-              const isActive = activeSettingsSection === section.id;
-              const shortcutNum = idx + 1;
+              const Icon = section.icon;
+              const isActiveSection = activeSettingsSection === section.id;
+
               return (
                 <button
                   key={section.id}
                   type="button"
-                  className={`flex w-full items-center rounded-md px-2 py-1.5 text-[11px] transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-sidebar ${
-                    isActive
-                      ? "bg-primary/12 text-foreground"
-                      : "text-muted-foreground hover:bg-accent/60 hover:text-foreground"
-                  }`}
                   onClick={() => onOpenSettings(section.id)}
+                  className={cn(
+                    "flex w-full items-center gap-3 rounded-none px-2 py-1.5 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-sidebar",
+                    isActiveSection
+                      ? "bg-accent/55 text-foreground"
+                      : "text-muted-foreground hover:bg-accent/35 hover:text-foreground"
+                  )}
                 >
-                  <span className="flex-1 text-left">{section.label}</span>
-                  <kbd className="hidden rounded bg-muted px-1 py-0.5 font-mono text-[9px] text-muted-foreground/70 lg:inline">
-                    Shift+{shortcutNum}
+                  <Icon size={14} className="shrink-0" />
+                  <span className="flex-1 truncate text-[13px] font-medium leading-5">{section.label}</span>
+                  <kbd className="hidden rounded-sm bg-muted/80 px-1.5 py-0.5 font-mono text-[10px] text-muted-foreground lg:inline">
+                    Shift+{idx + 1}
                   </kbd>
                 </button>
               );
             })}
           </div>
         </div>
-      )}
+      ) : null}
 
-      <div className="mt-1 flex items-center justify-between px-2 pb-1.5 pt-1">
-        <div className="flex min-w-0 items-center gap-1.5">
-          {workspaceName && <FolderOpen size={11} className="shrink-0 text-muted-foreground/60" />}
-          <span className="truncate text-[10px] font-semibold uppercase tracking-widest text-muted-foreground/70">
-            {workspaceName ?? "History"}
-          </span>
-        </div>
-        <span className="text-[10px] font-medium text-muted-foreground/60">{tasks.length}</span>
-      </div>
+      <div className="border-t border-sidebar-border/70 px-2 py-2">
+        {activeView !== "chat" ? (
+          <SidebarUtilityButton
+            icon={MessageSquare}
+            label="Conversations"
+            shortcut="Ctrl+1"
+            onClick={onOpenChat}
+          />
+        ) : null}
 
-      <div className="min-h-0 flex-1 overflow-y-auto px-1 pb-1">
-        {tasks.length === 0 ? (
-          <div className="rounded-lg border border-dashed border-sidebar-border/80 bg-sidebar/55 p-4 text-center text-xs text-muted-foreground/70">
-            {workspaceName
-              ? `No conversations in ${workspaceName}`
-              : "No conversation history"}
-          </div>
-        ) : (
-          <div className="space-y-1">
-            {tasks.map((task) => {
-              return (
-                <ChatHistoryEntry
-                  key={task.id}
-                  task={task}
-                  isSelected={task.id === selectedTaskId}
-                  onOpenTask={handleOpenTask}
-                  onForkTask={handleForkTask}
-                  onDeleteTask={handleDeleteTask}
-                />
-              );
-            })}
-          </div>
-        )}
+        {showBenchmarks ? (
+          <SidebarUtilityButton
+            icon={ActivitySquare}
+            label="Benchmarks"
+            shortcut="Ctrl+3"
+            active={activeView === "benchmarks"}
+            onClick={onOpenBenchmarks}
+          />
+        ) : null}
+
+        <SidebarUtilityButton
+          icon={Settings2}
+          label="Settings"
+          shortcut="Ctrl+2"
+          active={activeView === "settings"}
+          onClick={() => onOpenSettings()}
+        />
       </div>
     </div>
   );
