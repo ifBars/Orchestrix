@@ -1232,6 +1232,34 @@ pub fn list_tool_calls_for_run(db: &Database, run_id: &str) -> Result<Vec<ToolCa
     Ok(rows)
 }
 
+pub fn list_tool_calls_for_task(db: &Database, task_id: &str) -> Result<Vec<ToolCallRow>, DbError> {
+    let conn = db.conn();
+    let mut stmt = conn.prepare(
+        "SELECT tc.id, tc.run_id, tc.step_idx, tc.tool_name, tc.input_json, tc.output_json, tc.status, tc.started_at, tc.finished_at, tc.error
+         FROM tool_calls tc
+         INNER JOIN runs r ON r.id = tc.run_id
+         WHERE r.task_id = ?1
+         ORDER BY tc.started_at ASC",
+    )?;
+    let rows = stmt
+        .query_map(params![task_id], |row| {
+            Ok(ToolCallRow {
+                id: row.get(0)?,
+                run_id: row.get(1)?,
+                step_idx: row.get(2)?,
+                tool_name: row.get(3)?,
+                input_json: row.get(4)?,
+                output_json: row.get(5)?,
+                status: row.get(6)?,
+                started_at: row.get(7)?,
+                finished_at: row.get(8)?,
+                error: row.get(9)?,
+            })
+        })?
+        .collect::<Result<Vec<_>, _>>()?;
+    Ok(rows)
+}
+
 // ---------------------------------------------------------------------------
 // Worktree log queries
 // ---------------------------------------------------------------------------

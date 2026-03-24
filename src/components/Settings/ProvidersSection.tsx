@@ -1,4 +1,4 @@
-import { Check, ExternalLink, Loader2, Server, Trash2 } from "lucide-react";
+import { Check, ExternalLink, Loader2, RefreshCw, Server, Trash2, Wallet } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useShallow } from "zustand/shallow";
 import { invoke } from "@tauri-apps/api/core";
@@ -9,6 +9,8 @@ import { providerLabel, providerOptionsFromCatalog } from "@/lib/providers";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
+import { useProviderUsage } from "@/hooks/useProviderUsage";
+import type { ProviderUsageSnapshotView } from "@/types";
 
 interface ChatGPTAuthStatus {
   authenticated: boolean;
@@ -20,6 +22,66 @@ interface ChatGPTAuthUrl {
   url: string;
   state: string;
   pkce_verifier: string;
+}
+
+function ProviderUsageRow({
+  snapshot,
+  isLoading,
+  onRefresh,
+}: {
+  snapshot: ProviderUsageSnapshotView | null;
+  isLoading: boolean;
+  onRefresh: () => void;
+}) {
+  const formattedTime = useMemo(() => {
+    if (!snapshot?.last_updated_at) return null;
+    const date = new Date(snapshot.last_updated_at);
+    return date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+  }, [snapshot?.last_updated_at]);
+
+  if (!snapshot) {
+    return (
+      <div className="mt-2 flex items-center gap-2 text-[11px] text-muted-foreground">
+        <Wallet size={11} />
+        <span>Loading usage info...</span>
+      </div>
+    );
+  }
+
+  return (
+    <div className="mt-2 flex items-center justify-between">
+      <div className="flex items-center gap-2 text-[11px]">
+        <Wallet size={11} className="shrink-0" />
+        {snapshot.available ? (
+          <span className="text-success">
+            {snapshot.balance
+              ? `${snapshot.balance}${snapshot.currency ? ` ${snapshot.currency}` : ""}`
+              : snapshot.remaining_quota ?? "Usage available"}
+          </span>
+        ) : (
+          <span className="text-muted-foreground">
+            {snapshot.note || "Usage info unavailable"}
+          </span>
+        )}
+      </div>
+      <div className="flex items-center gap-2">
+        {formattedTime && (
+          <span className="text-[10px] text-muted-foreground">
+            Updated {formattedTime}
+          </span>
+        )}
+        <button
+          type="button"
+          onClick={onRefresh}
+          disabled={isLoading}
+          className="flex h-5 w-5 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-accent/60 hover:text-foreground disabled:opacity-50"
+          title="Refresh usage"
+        >
+          <RefreshCw size={11} className={isLoading ? "animate-spin" : ""} />
+        </button>
+      </div>
+    </div>
+  );
 }
 
 export function ProvidersSection() {
@@ -36,6 +98,7 @@ export function ProvidersSection() {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [removingProvider, setRemovingProvider] = useState<string | null>(null);
+  const { usage, isLoading: usageLoading, refresh: refreshUsage } = useProviderUsage();
 
   // ChatGPT OAuth state
   const [chatgptAuth, setChatgptAuth] = useState<ChatGPTAuthStatus | null>(null);
@@ -481,6 +544,13 @@ export function ProvidersSection() {
                       OAuth{chatgptAuth.is_expired ? " (expired)" : ""}
                     </span>
                   </p>
+                )}
+                {configured && (
+                  <ProviderUsageRow
+                    snapshot={usage?.find((u) => u.provider === opt.id) ?? null}
+                    isLoading={usageLoading}
+                    onRefresh={refreshUsage}
+                  />
                 )}
               </article>
             );

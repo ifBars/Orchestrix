@@ -59,6 +59,19 @@ export interface ProviderConfigView {
   base_url: string | null;
 }
 
+export interface ProviderUsageSnapshotView {
+  provider: string;
+  available: boolean;
+  status: string;
+  balance: string | null;
+  currency: string | null;
+  remaining_quota: string | null;
+  period: string | null;
+  last_updated_at: string | null;
+  note: string | null;
+  error: string | null;
+}
+
 export interface ModelInfo {
   name: string;
   context_window: number;
@@ -75,7 +88,7 @@ export interface ModelCatalogEntry {
   models: ModelInfo[];
 }
 
-export type BenchmarkWorkload = "llm" | "business_ops" | "llm_and_business_ops";
+export type BenchmarkWorkload = "llm" | "business_ops" | "llm_and_business_ops" | "agentic_coding";
 
 export interface RunModelBenchmarkRequest {
   run_id?: string | null;
@@ -87,6 +100,9 @@ export interface RunModelBenchmarkRequest {
   business_ops_max_turns?: number | null;
   business_ops_prompts_per_day?: number | null;
   business_ops_scenarios?: string[] | null;
+  agentic_coding_max_tokens?: number | null;
+  agentic_coding_timeout_seconds?: number | null;
+  agentic_coding_tasks?: string[] | null;
 }
 
 export type BenchmarkRealtimeEvent =

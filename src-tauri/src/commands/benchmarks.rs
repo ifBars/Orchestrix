@@ -5,8 +5,9 @@ use serde::{Deserialize, Serialize};
 use tauri::Emitter;
 
 use crate::bench::agentic_coding::{
-    available_agentic_coding_scenarios, run_agentic_coding_benchmark, AgenticCodingBenchOptions,
-    AgenticCodingBenchReport, AgenticCodingScenarioDescriptor,
+    available_agentic_coding_scenarios, available_agentic_coding_tasks,
+    run_agentic_coding_benchmark, AgenticCodingBenchOptions, AgenticCodingBenchReport,
+    AgenticCodingScenarioDescriptor,
 };
 use crate::bench::business_ops::{
     available_business_ops_scenarios, run_business_ops_benchmark, BusinessOpsBenchEvent,
@@ -35,6 +36,9 @@ pub struct RunModelBenchmarkRequest {
     pub business_ops_max_turns: Option<usize>,
     pub business_ops_prompts_per_day: Option<usize>,
     pub business_ops_scenarios: Option<Vec<String>>,
+    pub agentic_coding_max_tokens: Option<u32>,
+    pub agentic_coding_timeout_seconds: Option<u64>,
+    pub agentic_coding_tasks: Option<Vec<String>>,
 }
 
 #[derive(Debug, Clone, Copy, Deserialize)]
@@ -87,6 +91,13 @@ pub async fn run_model_benchmark(
     let business_ops_max_turns = request.business_ops_max_turns.unwrap_or(40).max(1);
     let business_ops_prompts_per_day = request.business_ops_prompts_per_day.unwrap_or(3).max(1);
     let business_ops_scenarios = request.business_ops_scenarios.unwrap_or_default();
+    let agentic_coding_max_tokens = request
+        .agentic_coding_max_tokens
+        .unwrap_or(default_benchmark_max_tokens())
+        .max(1);
+    let agentic_coding_timeout_seconds =
+        request.agentic_coding_timeout_seconds.unwrap_or(120).max(1);
+    let agentic_coding_tasks = request.agentic_coding_tasks.unwrap_or_default();
 
     let llm = if matches!(
         request.workload,
@@ -114,11 +125,11 @@ pub async fn run_model_benchmark(
         Some(
             run_business_ops_benchmark(
                 BusinessOpsBenchOptions {
-                    providers,
+                    providers: providers.clone(),
                     warmup_iterations,
                     measured_iterations,
                     max_tokens: default_benchmark_max_tokens(),
-                    provider_configs,
+                    provider_configs: provider_configs.clone(),
                     max_turns: business_ops_max_turns,
                     max_prompts_per_turn: business_ops_prompts_per_day,
                     scenario_filter: business_ops_scenarios,
@@ -135,7 +146,20 @@ pub async fn run_model_benchmark(
     };
 
     let agentic_coding = if matches!(request.workload, BenchmarkWorkload::AgenticCoding) {
-        Some(run_agentic_coding_benchmark(AgenticCodingBenchOptions::default()).await)
+        validate_agentic_task_filter(&agentic_coding_tasks)?;
+
+        Some(
+            run_agentic_coding_benchmark(AgenticCodingBenchOptions {
+                providers,
+                provider_configs,
+                max_tokens: agentic_coding_max_tokens,
+                timeout_seconds: agentic_coding_timeout_seconds,
+                task_filter: agentic_coding_tasks,
+                scratch_root: None,
+                retain_failed_workspaces: false,
+            })
+            .await,
+        )
     } else {
         None
     };
@@ -245,6 +269,36 @@ fn resolve_provider_configs(
 
 fn default_benchmark_max_tokens() -> u32 {
     4096
+}
+
+fn validate_agentic_task_filter(task_filter: &[String]) -> Result<(), AppError> {
+    if task_filter.is_empty() {
+        return Ok(());
+    }
+
+    let available = available_agentic_coding_tasks()
+        .into_iter()
+        .map(|task| task.task_id)
+        .collect::<Vec<_>>();
+
+    let unknown = task_filter
+        .iter()
+        .filter(|task_id| {
+            !available
+                .iter()
+                .any(|known| known.eq_ignore_ascii_case(task_id))
+        })
+        .cloned()
+        .collect::<Vec<_>>();
+
+    if unknown.is_empty() {
+        return Ok(());
+    }
+
+    Err(AppError::Other(format!(
+        "unknown agentic coding task ids: {}",
+        unknown.join(", ")
+    )))
 }
 
 fn model_context_window(model_name: &str) -> Option<u32> {

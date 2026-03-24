@@ -68,7 +68,9 @@ impl Tool for SearchEmbeddingsTool {
 
         let response = if let Ok(runtime) = tokio::runtime::Handle::try_current() {
             tokio::task::block_in_place(|| {
-                runtime.block_on(async move { service.semantic_search(workspace_root, query, limit).await })
+                runtime.block_on(async move {
+                    service.semantic_search(workspace_root, query, limit).await
+                })
             })
             .map_err(|error| ToolError::Execution(error.to_string()))?
         } else {
@@ -80,7 +82,9 @@ impl Tool for SearchEmbeddingsTool {
                 })?;
 
             runtime
-                .block_on(async move { service.semantic_search(workspace_root, query, limit).await })
+                .block_on(
+                    async move { service.semantic_search(workspace_root, query, limit).await },
+                )
                 .map_err(|error| ToolError::Execution(error.to_string()))?
         };
 

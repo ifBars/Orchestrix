@@ -7,17 +7,18 @@ yarn-error.log*
 pnpm-debug.log*
 lerna-debug.log*
 
-node_modules
-dist
-dist-ssr
-dist-landing
+# Node / frontend outputs
+node_modules/
+dist/
+dist-ssr/
+dist-landing/
 *.local
 
 # Editor directories and files
 .vscode/
 .vscode/*
 !.vscode/extensions.json
-.idea
+.idea/
 .DS_Store
 *.suo
 *.ntvs*
@@ -25,7 +26,7 @@ dist-landing
 *.sln
 *.sw?
 
-# Agent/AI skill directories
+# Agent / AI tooling
 .agent/
 .agent/*
 .agents/*
@@ -34,6 +35,17 @@ dist-landing
 .claude/*
 .cursor/
 .cursor/*
+.fastembed_cache/
+.orchestrix/
+.ruff_cache/
+
+# Rust / Tauri build outputs and caches
+src-tauri/target-tests/
+src-tauri/.fastembed_cache/
+
+# Local benchmark artifacts
+benchmarks/
+benchmark_viz/
 
 # Database files
 *.db
@@ -47,11 +59,3 @@ dist-landing
 
 # Lock files (uncomment based on your preference)
 # bun.lock
-.cursor/
-.claude/
-.agent/
-.agents/*
-.fastembed_cache/
-.orchestrix/
-benchmarks/
-benchmark_viz/

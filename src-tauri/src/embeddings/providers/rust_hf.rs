@@ -4,8 +4,7 @@ use std::time::Duration;
 
 use fastembed::{
     EmbeddingModel, ExecutionProviderDispatch, InitOptionsUserDefined, TextEmbedding,
-    TextInitOptions, TokenizerFiles,
-    UserDefinedEmbeddingModel,
+    TextInitOptions, TokenizerFiles, UserDefinedEmbeddingModel,
 };
 use hf_hub::{api::sync::ApiBuilder, Repo, RepoType};
 use ort::ep;
@@ -314,7 +313,10 @@ fn parse_hf_repo_id(raw: &str) -> Option<String> {
         return None;
     }
 
-    let repo = trimmed.split_once('@').map(|(repo, _)| repo).unwrap_or(trimmed);
+    let repo = trimmed
+        .split_once('@')
+        .map(|(repo, _)| repo)
+        .unwrap_or(trimmed);
     let mut parts = repo.split('/');
     let owner = parts.next()?;
     let name = parts.next()?;
@@ -352,7 +354,12 @@ fn download_hf_onnx_model_path(
 
     let onnx_path = download_first_available(
         &api_repo,
-        &["onnx/model.onnx", "model.onnx", "model_q4.onnx", "onnx/model_q4.onnx"],
+        &[
+            "onnx/model.onnx",
+            "model.onnx",
+            "model_q4.onnx",
+            "onnx/model_q4.onnx",
+        ],
         "ONNX model",
         repo_spec,
     )?;
@@ -371,10 +378,7 @@ fn download_hf_onnx_model_path(
     )?;
     download_first_available(
         &api_repo,
-        &[
-            "special_tokens_map.json",
-            "onnx/special_tokens_map.json",
-        ],
+        &["special_tokens_map.json", "onnx/special_tokens_map.json"],
         "special_tokens_map.json",
         repo_spec,
     )?;
@@ -411,19 +415,14 @@ fn download_first_available(
 fn recommended_execution_providers() -> Vec<ExecutionProviderDispatch> {
     #[cfg(target_os = "windows")]
     {
-        return vec![
-            ep::DirectML::default().build(),
-            ep::CUDA::default().build(),
-        ];
+        return vec![ep::DirectML::default().build(), ep::CUDA::default().build()];
     }
 
     #[cfg(target_os = "macos")]
     {
-        return vec![
-            ep::CoreML::default()
-                .with_compute_units(ep::coreml::ComputeUnits::CPUAndGPU)
-                .build(),
-        ];
+        return vec![ep::CoreML::default()
+            .with_compute_units(ep::coreml::ComputeUnits::CPUAndGPU)
+            .build()];
     }
 
     #[cfg(target_os = "linux")]

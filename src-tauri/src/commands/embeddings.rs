@@ -38,7 +38,8 @@ pub fn get_recommended_embedding_config(
 ) -> Result<RecommendedEmbeddingConfig, AppError> {
     let preference = preference.unwrap_or(EmbeddingAutoConfigPreference::Local);
     let hardware = detect_hardware_profile();
-    let mut config = load_embedding_config(&state.db).map_err(|error| AppError::Other(error.to_string()))?;
+    let mut config =
+        load_embedding_config(&state.db).map_err(|error| AppError::Other(error.to_string()))?;
     let mut notes = Vec::new();
 
     let ram_gb = hardware.ram_bytes as f64 / 1024.0 / 1024.0 / 1024.0;
@@ -73,10 +74,16 @@ pub fn get_recommended_embedding_config(
             config.rust_hf.threads = Some(hardware.physical_cores.max(1));
             notes.push("Higher-memory system detected (>=8 GB RAM), using Rust HF for best local throughput.".to_string());
 
-            if hardware.ort_backends.cuda || hardware.ort_backends.directml || hardware.ort_backends.coreml {
+            if hardware.ort_backends.cuda
+                || hardware.ort_backends.directml
+                || hardware.ort_backends.coreml
+            {
                 notes.push("GPU execution providers detected for ONNX Runtime; Rust HF will try GPU acceleration automatically with CPU fallback.".to_string());
             } else {
-                notes.push("No ONNX Runtime GPU execution provider detected; Rust HF will run on CPU.".to_string());
+                notes.push(
+                    "No ONNX Runtime GPU execution provider detected; Rust HF will run on CPU."
+                        .to_string(),
+                );
             }
         }
 

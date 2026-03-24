@@ -207,11 +207,34 @@ pub fn get_task_context_snapshot(
         transcript.estimated_tokens
     };
 
+    // Include tool call I/O in token calculation
+    let tool_calls = queries::list_tool_calls_for_task(&state.db, &task_id)?;
+    let tool_call_tokens = tool_calls
+        .iter()
+        .map(|tc| {
+            let input_tokens = estimate_text_tokens(&tc.input_json);
+            let output_tokens = tc
+                .output_json
+                .as_ref()
+                .map(|o| estimate_text_tokens(o))
+                .unwrap_or(0);
+            let error_tokens = tc
+                .error
+                .as_ref()
+                .map(|e| estimate_text_tokens(e))
+                .unwrap_or(0);
+            input_tokens
+                .saturating_add(output_tokens)
+                .saturating_add(error_tokens)
+        })
+        .sum::<usize>();
+
     let used_tokens = system_prompt_tokens
         .saturating_add(tool_definition_tokens)
         .saturating_add(mcp_tools_tokens)
         .saturating_add(message_tokens)
-        .saturating_add(autocompact_tokens);
+        .saturating_add(autocompact_tokens)
+        .saturating_add(tool_call_tokens);
     let free_tokens = context_window.saturating_sub(used_tokens);
 
     let segments = vec![
@@ -229,6 +252,12 @@ pub fn get_task_context_snapshot(
         ),
         build_segment("mcp_tools", "MCP tools", mcp_tools_tokens, context_window),
         build_segment("messages", "Messages", message_tokens, context_window),
+        build_segment(
+            "tool_calls",
+            "Tool calls & responses",
+            tool_call_tokens,
+            context_window,
+        ),
         build_segment(
             "autocompact_buffer",
             "Autocompact buffer",

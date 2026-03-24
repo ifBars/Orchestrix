@@ -528,6 +528,7 @@ pub fn run() {
             commands::providers::get_provider_configs,
             commands::providers::get_model_catalog,
             commands::providers::get_context_window_for_model,
+            commands::providers::get_provider_usage_snapshot,
             // ChatGPT OAuth
             commands::providers::start_chatgpt_oauth,
             commands::providers::start_chatgpt_oauth_and_listen,

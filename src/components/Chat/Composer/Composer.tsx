@@ -6,6 +6,8 @@ import {
   X,
   XCircle,
   AlertTriangle,
+  Wallet,
+  RefreshCw,
 } from "lucide-react";
 import { invoke } from "@tauri-apps/api/core";
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
@@ -13,6 +15,109 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useShallow } from "zustand/shallow";
 import { ContextUsageChip } from "@/components/Chat/ContextUsage";
 import { useTaskContextSnapshot } from "@/components/Chat/ChatInterface/useTaskContextSnapshot";
+import { useProviderUsage } from "@/hooks/useProviderUsage";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
+import type { ProviderUsageSnapshotView } from "@/types";
+
+// Provider Usage Chip - shows balance/usage for current provider
+function ProviderUsageChip({
+  snapshot,
+  isLoading,
+  onRefresh,
+}: {
+  snapshot: ProviderUsageSnapshotView | null;
+  isLoading: boolean;
+  onRefresh: () => void;
+}) {
+  if (!snapshot) return null;
+
+  return (
+    <Popover>
+      <PopoverTrigger asChild>
+        <button
+          type="button"
+          className="inline-flex h-7 items-center gap-1.5 rounded-lg border border-border/70 bg-background/70 px-2 text-xs transition-colors hover:bg-accent/60 hover:text-foreground"
+          title="View provider usage"
+        >
+          <Wallet size={13} />
+          {snapshot.available ? (
+            <span className="font-mono text-[11px] text-foreground">
+              {snapshot.balance ?? snapshot.remaining_quota ?? "Usage"}
+            </span>
+          ) : (
+            <span className="text-[11px] text-muted-foreground">
+              {snapshot.provider}
+            </span>
+          )}
+        </button>
+      </PopoverTrigger>
+      <PopoverContent align="end" className="w-[280px] p-0">
+        <div className="p-3">
+          <div className="mb-3 flex items-center justify-between">
+            <span className="text-sm font-semibold text-foreground">
+              {snapshot.provider} Usage
+            </span>
+            <button
+              type="button"
+              onClick={onRefresh}
+              disabled={isLoading}
+              className="flex h-6 w-6 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-accent/60 hover:text-foreground disabled:opacity-50"
+            >
+              <RefreshCw size={12} className={isLoading ? "animate-spin" : ""} />
+            </button>
+          </div>
+          {snapshot.available ? (
+            <div className="space-y-2">
+              {snapshot.balance && (
+                <div className="flex items-center justify-between text-xs">
+                  <span className="text-muted-foreground">Balance</span>
+                  <span className="font-medium text-foreground">
+                    {snapshot.balance} {snapshot.currency}
+                  </span>
+                </div>
+              )}
+              {snapshot.remaining_quota && (
+                <div className="flex items-center justify-between text-xs">
+                  <span className="text-muted-foreground">Remaining Quota</span>
+                  <span className="font-medium text-foreground">
+                    {snapshot.remaining_quota}
+                  </span>
+                </div>
+              )}
+              {snapshot.period && (
+                <div className="flex items-center justify-between text-xs">
+                  <span className="text-muted-foreground">Period</span>
+                  <span className="font-medium text-foreground">
+                    {snapshot.period}
+                  </span>
+                </div>
+              )}
+            </div>
+          ) : (
+            <div className="space-y-2">
+              <p className="text-xs text-muted-foreground">
+                {snapshot.note || "Provider usage information is not available."}
+              </p>
+              {snapshot.error && (
+                <p className="text-xs text-destructive">{snapshot.error}</p>
+              )}
+            </div>
+          )}
+          {snapshot.last_updated_at && (
+            <p className="mt-3 text-[10px] text-muted-foreground">
+              Last updated: {new Date(snapshot.last_updated_at).toLocaleTimeString()}
+            </p>
+          )}
+        </div>
+      </PopoverContent>
+    </Popover>
+  );
+}
+
 import { ComposerSuggestionPopup } from "./ComposerSuggestionPopup";
 import {
   getSlashContext,
@@ -120,6 +225,11 @@ export function Composer() {
     selectedTask &&
     (selectedTask.status === "planning" || selectedTask.status === "executing");
   const contextSnapshot = useTaskContextSnapshot(selectedTask?.id ?? null);
+  const {
+    usage: providerUsage,
+    isLoading: providerUsageLoading,
+    refresh: refreshProviderUsage,
+  } = useProviderUsage(selectedProvider);
 
   const pickFiles = async () => {
     const result = await openDialog({ multiple: true, title: "Attach files" });
@@ -710,6 +820,14 @@ export function Composer() {
 
           <div className="flex items-center gap-2">
             {contextSnapshot && <ContextUsageChip snapshot={contextSnapshot} />}
+            
+            {providerUsage && (
+              <ProviderUsageChip
+                snapshot={providerUsage.find(u => u.provider === selectedProvider) ?? null}
+                isLoading={providerUsageLoading}
+                onRefresh={refreshProviderUsage}
+              />
+            )}
 
             <span className="hidden pr-1 text-[10px] text-muted-foreground/75 lg:inline">
               Use @ to reference, / for commands

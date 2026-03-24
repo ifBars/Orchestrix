@@ -13,7 +13,8 @@ const SEGMENT_DOT_CLASS: Record<string, string> = {
   tool_definitions: "bg-primary/70",
   mcp_tools: "bg-destructive/60",
   messages: "bg-warning/75",
-  compaction_buffer: "bg-muted-foreground/60",
+  tool_calls: "bg-accent/70",
+  autocompact_buffer: "bg-muted-foreground/60",
   free_space: "bg-success/65",
 };
 
