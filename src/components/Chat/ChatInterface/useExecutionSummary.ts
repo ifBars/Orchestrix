@@ -1,5 +1,6 @@
-import { useEffect, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { invoke } from "@tauri-apps/api/core";
+import { queryKeys } from "@/lib/queryKeys";
 import type { RunRow, SubAgentRow, ToolCallRow } from "@/types";
 
 export type ExecutionSummary = {
@@ -11,74 +12,45 @@ export type ExecutionSummary = {
 };
 
 export function useExecutionSummary(taskId: string, status: string) {
-  const [executionSummary, setExecutionSummary] = useState<ExecutionSummary | null>(
-    null
-  );
-
-  useEffect(() => {
-    let disposed = false;
-    let timer: number | null = null;
-
-    const fetchExecutionSummary = async () => {
+  const { data = null } = useQuery({
+    queryKey: queryKeys.executionSummary(taskId, status),
+    queryFn: async (): Promise<ExecutionSummary | null> => {
       if (status !== "executing") {
-        if (!disposed) setExecutionSummary(null);
-        return;
+        return null;
       }
 
-      try {
-        const run = await invoke<RunRow | null>("get_latest_run", { taskId });
-        if (!run?.id) {
-          if (!disposed) setExecutionSummary(null);
-          return;
-        }
+      const run = await invoke<RunRow | null>("get_latest_run", { taskId });
+      if (!run?.id) {
+        return null;
+      }
 
-        const [subAgents, toolCalls] = await Promise.all([
-          invoke<SubAgentRow[]>("list_sub_agents", { runId: run.id }),
-          invoke<ToolCallRow[]>("list_tool_calls", { runId: run.id }),
-        ]);
+      const [subAgents, toolCalls] = await Promise.all([
+        invoke<SubAgentRow[]>("list_sub_agents", { runId: run.id }),
+        invoke<ToolCallRow[]>("list_tool_calls", { runId: run.id }),
+      ]);
 
-        const completedSteps = subAgents.filter(
-          (item) => item.status === "completed"
-        ).length;
-        const failedSteps = subAgents.filter((item) => item.status === "failed").length;
-        const runningSubAgent =
-          subAgents
-            .filter((item) => item.status === "running")
-            .sort((a, b) => a.step_idx - b.step_idx)[0] ?? null;
-        const runningTools = toolCalls
+      const completedSteps = subAgents.filter((item) => item.status === "completed").length;
+      const failedSteps = subAgents.filter((item) => item.status === "failed").length;
+      const runningSubAgent =
+        subAgents
           .filter((item) => item.status === "running")
-          .sort((a, b) =>
-            (a.started_at ?? "").localeCompare(b.started_at ?? "")
-          );
-        const runningTool =
-          runningTools.length > 0 ? runningTools[runningTools.length - 1] : null;
+          .sort((a, b) => a.step_idx - b.step_idx)[0] ?? null;
+      const runningTools = toolCalls
+        .filter((item) => item.status === "running")
+        .sort((a, b) => (a.started_at ?? "").localeCompare(b.started_at ?? ""));
+      const runningTool = runningTools.length > 0 ? runningTools[runningTools.length - 1] : null;
 
-        if (!disposed) {
-          setExecutionSummary({
-            totalSteps: subAgents.length,
-            completedSteps,
-            failedSteps,
-            runningStep: runningSubAgent?.step_idx ?? null,
-            runningTool: runningTool?.tool_name ?? null,
-          });
-        }
-      } catch (error) {
-        console.error("Failed to fetch execution summary", error);
-      }
-    };
+      return {
+        totalSteps: subAgents.length,
+        completedSteps,
+        failedSteps,
+        runningStep: runningSubAgent?.step_idx ?? null,
+        runningTool: runningTool?.tool_name ?? null,
+      };
+    },
+    enabled: taskId.length > 0,
+    refetchInterval: status === "executing" ? 1500 : false,
+  });
 
-    fetchExecutionSummary();
-    if (status === "executing") {
-      timer = window.setInterval(fetchExecutionSummary, 1500);
-    }
-
-    return () => {
-      disposed = true;
-      if (timer != null) {
-        window.clearInterval(timer);
-      }
-    };
-  }, [taskId, status]);
-
-  return executionSummary;
+  return data;
 }

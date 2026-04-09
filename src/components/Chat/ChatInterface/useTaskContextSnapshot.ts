@@ -1,48 +1,23 @@
-import { useEffect, useState, useRef } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { invoke } from "@tauri-apps/api/core";
+import { queryKeys } from "@/lib/queryKeys";
 import { useTaskTimelineTick } from "@/stores/streamStore";
 import type { TaskContextSnapshotView } from "@/types";
 
 export function useTaskContextSnapshot(taskId: string | null) {
-  const [snapshot, setSnapshot] = useState<TaskContextSnapshotView | null>(null);
   const timelineTick = useTaskTimelineTick(taskId);
-  const lastSnapshotRef = useRef<TaskContextSnapshotView | null>(null);
 
-  useEffect(() => {
-    let disposed = false;
-
-    const fetchSnapshot = async () => {
+  const { data = null } = useQuery({
+    queryKey: queryKeys.taskContextSnapshot(taskId, timelineTick),
+    queryFn: async (): Promise<TaskContextSnapshotView | null> => {
       if (!taskId) {
-        if (!disposed) {
-          setSnapshot(null);
-          lastSnapshotRef.current = null;
-        }
-        return;
+        return null;
       }
 
-      try {
-        const next = await invoke<TaskContextSnapshotView>("get_task_context_snapshot", {
-          taskId,
-        });
-        if (!disposed) {
-          setSnapshot(next);
-          lastSnapshotRef.current = next;
-        }
-      } catch (error) {
-        if (!disposed) {
-          setSnapshot(null);
-          lastSnapshotRef.current = null;
-        }
-        console.error("Failed to load task context snapshot", error);
-      }
-    };
+      return invoke<TaskContextSnapshotView>("get_task_context_snapshot", { taskId });
+    },
+    enabled: taskId !== null,
+  });
 
-    fetchSnapshot();
-
-    return () => {
-      disposed = true;
-    };
-  }, [taskId, timelineTick]);
-
-  return snapshot;
+  return data;
 }

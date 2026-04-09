@@ -4,6 +4,7 @@ import { useEffect, useState, type MouseEvent } from "react";
 import {
   ActivitySquare,
   ChevronDown,
+  ChevronLeft,
   ChevronRight,
   Folder,
   FolderOpen,
@@ -28,6 +29,7 @@ type SidebarProps = {
   activeView: "chat" | "settings" | "benchmarks";
   activeSettingsSection: SettingsSectionId;
   showBenchmarks?: boolean;
+  onToggleSidebar?: () => void;
   onOpenChat: () => void;
   onOpenSettings: (section?: SettingsSectionId) => void;
   onOpenBenchmarks: () => void;
@@ -263,6 +265,7 @@ export function Sidebar({
   activeView,
   activeSettingsSection,
   showBenchmarks = false,
+  onToggleSidebar,
   onOpenChat,
   onOpenSettings,
   onOpenBenchmarks,
@@ -435,9 +438,23 @@ export function Sidebar({
     <div data-sidebar="true" className="flex h-full min-h-0 flex-col text-sidebar-foreground">
       <div className="border-b border-sidebar-border/70 px-2 pb-1.5 pt-2">
         <div className="flex items-center justify-between gap-2">
-          <p className="text-[10px] font-semibold uppercase tracking-[0.22em] text-muted-foreground/60">
-            Projects
-          </p>
+          <div className="flex items-center gap-1">
+            {onToggleSidebar ? (
+              <Button
+                variant="ghost"
+                size="icon"
+                className="size-7 rounded-none text-muted-foreground/65 hover:bg-accent/30 hover:text-foreground"
+                onClick={onToggleSidebar}
+                title="Collapse sidebar"
+                aria-label="Collapse sidebar"
+              >
+                <ChevronLeft size={15} />
+              </Button>
+            ) : null}
+            <p className="text-[10px] font-semibold uppercase tracking-[0.22em] text-muted-foreground/60">
+              Projects
+            </p>
+          </div>
           <Button
             variant="ghost"
             size="icon"

@@ -1,29 +1,41 @@
 import { useCallback } from "react";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { invoke } from "@tauri-apps/api/core";
-import type { UserQuestionAnswer, UserQuestionRequestView } from "@/types";
+import { queryKeys } from "@/lib/queryKeys";
+import type { UserQuestionAnswer } from "@/types";
 
 export function useQuestionResolver(
   taskId: string,
-  setPendingQuestions: (questions: UserQuestionRequestView[]) => void,
   setResolvingQuestionId: (id: string | null) => void
 ) {
+  const queryClient = useQueryClient();
+  const resolveQuestionMutation = useMutation({
+    mutationFn: async ({
+      questionId,
+      answer,
+    }: {
+      questionId: string;
+      answer: UserQuestionAnswer;
+    }) => {
+      setResolvingQuestionId(questionId);
+      await invoke("resolve_question", { questionId, answer });
+    },
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: queryKeys.pendingQuestions(taskId) });
+    },
+    onError: (error) => {
+      console.error("Failed to resolve user question", error);
+    },
+    onSettled: () => {
+      setResolvingQuestionId(null);
+    },
+  });
+
   const resolveQuestion = useCallback(
     async (questionId: string, answer: UserQuestionAnswer) => {
-      try {
-        setResolvingQuestionId(questionId);
-        await invoke("resolve_question", { questionId, answer });
-        const questions = await invoke<UserQuestionRequestView[]>(
-          "list_pending_questions",
-          { taskId }
-        );
-        setPendingQuestions(questions);
-      } catch (error) {
-        console.error("Failed to resolve user question", error);
-      } finally {
-        setResolvingQuestionId(null);
-      }
+      await resolveQuestionMutation.mutateAsync({ questionId, answer });
     },
-    [taskId, setPendingQuestions, setResolvingQuestionId]
+    [resolveQuestionMutation]
   );
 
   return resolveQuestion;

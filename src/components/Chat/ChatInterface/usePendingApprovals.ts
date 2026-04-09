@@ -1,42 +1,15 @@
-import { useEffect, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { invoke } from "@tauri-apps/api/core";
+import { queryKeys } from "@/lib/queryKeys";
 import type { ApprovalRequestView } from "@/types";
 
 export function usePendingApprovals(taskId: string, status: string) {
-  const [pendingApprovals, setPendingApprovals] = useState<ApprovalRequestView[]>(
-    []
-  );
+  const { data = [] } = useQuery({
+    queryKey: queryKeys.pendingApprovals(taskId),
+    queryFn: () => invoke<ApprovalRequestView[]>("list_pending_approvals", { taskId }),
+    enabled: taskId.length > 0,
+    refetchInterval: status === "executing" ? 1200 : false,
+  });
 
-  useEffect(() => {
-    let disposed = false;
-    let timer: number | null = null;
-
-    const fetchPendingApprovals = async () => {
-      try {
-        const approvals = await invoke<ApprovalRequestView[]>(
-          "list_pending_approvals",
-          { taskId }
-        );
-        if (!disposed) {
-          setPendingApprovals(approvals);
-        }
-      } catch (error) {
-        console.error("Failed to fetch pending approvals", error);
-      }
-    };
-
-    fetchPendingApprovals();
-    if (status === "executing") {
-      timer = window.setInterval(fetchPendingApprovals, 1200);
-    }
-
-    return () => {
-      disposed = true;
-      if (timer != null) {
-        window.clearInterval(timer);
-      }
-    };
-  }, [taskId, status]);
-
-  return pendingApprovals;
+  return data;
 }

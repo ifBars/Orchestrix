@@ -95,12 +95,10 @@ export function ChatInterface({
   const pendingQuestions = usePendingQuestions(task.id, task.status);
   const resolveApproval = useApprovalResolver(
     task.id,
-    () => {},
     setResolvingApprovalId
   );
   const resolveQuestion = useQuestionResolver(
     task.id,
-    () => {},
     setResolvingQuestionId
   );
 

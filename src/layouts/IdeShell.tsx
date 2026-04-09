@@ -10,6 +10,7 @@ type IdeShellProps = {
   isArtifactsOpen: boolean;
   isSidebarOpen?: boolean;
   onToggleSidebar?: () => void;
+  showCollapsedSidebarRail?: boolean;
   /** When true, the main area fills height without scroll/padding (e.g. canvas) */
   fillMain?: boolean;
   /** Optional strip rendered between the header and the main scroll area (e.g. tab bar) */
@@ -25,6 +26,7 @@ export function IdeShell({
   isArtifactsOpen, 
   isSidebarOpen = true,
   onToggleSidebar,
+  showCollapsedSidebarRail = true,
   fillMain, 
   subheader 
 }: IdeShellProps) {
@@ -42,14 +44,17 @@ export function IdeShell({
       <div className="flex min-h-0 flex-1 bg-background/20">
         {/* Sidebar with smooth width transition */}
         <aside 
-          className={`elevation-1 shrink-0 border-r border-sidebar-border/90 bg-sidebar/92 transition-all duration-200 ease-out ${
-            isSidebarOpen ? "w-64 opacity-100" : "w-0 overflow-hidden opacity-0"
+          className={`elevation-1 shrink-0 bg-sidebar/92 transition-all duration-200 ease-out ${
+            isSidebarOpen
+              ? "w-64 border-r border-sidebar-border/90 opacity-100"
+              : "w-0 overflow-hidden border-r-0 opacity-0"
           }`}
+          aria-hidden={!isSidebarOpen}
         >
           {sidebar}
         </aside>
 
-        {!isSidebarOpen && onToggleSidebar && (
+        {!isSidebarOpen && showCollapsedSidebarRail && onToggleSidebar && (
           <div className="elevation-1 flex w-11 shrink-0 items-start justify-center border-r border-border/70 bg-card/35 pt-2">
             <button
               type="button"

@@ -1,4 +1,14 @@
-import { Command, Folder, LoaderCircle, Minus, Moon, PanelLeft, PanelRight, Square, Sun, X } from "lucide-react";
+import {
+  Command,
+  Folder,
+  LoaderCircle,
+  Minus,
+  Moon,
+  PanelRight,
+  Square,
+  Sun,
+  X,
+} from "lucide-react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { type MouseEvent, useEffect } from "react";
 import { useShallow } from "zustand/shallow";
@@ -8,20 +18,16 @@ import appIcon from "../../src-tauri/icons/icon.png";
 type HeaderProps = {
   darkMode: boolean;
   artifactsOpen: boolean;
-  sidebarOpen?: boolean;
   onToggleTheme: () => void;
   onToggleArtifacts: () => void;
-  onToggleSidebar?: () => void;
   onOpenCommandPalette?: () => void;
 };
 
 export function Header({ 
   darkMode, 
   artifactsOpen, 
-  sidebarOpen = true,
   onToggleTheme, 
   onToggleArtifacts, 
-  onToggleSidebar,
   onOpenCommandPalette 
 }: HeaderProps) {
   const [workspaceRoot, embeddingIndexStatus, refreshEmbeddingIndexStatus] = useAppStore(
@@ -137,21 +143,6 @@ export function Header({
         )}
 
         <div className="flex items-center rounded-md border border-border/70 bg-background/55 p-0.5">
-          {onToggleSidebar && (
-            <button
-              type="button"
-              onClick={onToggleSidebar}
-              className={`rounded-md p-1.5 transition-colors ${
-                sidebarOpen
-                  ? "bg-accent text-foreground"
-                  : "text-muted-foreground hover:bg-accent/70 hover:text-foreground"
-              }`}
-              title="Toggle sidebar (Ctrl+B)"
-              aria-pressed={sidebarOpen}
-            >
-              <PanelLeft size={14} />
-            </button>
-          )}
           <button
             type="button"
             onClick={onToggleArtifacts}

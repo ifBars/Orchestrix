@@ -96,6 +96,14 @@ function App() {
     localStorage.setItem(SETTINGS_SECTION_KEY, section);
   }, []);
 
+  const toggleSidebar = useCallback(() => {
+    setSidebarOpen((prev) => !prev);
+  }, []);
+
+  const toggleArtifacts = useCallback(() => {
+    setArtifactsOpen((prev) => !prev);
+  }, []);
+
   useEffect(() => {
     bootstrap().catch(console.error);
     return () => shutdown();
@@ -158,7 +166,7 @@ function App() {
       // Ctrl + B -> Toggle sidebar
       if (e.ctrlKey && !e.metaKey && !e.altKey && !e.shiftKey && e.code === "KeyB") {
         e.preventDefault();
-        setSidebarOpen((prev) => !prev);
+        toggleSidebar();
         return;
       }
 
@@ -176,7 +184,7 @@ function App() {
 
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
-  }, [benchmarkOnlyMode, setSettingsSection]);
+  }, [benchmarkOnlyMode, setSettingsSection, toggleSidebar]);
 
   // Listen for canvas navigation events from SafeStreamdown
   useEffect(() => {
@@ -212,7 +220,7 @@ function App() {
       <IdeShell
         isArtifactsOpen={activeView === "chat" && artifactsOpen && chatActiveTab !== "canvas"}
         isSidebarOpen={sidebarOpen}
-        onToggleSidebar={() => setSidebarOpen((prev) => !prev)}
+        onToggleSidebar={toggleSidebar}
         fillMain={activeView === "chat" && chatActiveTab === "canvas" && selectedTask != null}
         subheader={activeView === "chat" && selectedTask ? (
           <div className="flex items-center gap-0 border-b border-border/70 bg-card/60 px-4 backdrop-blur-md">
@@ -237,10 +245,8 @@ function App() {
           <Header
             darkMode={darkMode}
             artifactsOpen={artifactsOpen}
-            sidebarOpen={sidebarOpen}
             onToggleTheme={() => setDarkMode((prev) => !prev)}
-            onToggleArtifacts={() => setArtifactsOpen((prev) => !prev)}
-            onToggleSidebar={() => setSidebarOpen((prev) => !prev)}
+            onToggleArtifacts={toggleArtifacts}
             onOpenCommandPalette={() => setCommandPaletteOpen(true)}
           />
         }
@@ -249,6 +255,7 @@ function App() {
             activeView={activeView}
             activeSettingsSection={settingsSection}
             showBenchmarks={false}
+            onToggleSidebar={toggleSidebar}
             onOpenChat={() => setActiveView("chat")}
             onOpenSettings={(section) => {
               setActiveView("settings");
@@ -319,7 +326,7 @@ function App() {
         darkMode={darkMode}
         onToggleTheme={() => setDarkMode((prev) => !prev)}
         artifactsOpen={artifactsOpen}
-        onToggleArtifacts={() => setArtifactsOpen((prev) => !prev)}
+        onToggleArtifacts={toggleArtifacts}
       />
     </ThemeContext.Provider>
   );
